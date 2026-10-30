@@ -31,6 +31,7 @@ on TX.WTF is tracked as T-items in the TX.WTF repository.
 | L8 | A generic arigl wasm shell that loads `?src=<same-origin .ari URL>` | M0 (browser) |
 | L9 | `open-url`: the system browser natively, `window.open` in wasm | M3 |
 | L10 | An `arigl` cvcpkg package (today only `ari` has one) and the wasm shell as a package | M0 |
+| L11 | A masked `input_text` for passwords, in ImGui **and both terminal backends** | M0 |
 
 ## Milestones
 
@@ -38,6 +39,11 @@ on TX.WTF is tracked as T-items in the TX.WTF repository.
   SCRIP balance, in `arigl`, `ari` (FTXUI and tvision) and the browser. Ship
   the launcher script with `--terminal`. Add `ari snapshot` tests to CI.
   Measure the wasm bundle size and the time to first paint.
+  - Drafted: `share/nicotina/`, `bin/nicotina`, `bin/nicotina.cmd` and `tests/run.sh`, run
+    against a local libcvc build that merges L1-L3, L8 and L10's pull requests. Left: L11,
+    CI (needs the packages), the browser path (needs txwtf T2), and a run against dev.tx.wtf.
+    Measured wasm sizes (brotli): `arigl.wasm` 9.5 MB (6.1 MB lean), `ari.wasm` 5.1 MB
+    (2.1 MB lean).
 - **M1, read:** PKCE sign-in (a pairing code in the terminal), which also
   covers federated users; the home feed, profiles and live notifications.
 - **M2, write:** posts, replies, reactions, and non-E2EE direct messages.
