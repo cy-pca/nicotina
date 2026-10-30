@@ -266,6 +266,9 @@ The client uses only an instance's public API:
   (L11 in the roadmap). The document clears the password from its state as soon as it sends
   it.
 - Nothing has focus when a form opens; press Tab to reach the first field.
+- No spinner while a request is out, only the status line ("Signing in...",
+  "Refreshing..."). It waits on libcvc's spinner widget, which animates from the host's frame
+  clock while the document is parked on the request.
 
 ## Layout
 

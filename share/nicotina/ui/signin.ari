@@ -7,6 +7,10 @@
 units:
   # The controller's last word, info as is and errors in red. Always one row, even when empty:
   # the tvision host sizes a window once, when it opens, so its content must not grow later.
+  # TODO: a spinner beside this line while ui.busy is set ("Signing in...", "Checking the
+  # code...", "Refreshing..."), once libcvc's spinner widget lands (the Ariadne L4 session). It
+  # must animate from the host's frame clock: the controller is parked during the request, so
+  # no state it writes could drive one.
   status_line:
     type: group
     children:

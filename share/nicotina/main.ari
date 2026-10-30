@@ -280,7 +280,9 @@ on_tick: |
         (if (= cmd "back")
           (to-signin "" nil)
         (if (= cmd "refresh")
-          (if (load-home) (say (str-concat "Updated. " (signed-in-msg))))
+          (begin
+            (say "Refreshing...")
+            (if (load-home) (say (str-concat "Updated. " (signed-in-msg)))))
         (if (= cmd "signout")
           (begin
             (http-request "POST" (str-concat (base) "/user/logout") (dict "auth" "txwtf"))

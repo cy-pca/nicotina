@@ -223,7 +223,10 @@ else
 
     start "$backend" "$xdg" "$base"
     step "$t: started again, still signed in" "@ada@$hostport  Ada Lovelace" "1234.56789"
-    keys Tab; keys Tab; keys Enter # Refresh, Sign out
+    keys Tab; keys Enter # Refresh
+    step "$t: Refresh loads the profile and balance again" "Updated. Signed in to $hostport." \
+      "SCRIP    1234.56789"
+    keys Tab; keys Enter # Sign out
     step "$t: signed out" "Signed out." "Sign in to TX.WTF" "Username: [ada]"
     if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: sign-out drops the session"; else
       fail "$t: the session is still in the store after signing out"
