@@ -46,7 +46,14 @@ init: |
   (while (string.ends-with base "/")
     (set base (string.substring base 0 (- (string.length base) 1))))
   (state-set "app.base" base)
-  (state-set "app.host" (string.replace (string.replace base "https://" "") "http://" ""))
+  ;; The instance's host, as a handle names it: no scheme, no path, no default port.
+  (set host (string.lower (car (string.split
+              (string.replace (string.replace base "https://" "") "http://" "") "/"))))
+  (if (and (string.starts-with base "https://") (string.ends-with host ":443"))
+    (set host (string.substring host 0 (- (string.length host) 4))))
+  (if (and (string.starts-with base "http://") (string.ends-with host ":80"))
+    (set host (string.substring host 0 (- (string.length host) 3))))
+  (state-set "app.host" host)
   (state-set "login.username" (if (state-exists "args.user") (state-get "args.user") ""))
   (state-set "login.password" "")
   (state-set "login.code" "")
@@ -151,11 +158,21 @@ on_tick: |
       (defun unreachable (r)
         (fail (str-concat "Can't reach " (state-get "app.host") ": " (get-attr r "error"))))
 
+      ;; The full handle: @user@host. A brokered (federated) account's username already ends
+      ;; in its home instance (txwtf names it <user>@<home domain>), so it keeps that one.
+      (defun handle (u)
+        (str-concat "@" u (if (string.contains u "@") "" (str-concat "@" (state-get "app.host")))))
+      ;; The header row: the handle, then as much of the display name as fits 60 columns.
+      (defun header (h name)
+        (let ((room (- 60 (string.length h) 2)))
+          (if (or (= name "") (< room 4)) (clip h 60) (str-concat h "  " (clip name room)))))
       (defun show-profile (p)
         (begin
           (state-set "login.username" (opt p "username" "")) ;; for the form, after signing out
           (state-set-tree "me"
             (dict "username" (opt p "username" "")
+                  "handle" (handle (text (opt p "username" "")))
+                  "header" (header (handle (text (opt p "username" ""))) (text (opt p "name" "")))
                   "name" (opt p "name" "")
                   "email" (opt p "email" "")
                   "email_verified" (if (opt p "email_verified" nil) "yes" "no")

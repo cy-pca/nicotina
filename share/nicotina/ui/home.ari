@@ -11,8 +11,9 @@ units:
     size: [496, auto]
     visible_when: (= (state-get "ui.screen") "home")
     children:
+      # The full handle, @user@instance, then the display name, cut to fit (main.ari's header).
       - text: ""
-        bind: '(string.join (list (string.join (list "@" (state-get "me.username")) "") (state-get "me.name")) "  ")'
+        bind: me.header
       - separator
       - type: group
         id: profile_rows
@@ -66,6 +67,8 @@ units:
     pos: [16, 352]
     visible_when: (and (= (state-get "ui.screen") "home") (not (has? "term")))
     children:
+      - text: "Handle"
+        bind: me.handle
       - text: "Name"
         bind: me.name
       - text: "Email verified"

@@ -33,17 +33,18 @@ on_exit stop_stub
 
 python3 -I -B -c "
 import sys; sys.path.insert(0, sys.argv[1]); import stub_txwtf as s
-print('\n'.join(list(s.TOKENS.values()) + [s.STALE_TOKEN]))" "$here" >"$work/tokens"
-token() { # token NAME (or stale): one line of $work/tokens, never echoed
-  case $1 in ada) sed -n 1p "$work/tokens" ;; stale) sed -n 4p "$work/tokens" ;; esac
-}
+for name, token in list(s.TOKENS.items()) + [('stale', s.STALE_TOKEN)]: print(name, token)" \
+  "$here" >"$work/token-names"
+awk '{ print $2 }' "$work/token-names" >"$work/tokens" # for the scan at the end
+token() { awk -v n="$1" '$1 == n { print $2 }' "$work/token-names"; } # never echoed
 
 python3 -I -B "$here/stub_txwtf.py" --port 0 --port-file "$work/port" --log "$out/stub.log" \
-  --signed-in ada 2>"$out/stub.stderr" &
+  --signed-in ada --signed-in mary --signed-in bob@peer.example 2>"$out/stub.stderr" &
 stub_pid=$!
 for _ in $(seq 100); do [ -s "$work/port" ] && break; sleep 0.05; done
 [ -s "$work/port" ] || { echo "tests: the stub did not start" >&2; cat "$out/stub.stderr" >&2; exit 2; }
 base="http://127.0.0.1:$(cat "$work/port")"
+hostport=${base#http://} # the instance as a handle names it
 echo "stub TX.WTF at $base; outputs in $out"
 
 # A credential store holding one session, as the host writes one: owner-only.
@@ -120,7 +121,7 @@ for backend in ftxui tvision; do
   seed_store "$store" ada
   snap "snap-$backend-resume" "$backend" "$store"
   check "ari snapshot ($backend): a stored session shows the profile and balance" \
-    "$out/snap-$backend-resume.txt" "@ada  Ada Lovelace" "Email    ada@example.org" \
+    "$out/snap-$backend-resume.txt" "@ada@$hostport  Ada Lovelace" "Email    ada@example.org" \
     "Joined   2025-03-01" "Posts    42" "SCRIP    1234.56789" "Value    \$1234.57" \
     "Runway   41 days" "Session  kept on this device" "[ Refresh ][ Sign out ]" \
     "Signed in to 127.0.0.1"
@@ -135,6 +136,37 @@ for backend in ftxui tvision; do
     fail "ari snapshot ($backend): the expired session is still in the store"
   fi
 done
+
+# The header: the full handle, @user@instance, then the display name cut to fit 60 columns.
+store=$work/snap-handles/credentials
+seed_store "$store" mary
+snap snap-handle-long ftxui "$store"
+long_name="Mary Kenneth Keller of the University of Wisconsin-Madison"
+handle="@mary@$hostport"
+room=$((60 - ${#handle} - 2))
+check "ari snapshot: a long display name is cut to fit beside the full handle" \
+  "$out/snap-handle-long.txt" "$handle  ${long_name:0:room-3}..."
+check_not "ari snapshot: ... and not drawn whole" "$out/snap-handle-long.txt" "$long_name"
+# A brokered account keeps its home instance: txwtf names it bob@peer.example.
+seed_store "$store" bob@peer.example
+snap snap-handle-brokered ftxui "$store"
+check "ari snapshot: a brokered account shows its home instance, not this one" \
+  "$out/snap-handle-brokered.txt" "@bob@peer.example  Bob"
+check_not "ari snapshot: ... with nothing added" "$out/snap-handle-brokered.txt" \
+  "@bob@peer.example@"
+# The instance below a path: the handle and messages name the host alone.
+seed_store "$store" ada
+"$ARI" snapshot --width 80 --height 24 --net-allow "$base" --credential-store "$store" "$main" \
+  --instance "$base/txwtf/" >"$out/snap-handle-path.txt" 2>&1
+check "ari snapshot: an instance URL with a path: the handle names the host" \
+  "$out/snap-handle-path.txt" "@ada@$hostport  Ada Lovelace" "Signed in to $hostport."
+# A default port is not part of the host: https://example.invalid:443 is example.invalid.
+seed_store "$store" ada https://example.invalid
+"$ARI" snapshot --width 80 --height 24 --net-allow https://example.invalid \
+  --credential-store "$store" "$main" --instance https://example.invalid:443/ \
+  >"$out/snap-handle-port.txt" 2>&1
+check "ari snapshot: a default port is left out of the host" "$out/snap-handle-port.txt" \
+  "Can't reach example.invalid: "
 
 # An instance that doesn't answer (port 9, discard, is closed here): back to the form, saying so.
 seed_store "$work/snap-down/credentials" ada http://127.0.0.1:9
@@ -153,7 +185,7 @@ if [ -n "$ARIGL" ] && [ -x "$ARIGL" ]; then
   "$ARIGL" snapshot --terminal --frames 60 --width 80 --height 24 --net --net-allow "$base" \
     --credential-store "$store" "$main" --instance "$base" >"$out/arigl-terminal.txt" 2>&1
   check "arigl snapshot --terminal: the profile and balance" "$out/arigl-terminal.txt" \
-    "@ada  Ada Lovelace" "SCRIP    1234.56789" "Value    \$1234.57"
+    "@ada@$hostport  Ada Lovelace" "SCRIP    1234.56789" "Value    \$1234.57"
   if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] || [ -n "${NICOTINA_TEST_PNG:-}" ]; then
     "$ARIGL" snapshot --frames 60 --png "$out/arigl.png" --net --net-allow "$base" \
       --credential-store "$store" "$main" --instance "$base" >"$out/arigl-window.txt" 2>&1
@@ -183,14 +215,14 @@ else
     start "$backend" "$xdg" "$base"
     step "$t: the sign-in form" "Sign in to TX.WTF" "Instance: $base"
     keys Tab; type_text ada; keys Tab; type_text "correct horse"; keys Tab; keys Enter
-    step "$t: signed in, the profile and balance" "@ada  Ada Lovelace" "ada@example.org" \
+    step "$t: signed in, the profile and balance" "@ada@$hostport  Ada Lovelace" "ada@example.org" \
       "SCRIP    1234.56789" "\$1234.57" "41 days" "kept on this device"
     check_store "$t: the host keeps the session, owner-only (0600 in 0700)" "$store"
     check_not "$t: the password is not on the screen" \
       "$out/tmux-$(slug "$t: signed in, the profile and balance").txt" "correct horse"
 
     start "$backend" "$xdg" "$base"
-    step "$t: started again, still signed in" "@ada  Ada Lovelace" "1234.56789"
+    step "$t: started again, still signed in" "@ada@$hostport  Ada Lovelace" "1234.56789"
     keys Tab; keys Tab; keys Enter # Refresh, Sign out
     step "$t: signed out" "Signed out." "Sign in to TX.WTF" "Username: [ada]"
     if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: sign-out drops the session"; else
@@ -208,7 +240,7 @@ else
     keys Tab; type_text 000000; keys Tab; keys Enter
     step "$t: a wrong code" "That code didn't work. Try again, or go Back." "Code: []"
     keys BTab; type_text 123456; keys Tab; keys Enter
-    step "$t: the right code signs in" "@grace  Grace Hopper" "SCRIP    25" "Runway   -"
+    step "$t: the right code signs in" "@grace@$hostport  Grace Hopper" "SCRIP    25" "Runway   -"
     keys Tab; keys Tab; keys Enter
     step "$t: grace signs out" "Signed out."
 

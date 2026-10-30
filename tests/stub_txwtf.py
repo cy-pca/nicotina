@@ -18,6 +18,13 @@ Accounts (password "correct horse" for all of them):
   ada    plain sign-in
   grace  emailed second factor; the code is 123456
   linus  signs in, but force_password_change is set
+  mary   a display name too long for the client's header (resumed only)
+  bob@peer.example
+         a brokered account, named as txwtf names one: <user>@<home domain>. Like a real
+         one it has no password here (resumed only)
+
+The instance may sit below a path (--instance http://host:port/txwtf): the routes match on
+the end of the request path.
 
 Without an Authorization header a request gets 401 {"detail": "Not
 authenticated"}, and with a token the server doesn't know (expired, signed out,
@@ -48,6 +55,8 @@ TOKENS = {
     "ada": "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoxLCJ1dWlkIjoiYWRhIn0.c3R1Yi1zaWctYWRhLW5pY290aW5h",
     "grace": "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoyLCJ1dWlkIjoiZ3JhY2UifQ.c3R1Yi1zaWctZ3JhY2Utbmljbw",
     "linus": "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjozLCJ1dWlkIjoibGludXMifQ.c3R1Yi1zaWctbGludXMtbmljbw",
+    "mary": "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjo0LCJ1dWlkIjoibWFyeSJ9.c3R1Yi1zaWctbWFyeS1uaWNvdGluYQ",
+    "bob@peer.example": "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjo1LCJ1dWlkIjoiYm9iIn0.c3R1Yi1zaWctYm9iLXBlZXItZXhhbXA",
 }
 # A well-formed token this server never issued: a session that has expired.
 STALE_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoxLCJ1dWlkIjoib2xkIn0.c3R1Yi1zaWctZXhwaXJlZC10b2tlbg"
@@ -79,6 +88,35 @@ USERS = {
         "balance": "25.0000000000",
         "runway_days": None,
         "cents": 2500,
+        "groups": ["users"],
+    },
+    "mary": {
+        "id": 4,
+        "name": "Mary Kenneth Keller of the University of Wisconsin-Madison",
+        "email": "mary@example.org",
+        "description": None,
+        "post_count": 1,
+        "created_time": "2025-12-01T10:00:00",
+        "login_2fa_email_enabled": False,
+        "force_password_change": False,
+        "balance": "3.5000000000",
+        "runway_days": 2,
+        "cents": 350,
+        "groups": ["users"],
+    },
+    "bob@peer.example": {
+        "id": 5,
+        "name": "Bob",
+        "email": "fedauth-0123456789abcdef01234567@peer.example.invalid",
+        "description": "Signs in from his home instance.",
+        "post_count": 3,
+        "created_time": "2026-02-02T02:02:02",
+        "login_2fa_email_enabled": False,
+        "force_password_change": False,
+        "shadow": True,
+        "balance": "0E-10",
+        "runway_days": None,
+        "cents": 0,
         "groups": ["users"],
     },
     "linus": {
@@ -212,6 +250,11 @@ def make_handler(state):
 
         def handle_one(self, method):
             path = self.path.split("?", 1)[0]
+            for route in ("/user/login/2fa", "/user/login", "/user/logout", "/user/",
+                          "/billing/scrip/balance"):
+                if path.endswith(route):  # the instance may sit below a path
+                    path = route
+                    break
             if method == "POST" and path == "/user/login":
                 return self.login(), None
             if method == "POST" and path == "/user/login/2fa":
@@ -262,6 +305,8 @@ def make_handler(state):
             username = body["username"]
             if username not in USERS:
                 return self.reply(400, {"detail": "Access denied! (UserDoesNotExist)"})
+            if USERS[username].get("shadow"):  # signs in at its home instance only
+                return self.reply(400, {"detail": "Access denied! (UserPasswordIncorrect)"})
             if body["password"] != PASSWORD:
                 return self.reply(400, {"detail": "Access denied! (UserPasswordIncorrect)"})
             if USERS[username]["login_2fa_email_enabled"]:

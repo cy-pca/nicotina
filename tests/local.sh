@@ -108,7 +108,7 @@ for backend in ftxui tvision; do
   start "$backend" "$xdg" "$base" -- --user ada
   step "$t: the form again" "Username: [ada]"
   sign_in "$work/password"
-  step "$t: ada signs in: the profile and balance" "@ada  Ada Lovelace" "Email    ada@example.org" \
+  step "$t: ada signs in: the profile and balance" "@ada@127.0.0.1:$port  Ada Lovelace" "Email    ada@example.org" \
     "Posts    0" "About    Writes notes on the analytical engine. Pr..." "SCRIP    1234.56789" \
     "Value    \$1234.57" "Runway   -" "Session  kept on this device" "Signed in to 127.0.0.1"
   check_store "$t: the host keeps the session, owner-only (0600 in 0700)" "$store"
@@ -120,16 +120,16 @@ for backend in ftxui tvision; do
   "$ARI" snapshot --backend "$backend" --width 80 --height 24 --net --net-allow "$base" \
     --credential-store "$store" "$main" --instance "$base" >"$out/txwtf-snap-$backend.txt" 2>&1
   check "$t: ari snapshot resumes the session" "$out/txwtf-snap-$backend.txt" \
-    "@ada  Ada Lovelace" "SCRIP    1234.56789"
+    "@ada@127.0.0.1:$port  Ada Lovelace" "SCRIP    1234.56789"
   if [ "$backend" = ftxui ] && [ -n "$ARIGL" ] && [ -x "$ARIGL" ]; then
     "$ARIGL" snapshot --terminal --frames 60 --width 80 --height 24 --net --net-allow "$base" \
       --credential-store "$store" "$main" --instance "$base" >"$out/txwtf-arigl.txt" 2>&1
     check "$t: arigl snapshot --terminal resumes it too" "$out/txwtf-arigl.txt" \
-      "@ada  Ada Lovelace" "SCRIP    1234.56789"
+      "@ada@127.0.0.1:$port  Ada Lovelace" "SCRIP    1234.56789"
   fi
 
   start "$backend" "$xdg" "$base"
-  step "$t: started again, still signed in" "@ada  Ada Lovelace"
+  step "$t: started again, still signed in" "@ada@127.0.0.1:$port  Ada Lovelace"
   keys Tab; keys Tab; keys Enter # Refresh, Sign out
   step "$t: ada signs out" "Signed out." "Username: [ada]"
   if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: sign-out drops the session"; else
@@ -157,7 +157,7 @@ for backend in ftxui tvision; do
     fail "$t: no code in the mail the instance sent"
   fi
   keys BTab; type_secret "$work/code"; keys Tab; keys Enter
-  step "$t: the emailed code signs grace in" "@grace  Grace Hopper" "SCRIP    0" "Value    \$0.00"
+  step "$t: the emailed code signs grace in" "@grace@127.0.0.1:$port  Grace Hopper" "SCRIP    0" "Value    \$0.00"
   tokens_from "$store"
   keys Tab; keys Tab; keys Enter
   step "$t: grace signs out" "Signed out."

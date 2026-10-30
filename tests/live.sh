@@ -67,7 +67,7 @@ for backend in ftxui tvision; do
   start "$backend" "$xdg" "$instance" -- --user "$user"
   step "$t: the form again" "Username: [$user]"
   sign_in "$work/password"
-  step "$t: signed in, the profile and balance" "@$user" "SCRIP    " "Value    \$" "Runway   " \
+  step "$t: signed in, the profile and balance" "@$user@$host" "SCRIP    " "Value    \$" "Runway   " \
     "Session  kept on this device" "Signed in to $host."
   check_store "$t: the host keeps the session, owner-only (0600 in 0700)" "$store"
   # The token the host keeps, for the scan at the end; it is never printed.
@@ -77,15 +77,15 @@ for backend in ftxui tvision; do
   "$ARI" snapshot --backend "$backend" --width 80 --height 24 --net --net-allow "$instance" \
     --credential-store "$store" "$main" --instance "$instance" >"$out/live-snap-$backend.txt" 2>&1
   check "$t: ari snapshot resumes the stored session" "$out/live-snap-$backend.txt" \
-    "@$user" "SCRIP    " "Signed in to $host."
+    "@$user@$host" "SCRIP    " "Signed in to $host."
   if [ "$backend" = ftxui ] && [ -n "$ARIGL" ] && [ -x "$ARIGL" ]; then
     "$ARIGL" snapshot --terminal --frames 60 --width 80 --height 24 --net --net-allow "$instance" \
       --credential-store "$store" "$main" --instance "$instance" >"$out/live-arigl.txt" 2>&1
-    check "$t: arigl snapshot --terminal resumes it too" "$out/live-arigl.txt" "@$user" "SCRIP    "
+    check "$t: arigl snapshot --terminal resumes it too" "$out/live-arigl.txt" "@$user@$host" "SCRIP    "
   fi
 
   start "$backend" "$xdg" "$instance"
-  step "$t: started again, still signed in" "@$user" "SCRIP    "
+  step "$t: started again, still signed in" "@$user@$host" "SCRIP    "
   keys Tab; keys Tab; keys Enter # Refresh, Sign out
   step "$t: signed out" "Signed out." "Username: [$user]"
   if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: sign-out drops the session"; else
