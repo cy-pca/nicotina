@@ -1,0 +1,167 @@
+#!/bin/sh
+# nicotina: run the nicotina TX.WTF client in a stock Ariadne host.
+#
+#   nicotina [--instance URL] [--terminal] [--backend ftxui|tvision] [host flags...] [-- doc args...]
+#
+# On a desktop it runs `arigl run` (ImGui); in a terminal, `ari run` (FTXUI, or tvision with
+# --backend tvision), or `arigl run --terminal` where only arigl is installed. The terminal is picked by --terminal or --backend, or when there is no
+# display: no DISPLAY or WAYLAND_DISPLAY on Linux and the BSDs, or an SSH session without X
+# forwarding anywhere. The host gets the network for the instance's origin only, and keeps the
+# session token in $XDG_CONFIG_HOME/nicotina/credentials (~/.config/nicotina/credentials).
+#
+# Other options go to the host before the document (--fps 30, --no-mouse, --graphics color...).
+# Arguments after -- go to the document (--user NAME fills in the sign-in form).
+#
+# The documents are in <prefix>/share/nicotina, where <prefix> is this script's directory's parent,
+# so the same script works from an install and from a checkout. ari and arigl are taken from
+# <prefix>/bin, else from PATH; NICOTINA_ARI and NICOTINA_ARIGL name others (a libcvc build).
+set -eu
+
+me=nicotina
+
+usage() {
+  cat <<EOF
+usage: $me [--instance URL] [--terminal] [--backend ftxui|tvision] [host flags...] [-- doc args...]
+
+  --instance URL   the TX.WTF instance to use (default https://tx.wtf)
+  --terminal       run in the terminal (ari) even where there is a display
+  --backend NAME   the terminal backend: ftxui (default) or tvision; implies --terminal
+  --dry-run        print the host command instead of running it
+  -h, --help       this help
+
+Other options go to the host (ari or arigl) before the document. Arguments after
+-- go to the document; \`$me -- --help\` lists them.
+EOF
+}
+
+die() {
+  printf '%s: %s\n' "$me" "$*" >&2
+  exit 2
+}
+
+# This script's real directory, through any symlinks (a cvcpkg shim, ~/bin/nicotina).
+self=$0
+while [ -L "$self" ]; do
+  link=$(readlink "$self")
+  case $link in
+    /*) self=$link ;;
+    *) self=$(dirname "$self")/$link ;;
+  esac
+done
+bindir=$(cd "$(dirname "$self")" && pwd -P)
+prefix=$(dirname "$bindir")
+share=$prefix/share/nicotina
+[ -f "$share/main.ari" ] || die "the client's documents are not in $share"
+
+instance=https://tx.wtf
+terminal=
+backend=
+dry_run=
+host_args=
+doc_args=
+
+# Append a word to a list kept as a quoted string, for `eval set --` later.
+quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+host_args_add() { host_args="$host_args $(quote "$1")"; }
+doc_args_add() { doc_args="$doc_args $(quote "$1")"; }
+
+while [ $# -gt 0 ]; do
+  case $1 in
+    --instance) [ $# -ge 2 ] || die "--instance needs a URL"; instance=$2; shift 2 ;;
+    --instance=*) instance=${1#*=}; shift ;;
+    --terminal) terminal=1; shift ;;
+    --backend) [ $# -ge 2 ] || die "--backend needs ftxui or tvision"; backend=$2; shift 2 ;;
+    --backend=*) backend=${1#*=}; shift ;;
+    --dry-run) dry_run=1; shift ;;
+    -h | --help) usage; exit 0 ;;
+    --) shift; for a in "$@"; do doc_args_add "$a"; done; break ;;
+    *) host_args_add "$1"; shift ;;
+  esac
+done
+
+case $backend in
+  '') ;;
+  ftxui | tvision) terminal=1 ;;
+  *) die "--backend is ftxui or tvision, not '$backend'" ;;
+esac
+
+# The instance's origin, scheme://host[:port]: the one place the host may send requests.
+instance=${instance%/}
+while [ "${instance%/}" != "$instance" ]; do instance=${instance%/}; done
+case $instance in
+  http://* | https://*) ;;
+  *) die "--instance must be an http:// or https:// URL, not '$instance'" ;;
+esac
+origin=$(printf '%s\n' "$instance" | sed -n 's|^\(https\{0,1\}://[^/?#]*\).*$|\1|p')
+case $origin in
+  *@*) die "--instance must not carry a user name or password" ;;
+  http://?* | https://?*) ;;
+  *) die "--instance '$instance' has no host" ;;
+esac
+
+# A display to open a window on? Without one, the terminal.
+if [ -z "$terminal" ]; then
+  if [ -n "${SSH_CONNECTION:-}${SSH_CLIENT:-}${SSH_TTY:-}" ] && [ -z "${DISPLAY:-}" ]; then
+    terminal=1 # an SSH session without X forwarding
+  else
+    case $(uname -s 2>/dev/null || echo unknown) in
+      Darwin | CYGWIN* | MINGW* | MSYS*) ;;
+      *) [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] || terminal=1 ;;
+    esac
+  fi
+fi
+
+# A host: $NICOTINA_ARI / $NICOTINA_ARIGL, else <prefix>/bin, else PATH.
+find_host() { # name override
+  if [ -n "$2" ]; then
+    [ -x "$2" ] || die "$1 is not at $2"
+    printf '%s\n' "$2"
+  elif [ -x "$prefix/bin/$1" ]; then
+    printf '%s\n' "$prefix/bin/$1"
+  else
+    command -v "$1" 2>/dev/null || true
+  fi
+}
+
+# In a terminal ari, else arigl --terminal; on a desktop arigl, else ari.
+ari=$(find_host ari "${NICOTINA_ARI:-}")
+arigl=$(find_host arigl "${NICOTINA_ARIGL:-}")
+[ -n "$ari$arigl" ] ||
+  die "neither ari nor arigl is installed: looked in $prefix/bin and on PATH (cvcpkg install ari arigl)"
+mode=
+if [ -n "$terminal" ]; then
+  host=$ari
+  [ -n "$host" ] || { host=$arigl; mode=--terminal; }
+else
+  host=$arigl
+  if [ -z "$host" ]; then
+    printf '%s: arigl is not installed; running in the terminal with ari\n' "$me" >&2
+    host=$ari
+  fi
+fi
+
+# The session token, kept by the host across runs, owner-only. Without a config directory the
+# host keeps it in memory, for this run.
+config=${XDG_CONFIG_HOME:-}
+case $config in /*) ;; *) config=${HOME:+$HOME/.config} ;; esac
+store=
+[ -n "$config" ] && store=$config/nicotina/credentials
+
+set -- run
+[ -n "$mode" ] && set -- "$@" "$mode"
+[ "$backend" = tvision ] && set -- "$@" --backend tvision
+set -- "$@" --net --net-allow "$origin"
+[ -n "$store" ] && set -- "$@" --credential-store "$store"
+eval "set -- \"\$@\" $host_args"
+set -- "$@" "$share/main.ari" --instance "$instance"
+eval "set -- \"\$@\" $doc_args"
+
+if [ -n "$dry_run" ]; then
+  printf '%s' "$host"
+  for a in "$@"; do printf ' %s' "$(quote "$a")"; done
+  printf '\n'
+  exit 0
+fi
+exec "$host" "$@"
