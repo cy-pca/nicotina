@@ -5,8 +5,8 @@ name: deploy-cyberpcangel
 #   https://cyberpcangel.com/nicotina-term/  the terminal client (arigl-web's ari.html)
 # deploy/cyberpcangel/README.md has the whole chain and the one-time setup.
 #
-# It runs on catx-03 (label cvcpkg-prod: the cy-pca org runner or the imperial-lexicon one, same
-# host and user), which holds the emsdk and the cyberpcangel deploy key. The key's forced command on
+# It runs on catx-03 (label cvcpkg-prod: the cy-pca org runner, catx-03-cy-pca, one job at a time),
+# which holds the emsdk and the cyberpcangel deploy key. The key's forced command on
 # catx-00 maps the fixed action `deploy-nicotina` to /root/nicotina-deploy.sh in the cyberpcangel
 # instance; the client never names a path. No pull_request trigger: a pull request must not reach
 # the runner that holds the key.

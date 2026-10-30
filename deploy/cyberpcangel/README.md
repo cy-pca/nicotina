@@ -39,7 +39,7 @@ documents to publish). It uses the same chain as the other cyberpcangel.com depl
 gallery, cvcdbg, the imperial lexicon):
 
 ```
-catx-03 runner (label cvcpkg-prod, user github-runner)
+catx-03 runner (label cvcpkg-prod: the cy-pca org runner catx-03-cy-pca, user github-runner)
   build-hosts.sh   libcvc master + the open PRs nicotina needs -> arigl-web (wasm, single-threaded, lean)
   stage.sh         + share/nicotina + ariadne.config.json     -> payload/{nicotina,nicotina-term}
   tar czf - | ssh -i ~/.ssh/id_ed25519_cyberpcangel_deploy tfx@catx-00.tx.wtf deploy-nicotina
