@@ -18,7 +18,10 @@ Accounts (password "correct horse" for all of them):
   ada    plain sign-in
   grace  emailed second factor; the code is 123456
   linus  signs in, but force_password_change is set
-  mary   a display name too long for the client's header (resumed only)
+  mary   a display name too long for the client's header; her profile takes 3 s, so the
+         client's spinner can be watched turning
+  slowpoke
+         a profile that takes 12 s, longer than `ari snapshot` waits (resumed only)
   bob@peer.example
          a brokered account, named as txwtf names one: <user>@<home domain>. Like a real
          one it has no password here (resumed only)
@@ -44,6 +47,7 @@ import json
 import os
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PASSWORD = "correct horse"
@@ -57,6 +61,7 @@ TOKENS = {
     "linus": "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjozLCJ1dWlkIjoibGludXMifQ.c3R1Yi1zaWctbGludXMtbmljbw",
     "mary": "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjo0LCJ1dWlkIjoibWFyeSJ9.c3R1Yi1zaWctbWFyeS1uaWNvdGluYQ",
     "bob@peer.example": "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjo1LCJ1dWlkIjoiYm9iIn0.c3R1Yi1zaWctYm9iLXBlZXItZXhhbXA",
+    "slowpoke": "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjo2LCJ1dWlkIjoic2xvdyJ9.c3R1Yi1zaWctc2xvd3Bva2UtbmljbwA",
 }
 # A well-formed token this server never issued: a session that has expired.
 STALE_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoxLCJ1dWlkIjoib2xkIn0.c3R1Yi1zaWctZXhwaXJlZC10b2tlbg"
@@ -103,6 +108,22 @@ USERS = {
         "runway_days": 2,
         "cents": 350,
         "groups": ["users"],
+        "profile_delay": 3.0,
+    },
+    "slowpoke": {
+        "id": 6,
+        "name": "Slow Poke",
+        "email": "slowpoke@example.org",
+        "description": None,
+        "post_count": 0,
+        "created_time": "2026-03-03T03:03:03",
+        "login_2fa_email_enabled": False,
+        "force_password_change": False,
+        "balance": "1.0000000000",
+        "runway_days": None,
+        "cents": 100,
+        "groups": [],
+        "profile_delay": 12.0,
     },
     "bob@peer.example": {
         "id": 5,
@@ -263,6 +284,7 @@ def make_handler(state):
             if refused:
                 return self.reply(401, {"detail": refused}), None
             if method == "GET" and path == "/user/":
+                time.sleep(USERS[user].get("profile_delay", 0))  # a slow instance, for the spinner
                 return self.reply(200, profile_response(user)), user
             if method == "GET" and path == "/billing/scrip/balance":
                 u = USERS[user]

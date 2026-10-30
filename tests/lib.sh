@@ -131,6 +131,17 @@ step() { # step NAME TEXT CHECK-TEXT...: wait for TEXT, then check the screen
   fi
 }
 
+# spinner_glyph FILE LABEL: the spinner glyph drawn just before LABEL in FILE, if there is one
+# (libcvc's spinner: braille dots, or | / - \ on a terminal without them).
+spinner_glyph() {
+  local line before g
+  line=$(grep -F -- "$2" "$1" | head -n 1) || return 0
+  before=${line%%"$2"*}
+  [ "${#before}" -ge 2 ] || return 0
+  g=${before: -2:1}
+  case $g in ⠋ | ⠙ | ⠹ | ⠸ | ⠼ | ⠴ | ⠦ | ⠧ | ⠇ | ⠏ | '|' | / | - | \\) printf '%s' "$g" ;; esac
+}
+
 # --- the end ----------------------------------------------------------------------------------
 
 # no_secrets_in_output SECRETS: no file in $out holds any line of SECRETS (tokens, passwords).

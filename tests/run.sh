@@ -39,7 +39,8 @@ awk '{ print $2 }' "$work/token-names" >"$work/tokens" # for the scan at the end
 token() { awk -v n="$1" '$1 == n { print $2 }' "$work/token-names"; } # never echoed
 
 python3 -I -B "$here/stub_txwtf.py" --port 0 --port-file "$work/port" --log "$out/stub.log" \
-  --signed-in ada --signed-in mary --signed-in bob@peer.example 2>"$out/stub.stderr" &
+  --signed-in ada --signed-in mary --signed-in bob@peer.example --signed-in slowpoke \
+  2>"$out/stub.stderr" &
 stub_pid=$!
 for _ in $(seq 100); do [ -s "$work/port" ] && break; sleep 0.05; done
 [ -s "$work/port" ] || { echo "tests: the stub did not start" >&2; cat "$out/stub.stderr" >&2; exit 2; }
@@ -168,6 +169,22 @@ seed_store "$store" ada https://example.invalid
 check "ari snapshot: a default port is left out of the host" "$out/snap-handle-port.txt" \
   "Can't reach example.invalid: "
 
+# The spinner, while a request is out: slowpoke's profile takes the stub 12 s, longer than
+# `ari snapshot` waits for requests (10 s), so the frame shows the start-up line still turning.
+if "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement spinner"; then
+  skip "ari snapshot: the spinner (this ari has no spinner widget; transfix/libcvc#915)"
+  have_spinner=
+else
+  have_spinner=1
+  seed_store "$store" slowpoke
+  snap snap-spinner ftxui "$store"
+  if [ -n "$(spinner_glyph "$out/snap-spinner.txt" "Connecting to $hostport ...")" ]; then
+    pass "ari snapshot: a spinner turns beside 'Connecting to ...' while the request is out"
+  else
+    fail "ari snapshot: no spinner beside 'Connecting to ...'" "$out/snap-spinner.txt"
+  fi
+fi
+
 # An instance that doesn't answer (port 9, discard, is closed here): back to the form, saying so.
 seed_store "$work/snap-down/credentials" ada http://127.0.0.1:9
 "$ARI" snapshot --width 80 --height 24 --net-allow http://127.0.0.1:9 \
@@ -246,6 +263,34 @@ else
     step "$t: the right code signs in" "@grace@$hostport  Grace Hopper" "SCRIP    25" "Runway   -"
     keys Tab; keys Tab; keys Enter
     step "$t: grace signs out" "Signed out."
+
+    # mary's profile takes the stub 3 s: the spinner turns beside "Signing in..." meanwhile,
+    # by the host's clock, while the client waits on the request.
+    if [ -n "$have_spinner" ]; then
+      start "$backend" "$xdg" "$base" -- --user mary
+      step "$t: the form for mary" "Username: [mary]"
+      keys Tab; keys Tab; type_text "correct horse"; keys Tab; keys Enter
+      if wait_for "$t: the spinner" "Signing in..." 5; then
+        g1=$(spinner_glyph "$out/tmux-$(slug "$t: the spinner").txt" "Signing in...")
+        sleep 0.5
+        pane >"$out/tmux-$(slug "$t: the spinner, later").txt"
+        g2=$(spinner_glyph "$out/tmux-$(slug "$t: the spinner, later").txt" "Signing in...")
+        if [ -n "$g1" ] && [ -n "$g2" ] && [ "$g1" != "$g2" ]; then
+          pass "$t: a spinner turns beside 'Signing in...' while the request is out ($g1 then $g2)"
+        else
+          fail "$t: no turning spinner beside 'Signing in...' ('$g1' then '$g2')" \
+            "$out/tmux-$(slug "$t: the spinner, later").txt"
+        fi
+      else
+        fail "$t: no 'Signing in...' while mary's profile loads" \
+          "$out/tmux-$(slug "$t: the spinner").txt"
+      fi
+      step "$t: and then mary's profile" "@mary@$hostport" "SCRIP    3.5"
+      check_not "$t: no spinner once the requests are back" \
+        "$out/tmux-$(slug "$t: and then mary's profile").txt" "Signing in..."
+      keys Tab; keys Tab; keys Enter
+      step "$t: mary signs out" "Signed out."
+    fi
 
     start "$backend" "$xdg" "$base" -- --user linus
     step "$t: the form for linus" "Username: [linus]"

@@ -34,6 +34,7 @@ requires:
   - net
   - net.auth
   - {name: net.auth.persist, optional: true}
+  - {name: spinner, optional: true}    # turns while a request is out; without it, the text alone
   - json-parse
   - state-set-tree
 

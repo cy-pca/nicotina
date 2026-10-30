@@ -7,20 +7,22 @@
 units:
   # The controller's last word, info as is and errors in red. Always one row, even when empty:
   # the tvision host sizes a window once, when it opens, so its content must not grow later.
-  # TODO: a spinner beside this line while ui.busy is set ("Signing in...", "Checking the
-  # code...", "Refreshing..."), once libcvc's spinner widget lands (the Ariadne L4 session). It
-  # must animate from the host's frame clock: the controller is parked during the request, so
-  # no state it writes could drive one.
+  # While a request is out (ui.busy) a spinner turns beside it ("Signing in...", "Checking the
+  # code...", "Refreshing..."). The spinner turns by the host's frame clock, since the
+  # controller is parked on the request. A host without the spinner widget shows the line alone.
   status_line:
     type: group
     children:
+      - spinner: ""
+        bind: ui.msg
+        visible_when: (and (= (state-get "ui.busy") "1") (has? "spinner"))
       - text: ""
         bind: '(if (= (state-get "ui.msg") "") " " (state-get "ui.msg"))'
-        visible_when: (!= (state-get "ui.err") "1")
+        visible_when: (and (!= (state-get "ui.err") "1") (not (and (= (state-get "ui.busy") "1") (has? "spinner"))))
       - text: ""
         bind: ui.msg
         color: [1.0, 0.45, 0.4]
-        visible_when: (= (state-get "ui.err") "1")
+        visible_when: (and (= (state-get "ui.err") "1") (not (and (= (state-get "ui.busy") "1") (has? "spinner"))))
 
   starting_window:
     window: nicotina
@@ -29,8 +31,12 @@ units:
     size: [496, auto]
     visible_when: (= (state-get "ui.screen") "boot")
     children:
+      - spinner: ""
+        bind: '(string.join (list "Connecting to" (state-get "app.host") "...") " ")'
+        visible_when: (has? "spinner")
       - text: ""
         bind: '(string.join (list "Connecting to" (state-get "app.host") "...") " ")'
+        visible_when: (not (has? "spinner"))
 
   signin_window:
     window: Sign in to TX.WTF
