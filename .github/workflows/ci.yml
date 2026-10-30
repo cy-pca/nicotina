@@ -6,15 +6,18 @@ name: ci
 #                The launcher, ari check, ari snapshot in both terminal backends, arigl snapshot
 #                (text, and a PNG under Xvfb), and bin/nicotina typed at in tmux.
 #   integration  tests/local.sh: the client against a real txwtf server it starts on a fresh
-#                SQLite database. txwtf-cp312 is built with cvcpkg from txwtf's own recipes at
-#                TXWTF_REF, since txwtf publishes it only to a private cvcpkg organization.
+#                SQLite database. txwtf-cp312 is installed from cvcpkg.org, where txwtf publishes
+#                it to the private atxcf organization (txwtf's repository is private too). That
+#                needs the repository secret CVCPKG_ATXCF_READ_TOKEN, a cvcpkg.org token with read
+#                access to atxcf. Only the install step sees it, never the tests. A pull request
+#                from a fork gets no secrets and skips this job.
 #
 # Both run ari and arigl built from libcvc master plus the libcvc pull requests nicotina needs
 # while they are open (LIBCVC_PRS; ci/libcvc-prs.sh, ci/build-hosts.sh). The build is cached by
 # the resulting libcvc tree, so it runs again only when libcvc or those pull requests move.
 #
 # GitHub-hosted runners only: this repository is public, and a pull request's workflows must
-# never reach the self-hosted runners on catx-03. No secrets are used.
+# never reach the self-hosted runners on catx-03.
 
 on:
   push:
@@ -37,8 +40,9 @@ permissions:
 env:
   # Empty this once they have all merged; a merged one is skipped anyway.
   LIBCVC_PRS: ${{ inputs.libcvc_prs || '883 887' }}
-  # The txwtf release whose server the integration tests run (tx.wtf runs 0.4.0).
-  TXWTF_REF: v0.4.0
+  # The txwtf server the integration tests run: the newest published (txwtf publishes on v* tags;
+  # tx.wtf runs 0.4.0). Pin one with ==VERSION.
+  TXWTF_COMPONENT: atxcf/txwtf-cp312
 
 jobs:
   plan:
@@ -136,43 +140,52 @@ jobs:
   integration:
     needs: hosts
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 60
     steps:
+      - name: The txwtf token
+        id: token
+        env:
+          HAVE: ${{ secrets.CVCPKG_ATXCF_READ_TOKEN != '' }}
+          FORK: ${{ github.event.pull_request.head.repo.fork == true }}
+        run: |
+          if [ "$HAVE" = true ]; then echo "have=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          echo "have=false" >> "$GITHUB_OUTPUT"
+          if [ "$FORK" = true ]; then
+            echo "::notice::a pull request from a fork gets no secrets, so the integration tests (which need CVCPKG_ATXCF_READ_TOKEN) are skipped."
+          else
+            echo "::error::set the repository secret CVCPKG_ATXCF_READ_TOKEN, a cvcpkg.org token with read access to the atxcf organization, where txwtf-cp312 is published."
+            exit 1
+          fi
       - uses: actions/checkout@v4
+        if: steps.token.outputs.have == 'true'
       - name: Restore the hosts
+        if: steps.token.outputs.have == 'true'
         uses: actions/cache/restore@v4
         with:
           path: ~/nicotina-ci
           key: ${{ needs.hosts.outputs.key }}
           fail-on-cache-miss: true
       - uses: ./.github/actions/setup-cvcpkg
+        if: steps.token.outputs.have == 'true'
       - name: tmux, Xvfb and Mesa
+        if: steps.token.outputs.have == 'true'
         run: bash ci/test-env.sh ~/nicotina-ci
-      - name: Restore txwtf
-        id: txwtf
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/nicotina-txwtf
-          key: txwtf-${{ runner.os }}-${{ env.TXWTF_REF }}-${{ hashFiles('ci/build-txwtf.sh') }}
-      - name: Build txwtf ${{ env.TXWTF_REF }} with cvcpkg
-        if: steps.txwtf.outputs.cache-hit != 'true'
+      - name: Install txwtf from cvcpkg.org
+        if: steps.token.outputs.have == 'true'
+        env:
+          CVCPKG_TOKEN: ${{ secrets.CVCPKG_ATXCF_READ_TOKEN }}
         run: |
-          git clone --quiet --depth 1 --branch "$TXWTF_REF" https://github.com/atx-crypto-club/txwtf "$RUNNER_TEMP/txwtf"
-          bash ci/build-txwtf.sh "$RUNNER_TEMP/txwtf" ~/nicotina-txwtf
-      - name: Save txwtf
-        if: steps.txwtf.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/nicotina-txwtf
-          key: ${{ steps.txwtf.outputs.cache-primary-key }}
+          cvcpkg install "$TXWTF_COMPONENT" --prefix ~/nicotina-txwtf --config release --link shared
+          ~/nicotina-txwtf/bin/txwtf version
       - name: tests/local.sh
+        if: steps.token.outputs.have == 'true'
         env:
           NICOTINA_TEST_OUT: ${{ runner.temp }}/out
         run: |
           TXWTF_PREFIX=~/nicotina-txwtf ARI=~/nicotina-ci/build/bin/ari ARIGL=~/nicotina-ci/build/bin/arigl \
             bash tests/local.sh
       - name: Keep the outputs
-        if: failure()
+        if: failure() && steps.token.outputs.have == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: integration-outputs
