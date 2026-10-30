@@ -159,8 +159,32 @@ on the instance itself:
 `/apps/nicotina/` is the ImGui client and `/apps/nicotina/ari.html` the terminal one. The
 config passes `--net`, which lets the document reach the page's own origin and no other,
 and `--instance {origin}`, which the pages replace with that origin, so the same config
-serves every instance. A browser keeps the token in memory, so a reload signs out. This path is not tested yet: it needs
-txwtf to serve `/apps/` (T2 in txwtf's roadmap) and a wasm build with the pull requests above.
+serves every instance. A browser keeps the token in memory, so a reload signs out. Serving the
+client from an instance waits for txwtf to serve `/apps/` (T2 in txwtf's roadmap). The pages
+themselves run on cyberpcangel.com:
+
+#### On cyberpcangel.com
+
+| URL | Client |
+|---|---|
+| https://cyberpcangel.com/nicotina/ | ImGui |
+| https://cyberpcangel.com/nicotina-term/ | the terminal (FTXUI in xterm.js) |
+| https://cyberpcangel.com/nicotina-term/ari_tvision.html | the terminal (tvision) |
+
+They are public, use https://tx.wtf, and come from the same documents. The
+`deploy-cyberpcangel` workflow builds and publishes them nightly when something has moved, and
+on demand. It builds arigl-web (single-threaded, so no COOP/COEP headers) from libcvc master
+plus the pull requests above that are still open. [deploy/cyberpcangel/](deploy/cyberpcangel/README.md)
+describes the chain and how to run it by hand.
+
+cyberpcangel.com is not a TX.WTF instance, so the API is cross-origin:
+
+- Its page config names the instance (`--net-allow https://tx.wtf`, `--instance https://tx.wtf`)
+  and pins the document (`src_param: false`).
+- The instance must allow the origin `https://cyberpcangel.com` in its CORS settings.
+
+tx.wtf doesn't allow it yet: that needs atx-crypto-club/txwtf#312 deployed there. Until then,
+the pages load and show the sign-in form, but signing in stops at "Can't reach tx.wtf".
 
 ## Tests
 
@@ -215,6 +239,7 @@ The client uses only an instance's public API:
 share/nicotina/        main.ari and ui/*.ari: the documents
 bin/                   nicotina (POSIX sh) and nicotina.cmd (Windows): the launchers
 web/                   ariadne.config.json for the browser pages
+deploy/cyberpcangel/   the cyberpcangel.com deployment (its workflow: deploy-cyberpcangel)
 tests/                 run.sh and the stub TX.WTF instance
 recipe/                the cvcpkg recipe (M4)
 docs/ROADMAP.md        milestones and the libcvc features each one needs
