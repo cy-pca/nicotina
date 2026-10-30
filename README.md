@@ -245,8 +245,12 @@ test instance and an account made for it, never a person's account.
 NICOTINA_LIVE_ENV=~/.config/nicotina/dev.tx.wtf-test-account.env tests/live.sh
 ```
 
-**TODO: CI.** A GitHub Actions job that runs `tests/run.sh` (and `tests/local.sh`) needs
-published `ari` and `arigl` packages with the pull requests above; it comes once they publish.
+**CI.** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `tests/run.sh` (`unit`)
+and `tests/local.sh` (`integration`, with txwtf from cvcpkg) on GitHub-hosted runners, for every
+pull request and every push to `main`. [ci/README.md](ci/README.md) has the details and the same
+steps to run locally. It builds `ari` and `arigl` from libcvc master plus the pull requests
+nicotina still needs. Until transfix/libcvc#915 merges, that build has no spinner widget, so the
+spinner checks skip there. `tests/live.sh` runs only by hand, since it needs a test account.
 
 ## What it talks to
 
