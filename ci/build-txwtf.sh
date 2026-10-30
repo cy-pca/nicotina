@@ -3,9 +3,10 @@
 #
 #   ci/build-txwtf.sh TXWTF_DIR PREFIX
 #
-# TXWTF_DIR is a checkout of atx-crypto-club/txwtf (CI pins a release tag). txwtf-cp312 and
-# txwtf-client-cp312 are built with cvcpkg from that checkout's own recipes/: txwtf publishes them
-# only to a private cvcpkg organization. Every dependency is a published cvcpkg package
+# TXWTF_DIR is a checkout of atx-crypto-club/txwtf (a private repository), for example a v* tag.
+# txwtf-cp312 and txwtf-client-cp312 are built with cvcpkg from that checkout's own recipes/. CI
+# installs the published atxcf/txwtf-cp312 instead, which needs a token for that private cvcpkg
+# organization; this script needs read access to the repository. Every dependency is a published cvcpkg package
 # (--fallback-to-source builds one that has no bundle for this platform). The prefix then has
 # bin/txwtf and bin/python3.12, which is what tests/local.sh needs (TXWTF_PREFIX).
 set -euo pipefail
