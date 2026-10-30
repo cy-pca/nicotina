@@ -77,14 +77,14 @@ check_not() {
 
 # --- the stub ---------------------------------------------------------------------------------
 
-python3 -I -c "
+python3 -I -B -c "
 import sys; sys.path.insert(0, sys.argv[1]); import stub_txwtf as s
 print('\n'.join(list(s.TOKENS.values()) + [s.STALE_TOKEN]))" "$here" >"$work/tokens"
 token() { # token NAME (or stale): one line of $work/tokens, never echoed
   case $1 in ada) sed -n 1p "$work/tokens" ;; stale) sed -n 4p "$work/tokens" ;; esac
 }
 
-python3 -I "$here/stub_txwtf.py" --port 0 --port-file "$work/port" --log "$out/stub.log" \
+python3 -I -B "$here/stub_txwtf.py" --port 0 --port-file "$work/port" --log "$out/stub.log" \
   --signed-in ada 2>"$out/stub.stderr" &
 stub_pid=$!
 for _ in $(seq 100); do [ -s "$work/port" ] && break; sleep 0.05; done

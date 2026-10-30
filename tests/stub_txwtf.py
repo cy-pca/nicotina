@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """A stub TX.WTF instance for nicotina's tests: just the endpoints M0 uses.
 
-Python stdlib only. It answers with the shapes atx-crypto-club/txwtf's API
-uses (txwtf/api/__init__.py, txwtf/api/model.py, txwtf/api/billing.py):
+Python stdlib only. It answers with the shapes of the live API's schema
+(https://tx.wtf/openapi.json, txwtf 0.4.0, browsable at https://tx.wtf/docs),
+and with the errors tx.wtf answers that the schema doesn't list:
 
   POST /user/login           {username, password} -> LoginResponse, or a
                              LoginChallengeResponse for an account with 2FA,
@@ -18,8 +19,10 @@ Accounts (password "correct horse" for all of them):
   grace  emailed second factor; the code is 123456
   linus  signs in, but force_password_change is set
 
-A missing Authorization header is a 403, as FastAPI's HTTPBearer answers; a
-token the server doesn't know (expired, signed out) is a 401.
+Without an Authorization header a request gets 401 {"detail": "Not
+authenticated"}, and with a token the server doesn't know (expired, signed out,
+forged) 401 {"detail": "Invalid token (InvalidTokenSignature)"}: what tx.wtf
+answers.
 
 The tokens are fixed so a test can look for them in output: no output of the
 client may ever contain one. The server itself never prints a token or a
@@ -110,12 +113,15 @@ class State:
 
 def login_response(username):
     u = USERS[username]
-    user = {
+    user = {  # User; the required fields and the ones the client might read
         "id": u["id"],
         "username": username,
         "email": u["email"],
         "password": "",
         "name": u["name"],
+        "created_time": u["created_time"],
+        "modified_time": u["created_time"],
+        "accessed_time": "2026-10-30T11:59:00",
         "enabled": True,
         "email_verified": True,
         "login_2fa_email_enabled": u["login_2fa_email_enabled"],
@@ -138,7 +144,14 @@ def profile_response(username):
         "email": u["email"],
         "name": u["name"],
         "avatar_url": None,
+        "avatar_file_id": None,
+        "header_image_url": None,
+        "header_image_file_id": None,
         "header_text": None,
+        "card_image_url": None,
+        "card_image_file_id": None,
+        "profile_bg_url": None,
+        "profile_bg_file_id": None,
         "email_verified": True,
         "notification_email_enabled": True,
         "login_2fa_email_enabled": u["login_2fa_email_enabled"],
@@ -148,9 +161,10 @@ def profile_response(username):
         "last_login": "2026-10-30T11:59:00",
         "last_login_country": "US",
         "timezone": "UTC",
+        "timezone_source": "geoip",
         "view_count": 3,
         "post_count": u["post_count"],
-        "status": None,
+        "status": "offline",
         "is_admin": False,
         "storage_limit": None,
         "emblems": [],
@@ -178,16 +192,14 @@ def make_handler(state):
             return status
 
         def bearer_user(self):
-            """(username or None, status to refuse with or None)."""
+            """(username, None), or (None, the detail to refuse with)."""
             auth = self.headers.get("Authorization")
-            if not auth:
-                return None, 403
-            scheme, _, token = auth.partition(" ")
-            if scheme != "Bearer":
-                return None, 403
+            scheme, _, token = (auth or "").partition(" ")
+            if scheme != "Bearer" or not token:
+                return None, "Not authenticated"
             with state.lock:
                 user = state.live.get(token)
-            return (user, None) if user else (None, 401)
+            return (user, None) if user else (None, "Invalid token (InvalidTokenSignature)")
 
         def json_body(self):
             n = int(self.headers.get("Content-Length") or 0)
@@ -200,16 +212,13 @@ def make_handler(state):
 
         def handle_one(self, method):
             path = self.path.split("?", 1)[0]
-            user, refused = None, None
             if method == "POST" and path == "/user/login":
                 return self.login(), None
             if method == "POST" and path == "/user/login/2fa":
                 return self.login_2fa(), None
             user, refused = self.bearer_user()
-            if refused == 403:
-                return self.reply(403, {"detail": "Not authenticated"}), None
-            if refused == 401:
-                return self.reply(401, {"detail": "Session expired (SessionExpired)"}), None
+            if refused:
+                return self.reply(401, {"detail": refused}), None
             if method == "GET" and path == "/user/":
                 return self.reply(200, profile_response(user)), user
             if method == "GET" and path == "/billing/scrip/balance":
@@ -230,7 +239,10 @@ def make_handler(state):
                 token = self.headers["Authorization"].partition(" ")[2]
                 with state.lock:
                     state.live.pop(token, None)
-                return self.reply(200, {"message": "Successfully logged out"}), user
+                return (
+                    self.reply(200, {"message": "Successfully logged out", "code": 1, "data": None}),
+                    user,
+                )
             return self.reply(404, {"detail": "Not Found"}), user
 
         def sign_in(self, username):
@@ -243,7 +255,10 @@ def make_handler(state):
             if body is None or not isinstance(body.get("username"), str) or not isinstance(
                 body.get("password"), str
             ):
-                return self.reply(422, {"detail": [{"msg": "Field required"}]})
+                return self.reply(
+                    422,
+                    {"detail": [{"loc": ["body"], "msg": "Field required", "type": "missing"}]},
+                )
             username = body["username"]
             if username not in USERS:
                 return self.reply(400, {"detail": "Access denied! (UserDoesNotExist)"})

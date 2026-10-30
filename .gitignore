@@ -3,3 +3,7 @@ build/
 deps/
 .cvcpkg/
 *.log
+
+# Python bytecode (tests/run.sh imports the stub)
+__pycache__/
+*.pyc

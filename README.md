@@ -197,7 +197,9 @@ The client uses only an instance's public API:
 
 - the REST API, documented at `/docs` on any instance. M0 uses `POST /user/login`,
   `POST /user/login/2fa`, `GET /user/` (the signed-in user's profile),
-  `GET /billing/scrip/balance` and `POST /user/logout`;
+  `GET /billing/scrip/balance` and `POST /user/logout`. The stub in `tests/` follows
+  [tx.wtf's schema](https://tx.wtf/openapi.json) (txwtf 0.4.0), and the errors tx.wtf
+  answers that the schema doesn't list (401 `Not authenticated` without a token);
 - from M1, the `/ws/events` WebSocket for live updates, and OIDC sign-in (instances
   support public PKCE clients and loopback redirects).
 
