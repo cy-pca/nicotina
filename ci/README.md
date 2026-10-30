@@ -41,6 +41,7 @@ CVCPKG_TOKEN=... cvcpkg install atxcf/txwtf-cp312 --prefix ~/nicotina-txwtf --co
 ci/build-txwtf.sh ~/src/txwtf ~/nicotina-txwtf             # same prefix, built from its recipes/
 
 eval "$(ci/test-env.sh ~/nicotina-ci)"                      # tmux; Xvfb on :99 with Mesa
+export PATH=~/nicotina-txwtf/bin:$PATH                      # txwtf's scripts run `env python3.12`
 ARI=~/nicotina-ci/build/bin/ari ARIGL=~/nicotina-ci/build/bin/arigl tests/run.sh
 TXWTF_PREFIX=~/nicotina-txwtf ARI=~/nicotina-ci/build/bin/ari ARIGL=~/nicotina-ci/build/bin/arigl tests/local.sh
 ```

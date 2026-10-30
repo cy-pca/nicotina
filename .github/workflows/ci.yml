@@ -176,7 +176,11 @@ jobs:
           CVCPKG_TOKEN: ${{ secrets.CVCPKG_ATXCF_READ_TOKEN }}
         run: |
           cvcpkg install "$TXWTF_COMPONENT" --prefix ~/nicotina-txwtf --config release --link shared
-          ~/nicotina-txwtf/bin/txwtf version
+          # The bundle's console scripts start with `#!/usr/bin/env python3.12`, and the runner has
+          # Python 3.12s of its own (setup-python's, the system's) without txwtf. So the prefix's
+          # bin/ goes first on PATH, for this step and the tests, as txwtf's systemd unit does.
+          echo "$HOME/nicotina-txwtf/bin" >> "$GITHUB_PATH"
+          PATH=$HOME/nicotina-txwtf/bin:$PATH txwtf version
       - name: tests/local.sh
         if: steps.token.outputs.have == 'true'
         env:
