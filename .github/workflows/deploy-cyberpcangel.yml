@@ -69,7 +69,9 @@ jobs:
           repository: transfix/libcvc
           ref: master
           path: libcvc
+          # The merges need history; blobless keeps the clone small on the runner's ramdisk.
           fetch-depth: 0
+          filter: blob:none
 
       - name: Has anything moved?
         id: check
