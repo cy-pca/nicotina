@@ -1,0 +1,86 @@
+# The signed-in windows: the profile and SCRIP balance, and (outside a terminal) the details.
+#
+# home_window is the whole client in a terminal: 62 columns by 18 rows, below the menu bar.
+# details_window is what ImGui adds below it: the full description and the groups.
+
+units:
+  home_window:
+    window: nicotina
+    id: home
+    pos: [16, 32]
+    size: [496, auto]
+    visible_when: (= (state-get "ui.screen") "home")
+    children:
+      - text: ""
+        bind: '(string.join (list (string.join (list "@" (state-get "me.username")) "") (state-get "me.name")) "  ")'
+      - separator
+      - type: group
+        id: profile_rows
+        layout: {kind: grid, col_widths: [72, auto]}
+        children:
+          - text: "Email"
+          - text: ""
+            bind: me.email
+          - text: "Joined"
+          - text: ""
+            bind: me.joined
+          - text: "Posts"
+          - text: ""
+            bind: me.posts
+          - text: "About"
+          - text: ""
+            bind: '(if (= (state-get "me.about_short") "") "-" (state-get "me.about_short"))'
+      - separator
+      - type: group
+        id: scrip_rows
+        layout: {kind: grid, col_widths: [72, auto]}
+        children:
+          - text: "SCRIP"
+          - text: ""
+            bind: scrip.balance
+          - text: "Value"
+          - text: ""
+            bind: scrip.value
+          - text: "Runway"
+          - text: ""
+            bind: scrip.runway
+          - text: "Session"
+          - text: ""
+            bind: '(if (has? "net.auth.persist") "kept on this device" "until you quit")'
+      - separator
+      - type: group
+        id: home_buttons
+        layout: {kind: horizontal, col_widths: [auto, auto]}
+        children:
+          - button: Refresh
+            on: (state-set "ui.cmd" "refresh")
+            enabled_when: (!= (state-get "ui.busy") "1")
+          - button: Sign out
+            on: (state-set "ui.cmd" "signout")
+            enabled_when: (!= (state-get "ui.busy") "1")
+      - include: status_line
+
+  details_window:
+    window: Details
+    id: details
+    pos: [16, 352]
+    visible_when: (and (= (state-get "ui.screen") "home") (not (has? "term")))
+    children:
+      - text: "Name"
+        bind: me.name
+      - text: "Email verified"
+        bind: me.email_verified
+      - text: "Two-step sign-in"
+        bind: me.two_factor
+      - separator
+      - text: "About"
+      - text: ""
+        bind: '(if (= (state-get "me.about") "") "-" (state-get "me.about"))'
+      - separator
+      - text: "Groups"
+        bind: me.groups
+      - type: group
+        repeat: (state-get "me.groups")
+        children:
+          - text: ""
+            bind: me.groups.{i}

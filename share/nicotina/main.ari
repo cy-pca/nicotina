@@ -1,0 +1,298 @@
+# nicotina — a TX.WTF client, written as Ariadne documents.
+#
+# M0: sign in to an instance (username, password and the emailed second factor), then show the
+# profile and the SCRIP balance. The same document runs in stock hosts, unmodified:
+#
+#   ari run   --net-allow https://tx.wtf --credential-store PATH main.ari [--instance URL]
+#   ari run   --backend tvision ... main.ari
+#   arigl run --net-allow https://tx.wtf --credential-store PATH main.ari
+#
+# bin/nicotina passes those flags. In a browser, the arigl-web and ari pages load it with
+# ?src=main.ari, and their ariadne.config.json passes --net.
+#
+# The terminal comes first: every window is laid out for an 80x24 terminal, and ImGui only adds
+# to it (the Details window). The windows are in ui/signin.ari and ui/home.ari.
+#
+# The host holds the session token, never this document. Sign-in uses capture_auth, so the host
+# takes the token out of the reply and keeps it; every later request names the credential with
+# auth: and the host adds the header. Sign-out drops it with net-auth-forget. With
+# --credential-store the host keeps it across runs, and the next start signs in from it.
+
+meta:
+  name: nicotina
+  description: A TX.WTF client
+  version: 0.0.1
+  min_libcvc: 3.7.5
+
+args:
+  instance: {type: string, default: "https://tx.wtf", help: "The TX.WTF instance (its base URL)"}
+  user: {type: string, help: "Fill in this username on the sign-in form"}
+
+# Without --net (or --net-allow) the host has no http-request and keeps no credentials, and the
+# load fails here, naming what is missing.
+requires:
+  - net
+  - net.auth
+  - {name: net.auth.persist, optional: true}
+  - json-parse
+  - state-set-tree
+
+import:
+  - ui/signin.ari
+  - ui/home.ari
+
+init: |
+  (set base (string.trim (state-get "args.instance")))
+  (while (string.ends-with base "/")
+    (set base (string.substring base 0 (- (string.length base) 1))))
+  (state-set "app.base" base)
+  (state-set "app.host" (string.replace (string.replace base "https://" "") "http://" ""))
+  (state-set "login.username" (if (state-exists "args.user") (state-get "args.user") ""))
+  (state-set "login.password" "")
+  (state-set "login.code" "")
+  (state-set "login.challenge" "")
+  (state-set "ui.busy" "")
+  (if (or (string.starts-with base "https://") (string.starts-with base "http://"))
+    (begin
+      (state-set "ui.screen" "boot")
+      (state-set "ui.msg" "")
+      (state-set "ui.err" "")
+      (state-set "ui.cmd" "resume"))
+    (begin
+      (state-set "ui.screen" "signin")
+      (state-set "ui.msg" "The instance must be an http:// or https:// URL.")
+      (state-set "ui.err" "1")
+      (state-set "ui.cmd" "")))
+
+# The controller. Buttons and menu items only set ui.cmd; this resident runs the command on the
+# next frame, so the requests and the replies' handling live in one place. A resident has no
+# per-action step budget, and while a request is out it is parked, not spinning.
+#
+#   resume   sign in from a credential the host already holds (--credential-store), if any
+#   login    POST /user/login, capturing the token
+#   verify   POST /user/login/2fa with the emailed code, capturing the token
+#   back     leave the code screen for the sign-in form
+#   refresh  GET /user/ and /billing/scrip/balance again
+#   signout  POST /user/logout, then drop the credential
+on_tick: |
+  (if (and (!= (state-get "ui.cmd") "") (!= (state-get "ui.busy") "1"))
+    (begin
+      (set cmd (state-get "ui.cmd"))
+      (state-set "ui.cmd" "")
+      (state-set "ui.busy" "1")
+
+      (defun base () (state-get "app.base"))
+      (defun clip (s n)
+        (if (> (string.length s) n) (str-concat (string.substring s 0 (- n 3)) "...") s))
+      ;; The status line: one row of at most 60 characters, the windows' width.
+      (defun say (msg) (state-set "ui.msg" (clip msg 60)) (state-set "ui.err" ""))
+      (defun fail (msg) (state-set "ui.msg" (clip msg 60)) (state-set "ui.err" "1"))
+      ;; d's value at k, or dflt when d is no dict, lacks k, or holds null there.
+      (defun opt (d k dflt)
+        (if (= (type-of d) "dict")
+          (try (let ((v (get-attr d k))) (if (= (type-of v) "nil") dflt v)) (catch (e) dflt))
+          dflt))
+      ;; str quotes a string, so only non-strings go through it.
+      (defun text (v) (if (is-string v) v (str v)))
+      (defun reply-json (r) (try (json-parse (get-attr r "body")) (catch (e) (dict))))
+      (defun status (r) (get-attr r "status"))
+      (defun ok? (r) (and (>= (status r) 200) (< (status r) 300)))
+
+      (defun post-json (path payload capture)
+        (let ((o (dict "headers" (dict "Content-Type" "application/json"
+                                       "Accept" "application/json")
+                       "body" (json-encode payload))))
+          (begin
+            (if capture (set-attr o "capture_auth" (dict "name" "txwtf" "field" "token")))
+            (http-request "POST" (str-concat (base) path) o))))
+      (defun get-authed (path)
+        (http-get (str-concat (base) path)
+                  (dict "auth" "txwtf" "headers" (dict "Accept" "application/json"))))
+
+      ;; A decimal string as people write it: 1234.5678900000 -> 1234.56789. One in exponent
+      ;; form (0E-10) becomes a float, which state-set-tree writes in its shortest form (0).
+      (defun plain-number (s)
+        (begin
+          (set s (text s))
+          (if (or (string.contains s "E") (string.contains s "e"))
+            (float s)
+            (begin
+              (if (string.contains s ".")
+                (begin
+                  (while (string.ends-with s "0")
+                    (set s (string.substring s 0 (- (string.length s) 1))))
+                  (if (string.ends-with s ".")
+                    (set s (string.substring s 0 (- (string.length s) 1))))))
+              s))))
+      (defun dollars (cents)
+        (let ((c (int cents)) (sign ""))
+          (begin
+            (if (< c 0) (begin (set sign "-") (set c (- 0 c))))
+            (set r (% c 100))
+            (str-concat sign "$" (str (int (/ (- c r) 100))) "." (if (< r 10) "0" "") (str r)))))
+
+      (defun to-signin (msg is-error)
+        (begin
+          (state-set "login.password" "")
+          (state-set "login.code" "")
+          (state-set "login.challenge" "")
+          (state-set-tree "me" (dict))
+          (state-set-tree "scrip" (dict))
+          (state-set "ui.screen" "signin")
+          (if is-error (fail msg) (say msg))))
+      ;; The host refused the token (it expired, or was signed out elsewhere), or holds none.
+      (defun session-over? (r)
+        (or (= (status r) 401) (= (status r) 403)
+            (and (= (status r) 0) (string.contains (get-attr r "error") "no credential"))))
+      (defun session-over ()
+        (begin
+          (net-auth-forget "txwtf")
+          (to-signin "Your session has expired. Sign in again." true)))
+      (defun unreachable (r)
+        (fail (str-concat "Can't reach " (state-get "app.host") ": " (get-attr r "error"))))
+
+      (defun show-profile (p)
+        (begin
+          (state-set "login.username" (opt p "username" "")) ;; for the form, after signing out
+          (state-set-tree "me"
+            (dict "username" (opt p "username" "")
+                  "name" (opt p "name" "")
+                  "email" (opt p "email" "")
+                  "email_verified" (if (opt p "email_verified" nil) "yes" "no")
+                  "two_factor" (if (opt p "login_2fa_email_enabled" nil) "on" "off")
+                  "joined" (string.substring (text (opt p "created_time" "")) 0 10)
+                  "posts" (opt p "post_count" 0)
+                  "about" (text (opt p "description" ""))
+                  "about_short" (clip (text (opt p "description" "")) 44)
+                  "groups" (collections.map (opt p "groups" (list))
+                                            (lambda (g) (opt g "group_name" "")))))))
+      (defun show-balance (b)
+        (state-set-tree "scrip"
+          (dict "symbol" (opt b "symbol" "SCRIP")
+                "balance" (plain-number (opt b "balance" "0"))
+                "value" (dollars (opt b "cents_equivalent" 0))
+                "runway" (let ((d (opt b "runway_days" nil)))
+                           (if (= (type-of d) "nil") "-" (str-concat (str d) " days"))))))
+
+      ;; The profile, then the balance. True when both came back.
+      (defun load-home ()
+        (let ((r (get-authed "/user/")))
+          (if (ok? r)
+            (begin
+              (show-profile (reply-json r))
+              (set b (get-authed "/billing/scrip/balance"))
+              (state-set "ui.screen" "home")
+              (if (ok? b)
+                (begin (show-balance (reply-json b)) true)
+                (begin
+                  (state-set-tree "scrip" (dict "balance" "unavailable" "value" "-" "runway" "-"))
+                  (if (= (status b) 0) (unreachable b)
+                    (fail (str-concat "The SCRIP balance isn't available (HTTP "
+                                      (str (status b)) ").")))
+                  nil)))
+            (begin
+              (if (session-over? r) (session-over)
+                (if (= (status r) 0) (unreachable r)
+                  (fail (str-concat "Couldn't load your profile (HTTP " (str (status r)) ")."))))
+              nil))))
+
+      (defun signed-in-msg () (str-concat "Signed in to " (state-get "app.host") "."))
+
+      ;; A reply from /user/login or /user/login/2fa.
+      (defun after-login (r)
+        (let ((b (reply-json r)))
+          (if (ok? r)
+            (if (get-attr r "captured")
+              (if (opt b "force_password_change" nil)
+                (begin
+                  (http-request "POST" (str-concat (base) "/user/logout") (dict "auth" "txwtf"))
+                  (net-auth-forget "txwtf")
+                  (to-signin (str-concat "Change your password at " (state-get "app.host")
+                                         ", then sign in.")
+                             true))
+                (begin
+                  (state-set "login.challenge" "")
+                  (state-set "login.code" "")
+                  (if (load-home) (say (signed-in-msg)))))
+              (if (opt b "two_factor_required" nil)
+                (begin
+                  (state-set "login.challenge" (opt b "challenge" ""))
+                  (state-set "login.code" "")
+                  (state-set "ui.screen" "2fa")
+                  (say (str-concat "We emailed you a code. It expires in "
+                                   (str (int (/ (opt b "expires_in" 300) 60))) " minutes.")))
+                (fail (str-concat "The server sent no session: " (get-attr r "error")))))
+            (if (= (status r) 0) (unreachable r)
+              (if (= (status r) 429) (fail "Too many attempts. Wait a minute, then try again.")
+                (if (= (state-get "ui.screen") "2fa")
+                  (begin
+                    (state-set "login.code" "")
+                    (fail "That code didn't work. Try again, or go Back."))
+                  (if (or (= (status r) 400) (= (status r) 401))
+                    (fail "Wrong username or password.")
+                    (fail (str-concat "Sign-in failed (HTTP " (str (status r)) ").")))))))))
+
+      (try
+        (if (= cmd "resume")
+          ;; and/or are functions here, not special forms: they evaluate every argument.
+          (if (if (net-auth-has? "txwtf" (base)) (load-home) nil)
+            (say (signed-in-msg))
+            (state-set "ui.screen" (if (= (state-get "ui.screen") "home") "home" "signin")))
+        (if (= cmd "login")
+          (let ((u (string.trim (state-get "login.username")))
+                (p (state-get "login.password")))
+            (begin
+              (state-set "login.password" "")
+              (if (or (= u "") (= p ""))
+                (fail "Enter your username and password.")
+                (begin
+                  (say "Signing in...")
+                  (after-login (post-json "/user/login" (dict "username" u "password" p) true))))))
+        (if (= cmd "verify")
+          (let ((code (string.trim (state-get "login.code"))))
+            (if (= code "")
+              (fail "Enter the code from the email.")
+              (begin
+                (say "Checking the code...")
+                (after-login (post-json "/user/login/2fa"
+                                        (dict "challenge" (state-get "login.challenge") "code" code)
+                                        true)))))
+        (if (= cmd "back")
+          (to-signin "" nil)
+        (if (= cmd "refresh")
+          (if (load-home) (say (str-concat "Updated. " (signed-in-msg))))
+        (if (= cmd "signout")
+          (begin
+            (http-request "POST" (str-concat (base) "/user/logout") (dict "auth" "txwtf"))
+            (net-auth-forget "txwtf")
+            (to-signin "Signed out." nil))))))))
+        ;; Nothing in here may raise: an exception this resident doesn't catch ends it, and the
+        ;; buttons with it.
+        (catch (e)
+          (if (= (state-get "ui.screen") "boot") (state-set "ui.screen" "signin"))
+          (fail (str-concat "Something went wrong: "
+                            (try (text (get-attr e "message")) (catch (e2) "no details"))))))
+      (state-set "ui.busy" "")))
+
+# The screens come and go with ui.screen, so there are no windows for a Windows menu to reopen.
+windows_menu: false
+
+menubar:
+  - menu: nicotina
+    items:
+      - menu_item: Refresh
+        on: (state-set "ui.cmd" "refresh")
+        enabled_when: (and (= (state-get "ui.screen") "home") (!= (state-get "ui.busy") "1"))
+      - menu_item: Sign out
+        on: (state-set "ui.cmd" "signout")
+        enabled_when: (and (= (state-get "ui.screen") "home") (!= (state-get "ui.busy") "1"))
+      - separator
+      - menu_item: Quit
+        on: quit
+
+windows:
+  - include: starting_window
+  - include: signin_window
+  - include: twofactor_window
+  - include: home_window
+  - include: details_window

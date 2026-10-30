@@ -1,0 +1,74 @@
+# The signed-out windows: starting up, the sign-in form, and the emailed code. main.ari imports
+# these units and runs the commands their buttons set (ui.cmd).
+#
+# Laid out for the terminal first (8 x 16 px cells): every window opens at column 2, row 2, and
+# is 62 columns wide, so it fits 80 columns. The controller keeps its messages to 60 characters.
+
+units:
+  # The controller's last word, info as is and errors in red. Always one row, even when empty:
+  # the tvision host sizes a window once, when it opens, so its content must not grow later.
+  status_line:
+    type: group
+    children:
+      - text: ""
+        bind: '(if (= (state-get "ui.msg") "") " " (state-get "ui.msg"))'
+        visible_when: (!= (state-get "ui.err") "1")
+      - text: ""
+        bind: ui.msg
+        color: [1.0, 0.45, 0.4]
+        visible_when: (= (state-get "ui.err") "1")
+
+  starting_window:
+    window: nicotina
+    id: starting
+    pos: [16, 32]
+    size: [496, auto]
+    visible_when: (= (state-get "ui.screen") "boot")
+    children:
+      - text: ""
+        bind: '(string.join (list "Connecting to" (state-get "app.host") "...") " ")'
+
+  signin_window:
+    window: Sign in to TX.WTF
+    id: signin
+    pos: [16, 32]
+    size: [496, auto]
+    visible_when: (= (state-get "ui.screen") "signin")
+    children:
+      - text: "Instance"
+        bind: app.base
+      - separator
+      # Typed text shows as it is: Ariadne's input_text has no password mode yet (a libcvc gap).
+      # The controller clears login.password as soon as it sends it, whatever the outcome.
+      - input_text: Username
+        bind: login.username
+      - input_text: Password
+        bind: login.password
+      - button: Sign in
+        on: (state-set "ui.cmd" "login")
+        enabled_when: (!= (state-get "ui.busy") "1")
+      - include: status_line
+
+  twofactor_window:
+    window: Two-step verification
+    id: twofactor
+    pos: [16, 32]
+    size: [496, auto]
+    visible_when: (= (state-get "ui.screen") "2fa")
+    children:
+      - text: ""
+        bind: '(string.join (list "Signing in as" (state-get "login.username")) " ")'
+      - separator
+      - input_text: Code
+        bind: login.code
+      - type: group
+        id: code_buttons
+        layout: {kind: horizontal, col_widths: [auto, auto]}
+        children:
+          - button: Verify
+            on: (state-set "ui.cmd" "verify")
+            enabled_when: (!= (state-get "ui.busy") "1")
+          - button: Back
+            on: (state-set "ui.cmd" "back")
+            enabled_when: (!= (state-get "ui.busy") "1")
+      - include: status_line
