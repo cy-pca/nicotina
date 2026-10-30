@@ -1,0 +1,180 @@
+name: ci
+
+# nicotina's tests, on every push to main and every pull request:
+#
+#   unit         tests/run.sh: the client against a stub TX.WTF instance (tests/stub_txwtf.py).
+#                The launcher, ari check, ari snapshot in both terminal backends, arigl snapshot
+#                (text, and a PNG under Xvfb), and bin/nicotina typed at in tmux.
+#   integration  tests/local.sh: the client against a real txwtf server it starts on a fresh
+#                SQLite database. txwtf-cp312 is built with cvcpkg from txwtf's own recipes at
+#                TXWTF_REF, since txwtf publishes it only to a private cvcpkg organization.
+#
+# Both run ari and arigl built from libcvc master plus the libcvc pull requests nicotina needs
+# while they are open (LIBCVC_PRS; ci/libcvc-prs.sh, ci/build-hosts.sh). The build is cached by
+# the resulting libcvc tree, so it runs again only when libcvc or those pull requests move.
+#
+# GitHub-hosted runners only: this repository is public, and a pull request's workflows must
+# never reach the self-hosted runners on catx-03. No secrets are used.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      libcvc_prs:
+        description: 'transfix/libcvc pull requests to merge onto master while they are open'
+        type: string
+        default: '883 887'
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  # Empty this once they have all merged; a merged one is skipped anyway.
+  LIBCVC_PRS: ${{ inputs.libcvc_prs || '883 887' }}
+  # The txwtf release whose server the integration tests run (tx.wtf runs 0.4.0).
+  TXWTF_REF: v0.4.0
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      tests: ${{ steps.tests.outputs.tests }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Are there tests?
+        id: tests
+        run: |
+          if [ -f tests/run.sh ] && [ -f share/nicotina/main.ari ]; then
+            echo "tests=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::no tests/run.sh or share/nicotina/main.ari in this commit; nothing to test."
+            echo "tests=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  hosts:
+    needs: plan
+    if: needs.plan.outputs.tests == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    outputs:
+      key: ${{ steps.key.outputs.key }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout libcvc master
+        uses: actions/checkout@v4
+        with:
+          repository: transfix/libcvc
+          ref: master
+          path: libcvc
+          # The merges need history; blobless keeps the clone small.
+          fetch-depth: 0
+          filter: blob:none
+      - name: Merge the open libcvc pull requests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash ci/libcvc-prs.sh libcvc
+      - name: Cache key
+        id: key
+        run: |
+          tree=$(git -C libcvc rev-parse 'HEAD^{tree}')
+          echo "key=hosts-${{ runner.os }}-$tree-${{ hashFiles('ci/build-hosts.sh') }}" >> "$GITHUB_OUTPUT"
+      - name: Restore the hosts
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/nicotina-ci
+          key: ${{ steps.key.outputs.key }}
+      - name: Set up cvcpkg
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-cvcpkg
+      - name: Build ari and arigl
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: bash ci/build-hosts.sh libcvc ~/nicotina-ci
+      - name: Save the hosts
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/nicotina-ci
+          key: ${{ steps.key.outputs.key }}
+
+  unit:
+    needs: hosts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore the hosts
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/nicotina-ci
+          key: ${{ needs.hosts.outputs.key }}
+          fail-on-cache-miss: true
+      - uses: ./.github/actions/setup-cvcpkg
+      - name: tmux, Xvfb and Mesa
+        run: bash ci/test-env.sh ~/nicotina-ci
+      - name: tests/run.sh
+        env:
+          NICOTINA_TEST_OUT: ${{ runner.temp }}/out
+        run: ARI=~/nicotina-ci/build/bin/ari ARIGL=~/nicotina-ci/build/bin/arigl bash tests/run.sh
+      # The tests search every output for the session tokens and fail if one is there, so what
+      # is uploaded holds none.
+      - name: Keep the outputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-outputs
+          path: ${{ runner.temp }}/out
+          retention-days: 7
+
+  integration:
+    needs: hosts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore the hosts
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/nicotina-ci
+          key: ${{ needs.hosts.outputs.key }}
+          fail-on-cache-miss: true
+      - uses: ./.github/actions/setup-cvcpkg
+      - name: tmux, Xvfb and Mesa
+        run: bash ci/test-env.sh ~/nicotina-ci
+      - name: Restore txwtf
+        id: txwtf
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/nicotina-txwtf
+          key: txwtf-${{ runner.os }}-${{ env.TXWTF_REF }}-${{ hashFiles('ci/build-txwtf.sh') }}
+      - name: Build txwtf ${{ env.TXWTF_REF }} with cvcpkg
+        if: steps.txwtf.outputs.cache-hit != 'true'
+        run: |
+          git clone --quiet --depth 1 --branch "$TXWTF_REF" https://github.com/atx-crypto-club/txwtf "$RUNNER_TEMP/txwtf"
+          bash ci/build-txwtf.sh "$RUNNER_TEMP/txwtf" ~/nicotina-txwtf
+      - name: Save txwtf
+        if: steps.txwtf.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/nicotina-txwtf
+          key: ${{ steps.txwtf.outputs.cache-primary-key }}
+      - name: tests/local.sh
+        env:
+          NICOTINA_TEST_OUT: ${{ runner.temp }}/out
+        run: |
+          TXWTF_PREFIX=~/nicotina-txwtf ARI=~/nicotina-ci/build/bin/ari ARIGL=~/nicotina-ci/build/bin/arigl \
+            bash tests/local.sh
+      - name: Keep the outputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-outputs
+          path: ${{ runner.temp }}/out
+          retention-days: 7

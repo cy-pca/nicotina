@@ -1,0 +1,143 @@
+name: deploy-cyberpcangel
+
+# Builds nicotina's browser pages and publishes them, public and not login-gated:
+#   https://cyberpcangel.com/nicotina/       the ImGui client (libcvc arigl-web's index.html)
+#   https://cyberpcangel.com/nicotina-term/  the terminal client (arigl-web's ari.html)
+# deploy/cyberpcangel/README.md has the whole chain and the one-time setup.
+#
+# It runs on catx-03 (label cvcpkg-prod: the cy-pca org runner, catx-03-cy-pca, one job at a time),
+# which holds the emsdk and the cyberpcangel deploy key. The key's forced command on
+# catx-00 maps the fixed action `deploy-nicotina` to /root/nicotina-deploy.sh in the cyberpcangel
+# instance; the client never names a path. No pull_request trigger: a pull request must not reach
+# the runner that holds the key.
+
+on:
+  schedule:
+    - cron: '30 9 * * *'   # 09:30 UTC, after cyberpcangel-cvcgl's 08:00 nightly on the same runner
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'The nicotina branch, tag or commit whose documents to publish'
+        type: string
+        default: 'main'
+      libcvc_prs:
+        description: 'transfix/libcvc pull requests to merge onto master while they are open'
+        type: string
+        default: '883 885 887'
+      force:
+        description: 'Rebuild and publish even if nothing moved since the live build'
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-cyberpcangel
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, Linux, X64, cvcpkg-prod]
+    timeout-minutes: 240
+    env:
+      CVC_EMSDK_DIR: /opt/cvc-wasm/emsdk
+      # The single-threaded wasm dep closure, installed below. Its own prefix: the cvcgl nightly's
+      # deps-wasm-pthread is threaded, and Emscripten won't link the two kinds together.
+      CVC_DEPS_PREFIX: /home/github-runner/cvc-wasm/deps-wasm
+      DEPLOY_KEY: /home/github-runner/.ssh/id_ed25519_cyberpcangel_deploy
+      DOCS_REF: ${{ inputs.ref || 'main' }}
+      # The libcvc pull requests nicotina needs, merged onto master while they are open (a merged
+      # one is skipped). Empty this once they have all merged.
+      LIBCVC_PRS: ${{ inputs.libcvc_prs || '883 885 887' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout the deploy scripts
+        uses: actions/checkout@v4
+        with:
+          path: nicotina
+
+      - name: Checkout the documents (${{ env.DOCS_REF }})
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DOCS_REF }}
+          path: docs-src
+
+      - name: Checkout libcvc master
+        uses: actions/checkout@v4
+        with:
+          repository: transfix/libcvc
+          ref: master
+          path: libcvc
+          # The merges need history; blobless keeps the clone small on the runner's ramdisk.
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Has anything moved?
+        id: check
+        run: |
+          if [ ! -f docs-src/share/nicotina/main.ari ]; then
+            echo "::notice::$DOCS_REF has no share/nicotina/main.ari yet; nothing to publish."
+            echo "run=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # What a build depends on: libcvc master and the open pull requests' heads, the documents,
+          # and the deploy scripts and page config.
+          heads=""
+          for n in $LIBCVC_PRS; do
+            heads="$heads $n:$(git -C libcvc ls-remote origin "refs/pull/$n/head" | cut -f1)"
+          done
+          inputs="libcvc=$(git -C libcvc rev-parse HEAD) prs=[${heads# }] docs=$(git -C docs-src rev-parse HEAD:share/nicotina) deploy=$(git -C nicotina rev-parse HEAD:deploy/cyberpcangel)"
+          fp=$(printf '%s' "$inputs" | sha256sum | cut -c1-16)
+          echo "built_from=$fp $inputs nicotina=$(git -C docs-src rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          live=$(python3 -I -c 'import urllib.request as u
+          try: print(u.urlopen("https://cyberpcangel.com/nicotina/.built-from", timeout=30).read().decode().split()[0])
+          except Exception: print("none")')
+          echo "this build $fp, live $live ($inputs)"
+          if [ "$fp" = "$live" ] && [ "${{ inputs.force }}" != "true" ]; then
+            echo "::notice::nothing moved since the live build ($fp)."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install the wasm deps
+        if: steps.check.outputs.run == 'true'
+        run: |
+          export PATH="$HOME/.local/bin:/opt/cvc-wasm/cmake-cvcpkg/bin:$PATH"
+          echo "cvcpkg: $(command -v cvcpkg) $(cvcpkg --version)"
+          mkdir -p "$CVC_DEPS_PREFIX"
+          # arigl-web's recipe's build deps (cvcpkg lays bundles down flat, so the closure is
+          # listed), static, single-threaded. Already-installed ones are no-ops.
+          for p in zlib bzip2 xz zstd boost pegtl yaml-cpp vtk imgui sdl3 libjpeg-turbo eigen libigl \
+                   ftxui tvision imagemagick tiff libpng libwebp lerc libxml2 assimp freetype; do
+            echo "=== $p ==="
+            cvcpkg install "$p" --prefix "$CVC_DEPS_PREFIX" --platform wasm --arch wasm32 \
+              --config release --link static 2>&1 | tail -3
+          done
+          # xterm.js and its addons, which the terminal pages serve (noarch; the recipe notes why
+          # they are not in its list).
+          cvcpkg install xterm-js xterm-js-addon-fit xterm-js-addon-webgl --platform any \
+            --prefix "$CVC_DEPS_PREFIX" 2>&1 | tail -3
+
+      - name: Build the browser hosts (arigl-web, single-threaded, lean)
+        if: steps.check.outputs.run == 'true'
+        run: |
+          export PATH="/opt/cvc-wasm/cmake-cvcpkg/bin:$PATH"
+          bash nicotina/deploy/cyberpcangel/build-hosts.sh "$PWD/libcvc" "$PWD/build-web" "$PWD/hosts"
+
+      - name: Stage
+        if: steps.check.outputs.run == 'true'
+        run: |
+          rm -rf payload
+          bash nicotina/deploy/cyberpcangel/stage.sh hosts/share/arigl-web docs-src/share/nicotina \
+            payload "${{ steps.check.outputs.built_from }}"
+
+      - name: Publish to cyberpcangel.com
+        if: steps.check.outputs.run == 'true'
+        run: |
+          tar czf - -C payload nicotina nicotina-term \
+            | ssh -i "$DEPLOY_KEY" -o BatchMode=yes -o ConnectTimeout=20 tfx@catx-00.tx.wtf deploy-nicotina
+
+      - name: Verify live
+        if: steps.check.outputs.run == 'true'
+        run: python3 -I nicotina/deploy/cyberpcangel/verify.py payload
