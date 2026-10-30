@@ -164,10 +164,15 @@ txwtf to serve `/apps/` (T2 in txwtf's roadmap) and a wasm build with the pull r
 
 ## Tests
 
-`tests/run.sh` runs the client against a stub TX.WTF instance
-([tests/stub_txwtf.py](tests/stub_txwtf.py), Python stdlib only) that answers `/user/login`,
-`/user/login/2fa`, `/user/`, `/billing/scrip/balance` and `/user/logout` with the shapes
-txwtf's API uses:
+Three suites drive the real client the way a person does: `bin/nicotina --terminal` in a tmux
+pane with FTXUI and with tvision, plus `ari snapshot` and `arigl snapshot`. `ari snapshot` lays
+a frame out with FTXUI whichever backend it is given, so the tmux runs are what check the
+tvision desktop itself. All three need tmux, and Linux for now. Each one searches every output
+for the passwords and session tokens at the end; none may appear. All take `ARI` and `ARIGL`
+(else `ari` and `arigl` from `PATH`), and keep their outputs in `$NICOTINA_TEST_OUT`.
+
+**`tests/run.sh`: a stub instance** ([tests/stub_txwtf.py](tests/stub_txwtf.py), Python
+stdlib only, about 45 s). It needs nothing else, so it is the one for CI.
 
 ```bash
 ARI=$NICOTINA_ARI ARIGL=$NICOTINA_ARIGL tests/run.sh
@@ -179,16 +184,45 @@ ARI=$NICOTINA_ARI ARIGL=$NICOTINA_ARIGL tests/run.sh
   balance); an expired one (back to the form, and the host forgets it); an instance that
   doesn't answer.
 - `arigl snapshot`, as text (`--terminal`) and as a PNG.
-- `bin/nicotina` in a tmux pane, FTXUI and tvision, typed at like a person: sign in, start
-  again still signed in, sign out; a wrong password; the emailed code, wrong and then right;
-  an account that must change its password first.
-- Every output is searched for the stub's tokens: none may appear.
+- In tmux: sign in, start again still signed in, sign out; a wrong password; the emailed code,
+  wrong and then right; an account that must change its password first.
 
-`ari snapshot` lays a frame out with FTXUI whichever backend it is given, so the tmux runs are
-what check the tvision desktop itself. They need tmux, and Linux for now.
+**`tests/local.sh`: a real txwtf instance it starts itself** (about 70 s). It uses txwtf's
+own server from a cvcpkg prefix, on a fresh SQLite database.
+[tests/txwtf_local.py](tests/txwtf_local.py) makes the accounts with txwtf's core functions:
+one with SCRIP minted, one with the emailed second factor, and one that must change its
+password. [tests/smtp_sink.py](tests/smtp_sink.py) receives the instance's mail, so the test
+signs in with the code from the real email. It also checks:
 
-**TODO: CI.** A GitHub Actions job that runs `tests/run.sh` needs published `ari` and `arigl`
-packages with the pull requests above; it comes once they publish.
+- that the server refuses a token after sign-out;
+- the 429 txwtf answers once its login rate limit is used up;
+- a server that has gone away.
+
+```bash
+# once, from a txwtf checkout (atx-crypto-club/txwtf):
+cvcpkg install-deps recipes/txwtf-cp312 --prefix ~/txwtf-prefix --fallback-to-source
+cvcpkg build txwtf-client-cp312 --no-deps --prefix ~/txwtf-prefix
+cvcpkg build txwtf-cp312 --no-deps --prefix ~/txwtf-prefix
+# then:
+TXWTF_PREFIX=~/txwtf-prefix ARI=$NICOTINA_ARI ARIGL=$NICOTINA_ARIGL tests/local.sh
+```
+
+`txwtf-cp312` and `txwtf-client-cp312` are built from the txwtf repository's own `recipes/`
+(the client is not in the public catalog). Every other dependency is a published cvcpkg
+package.
+
+**`tests/live.sh`: a live instance, as a test account.** For example dev.tx.wtf. It reads the
+account from an owner-only env file outside the repository (`NICOTINA_TEST_INSTANCE`,
+`NICOTINA_TEST_USER`, `NICOTINA_TEST_PASSWORD`) and types the password through a tmux buffer.
+It covers a wrong password, the profile and balance, resuming the session, and sign-out. Use a
+test instance and an account made for it, never a person's account.
+
+```bash
+NICOTINA_LIVE_ENV=~/.config/nicotina/dev.tx.wtf-test-account.env tests/live.sh
+```
+
+**TODO: CI.** A GitHub Actions job that runs `tests/run.sh` (and `tests/local.sh`) needs
+published `ari` and `arigl` packages with the pull requests above; it comes once they publish.
 
 ## What it talks to
 
