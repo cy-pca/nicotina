@@ -174,7 +174,10 @@ on_tick: |
                   "handle" (handle (text (opt p "username" "")))
                   "header" (header (handle (text (opt p "username" ""))) (text (opt p "name" "")))
                   "name" (opt p "name" "")
-                  "email" (opt p "email" "")
+                  ;; A brokered account's local email is a placeholder in .invalid; its real
+                  ;; address is its home instance's. Others are cut to the value column.
+                  "email" (let ((e (text (opt p "email" ""))))
+                            (if (string.ends-with e ".invalid") "-" (clip e 51)))
                   "email_verified" (if (opt p "email_verified" nil) "yes" "no")
                   "two_factor" (if (opt p "login_2fa_email_enabled" nil) "on" "off")
                   "joined" (string.substring (text (opt p "created_time" "")) 0 10)

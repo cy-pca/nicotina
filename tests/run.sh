@@ -152,8 +152,8 @@ seed_store "$store" bob@peer.example
 snap snap-handle-brokered ftxui "$store"
 check "ari snapshot: a brokered account shows its home instance, not this one" \
   "$out/snap-handle-brokered.txt" "@bob@peer.example  Bob"
-check_not "ari snapshot: ... with nothing added" "$out/snap-handle-brokered.txt" \
-  "@bob@peer.example@"
+check_not "ari snapshot: ... with nothing added, and no placeholder email" \
+  "$out/snap-handle-brokered.txt" "@bob@peer.example@" "fedauth-"
 # The instance below a path: the handle and messages name the host alone.
 seed_store "$store" ada
 "$ARI" snapshot --width 80 --height 24 --net-allow "$base" --credential-store "$store" "$main" \
