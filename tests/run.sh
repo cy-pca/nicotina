@@ -23,57 +23,11 @@
 # appear anywhere. Exits non-zero if any check failed.
 set -uo pipefail
 
-here=$(cd "$(dirname "$0")" && pwd -P)
-root=$(dirname "$here")
-main=$root/share/nicotina/main.ari
-
-ARI=${ARI:-$(command -v ari || true)}
-ARIGL=${ARIGL:-$(command -v arigl || true)}
-if [ -z "$ARI" ] || [ ! -x "$ARI" ]; then
-  echo "tests: no ari (put it on PATH, or set ARI=/path/to/ari)" >&2
-  exit 2
-fi
-export LC_ALL=C.UTF-8 LANG=C.UTF-8 # FTXUI and tvision draw box glyphs only in a UTF-8 locale
-
-out=${NICOTINA_TEST_OUT:-$(mktemp -d "${TMPDIR:-/tmp}/nicotina-test.XXXXXX")}
-mkdir -p "$out"
-work=$(mktemp -d "${TMPDIR:-/tmp}/nicotina-work.XXXXXX") # credential stores: tokens live here
-sock="nicotina-test-$$" # a tmux server of our own, never the user's
+# shellcheck source=tests/lib.sh
+. "$(dirname "$0")/lib.sh"
 stub_pid=
-
-cleanup() {
-  tmux -L "$sock" kill-server 2>/dev/null || true
-  rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$sock" # a killed server can leave its socket
-  [ -n "$stub_pid" ] && kill "$stub_pid" 2>/dev/null
-  rm -rf "$work"
-}
-trap cleanup EXIT
-
-passed=0 failed=0 skipped=0
-pass() { passed=$((passed + 1)); printf 'ok    %s\n' "$1"; }
-fail() { failed=$((failed + 1)); printf 'FAIL  %s\n' "$1"; [ -n "${2:-}" ] && sed 's/^/      | /' "$2"; }
-skip() { skipped=$((skipped + 1)); printf 'skip  %s\n' "$1"; }
-
-# check NAME FILE TEXT...: FILE contains every TEXT, as fixed strings.
-check() {
-  local name=$1 file=$2 missing='' t
-  shift 2
-  for t in "$@"; do
-    grep -qF -- "$t" "$file" || missing="$missing [$t]"
-  done
-  if [ -z "$missing" ]; then pass "$name"; else
-    fail "$name: missing$missing" "$file"
-  fi
-}
-# check_not NAME FILE TEXT...: FILE contains none of them.
-check_not() {
-  local name=$1 file=$2 found='' t
-  shift 2
-  for t in "$@"; do
-    grep -qF -- "$t" "$file" && found="$found [$t]"
-  done
-  if [ -z "$found" ]; then pass "$name"; else fail "$name: found$found" "$file"; fi
-}
+stop_stub() { [ -z "$stub_pid" ] || kill "$stub_pid" 2>/dev/null; }
+on_exit stop_stub
 
 # --- the stub ---------------------------------------------------------------------------------
 
@@ -97,11 +51,6 @@ seed_store() { # seed_store PATH TOKEN-NAME [ORIGIN]
   mkdir -p "$(dirname "$1")" && chmod 700 "$(dirname "$1")"
   (umask 077 && printf 'txwtf %s %s\n' "${3:-$base}" "$(token "$2")" >"$1")
 }
-sessions_in() { # sessions_in STORE: how many credentials the host keeps there
-  [ -f "$1" ] || { echo 0; return; }
-  grep -cv '^#' "$1" || true
-}
-mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 
 # --- 1. the launcher --------------------------------------------------------------------------
 
@@ -223,53 +172,6 @@ fi
 
 # --- 5. bin/nicotina in tmux ------------------------------------------------------------------
 
-pane() { tmux -L "$sock" capture-pane -p -t app 2>/dev/null; }
-slug() { printf '%s' "$1" | tr -cs 'A-Za-z0-9' '-'; }
-keys() { tmux -L "$sock" send-keys -t app "$@"; sleep 0.3; }
-type_text() { tmux -L "$sock" send-keys -t app -l "$1"; sleep 0.3; }
-# start BACKEND XDG [nicotina args...]: the client in a 100x30 pane, as a person would run it.
-start() {
-  local backend=$1 xdg=$2 cmd _
-  shift 2
-  stop
-  cmd=$(printf '%q ' env TERM=xterm-256color XDG_CONFIG_HOME="$xdg" NICOTINA_ARI="$ARI" \
-    sh "$root/bin/nicotina" --terminal --backend "$backend" --instance "$base" "$@")
-  # Keep the pane after the client exits, so a crash shows on the screen.
-  for _ in 1 2 3; do
-    tmux -L "$sock" -f /dev/null new-session -d -s app -x 100 -y 30 \
-      "$cmd; echo \"[nicotina exited \$?]\"; sleep 60" 2>/dev/null && return 0
-    sleep 0.5
-  done
-  echo "tests: tmux would not start a session" >&2
-}
-stop() { # end the client and its tmux server, and wait until the server has gone
-  local _
-  tmux -L "$sock" kill-server 2>/dev/null || return 0
-  for _ in $(seq 50); do
-    tmux -L "$sock" has-session 2>/dev/null || return 0
-    sleep 0.1
-  done
-}
-# wait_for NAME TEXT [SECONDS]: until the pane shows TEXT; the screen goes to $out/tmux-NAME.txt.
-wait_for() {
-  local file text=$2 limit=${3:-10} _
-  file=$out/tmux-$(slug "$1").txt
-  for _ in $(seq $((limit * 10))); do
-    pane >"$file"
-    grep -qF -- "$text" "$file" && { sleep 0.3; pane >"$file"; return 0; }
-    sleep 0.1
-  done
-  return 1
-}
-step() { # step NAME TEXT CHECK-TEXT...: wait for TEXT, then check the screen
-  local name=$1 text=$2 file
-  file=$out/tmux-$(slug "$1").txt
-  shift 2
-  if wait_for "$name" "$text"; then check "$name" "$file" "$text" "$@"; else
-    fail "$name: no [$text] on the screen" "$file"
-  fi
-}
-
 if ! command -v tmux >/dev/null; then
   skip "bin/nicotina in tmux: no tmux"
 else
@@ -278,21 +180,16 @@ else
     store=$xdg/nicotina/credentials
     t="nicotina --terminal --backend $backend"
 
-    start "$backend" "$xdg"
+    start "$backend" "$xdg" "$base"
     step "$t: the sign-in form" "Sign in to TX.WTF" "Instance: $base"
     keys Tab; type_text ada; keys Tab; type_text "correct horse"; keys Tab; keys Enter
     step "$t: signed in, the profile and balance" "@ada  Ada Lovelace" "ada@example.org" \
       "SCRIP    1234.56789" "\$1234.57" "41 days" "kept on this device"
-    if [ "$(sessions_in "$store")" = 1 ] && [ "$(mode_of "$store")" = 600 ] &&
-      [ "$(mode_of "$(dirname "$store")")" = 700 ]; then
-      pass "$t: the host keeps the session, owner-only (0600 in 0700)"
-    else
-      fail "$t: the store is not one owner-only session ($(mode_of "$store"))"
-    fi
+    check_store "$t: the host keeps the session, owner-only (0600 in 0700)" "$store"
     check_not "$t: the password is not on the screen" \
       "$out/tmux-$(slug "$t: signed in, the profile and balance").txt" "correct horse"
 
-    start "$backend" "$xdg"
+    start "$backend" "$xdg" "$base"
     step "$t: started again, still signed in" "@ada  Ada Lovelace" "1234.56789"
     keys Tab; keys Tab; keys Enter # Refresh, Sign out
     step "$t: signed out" "Signed out." "Sign in to TX.WTF" "Username: [ada]"
@@ -303,7 +200,7 @@ else
     keys Tab; keys Tab; type_text "not the password"; keys Tab; keys Enter
     step "$t: a wrong password" "Wrong username or password." "Sign in to TX.WTF"
 
-    start "$backend" "$xdg" -- --user grace
+    start "$backend" "$xdg" "$base" -- --user grace
     step "$t: --user fills in the form" "Username: [grace]"
     keys Tab; keys Tab; type_text "correct horse"; keys Tab; keys Enter
     step "$t: the emailed code is asked for" "Two-step verification" "Signing in as grace" \
@@ -315,7 +212,7 @@ else
     keys Tab; keys Tab; keys Enter
     step "$t: grace signs out" "Signed out."
 
-    start "$backend" "$xdg" -- --user linus
+    start "$backend" "$xdg" "$base" -- --user linus
     step "$t: the form for linus" "Username: [linus]"
     keys Tab; keys Tab; type_text "correct horse"; keys Tab; keys Enter
     step "$t: a password that must change first" "Change your password at 127.0.0.1" \
@@ -329,14 +226,7 @@ fi
 
 # --- the tokens -------------------------------------------------------------------------------
 
-if grep -rlF -f "$work/tokens" "$out" >"$work/leaks" 2>/dev/null; then
-  fail "no session token in any output: found in $(tr '\n' ' ' <"$work/leaks")"
-else
-  pass "no session token in any output ($(find "$out" -type f | wc -l | tr -d ' ') files)"
-fi
+no_secrets_in_output "$work/tokens"
 check "the stub refused the expired token and took the valid ones" "$out/stub.log" \
   '"authorization": "rejected"' '"authorization": "valid"'
-
-echo
-echo "$passed passed, $failed failed, $skipped skipped; outputs in $out"
-[ "$failed" = 0 ]
+finish
