@@ -43,6 +43,7 @@ stub_pid=
 
 cleanup() {
   tmux -L "$sock" kill-server 2>/dev/null || true
+  rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$sock" # a killed server can leave its socket
   [ -n "$stub_pid" ] && kill "$stub_pid" 2>/dev/null
   rm -rf "$work"
 }
