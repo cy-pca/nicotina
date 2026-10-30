@@ -53,6 +53,8 @@ cp "$work/password" "$work/secrets"
 
 # --- the instance ------------------------------------------------------------------------------
 
+cd "$work" || exit 2 # txwtf makes an uploads/ directory wherever it runs
+
 db=$work/txwtf.db
 "$txwtf" init-db --db-file "$db" --skip-root-user >"$out/txwtf-init-db.txt" 2>&1 ||
   { cat "$out/txwtf-init-db.txt" >&2; exit 2; }
@@ -69,7 +71,7 @@ base=http://127.0.0.1:$port
 head -c 32 /dev/urandom | base64 >"$work/jwt" && cat "$work/jwt" >>"$work/secrets"
 # start_backend LIMIT LOG: txwtf's server, its login rate limit (10 a minute) on or off.
 start_backend() {
-  (cd "$work" && TXWTF_RATE_LIMIT_ENABLED=$1 exec "$txwtf" backend -h 127.0.0.1 -p "$port" \
+  (TXWTF_RATE_LIMIT_ENABLED=$1 exec "$txwtf" backend -h 127.0.0.1 -p "$port" \
     --db-file "$db" --jwt-secret "$(cat "$work/jwt")" >"$out/$2" 2>&1) &
   backend_pid=$!
   for _ in $(seq 240); do

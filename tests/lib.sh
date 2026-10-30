@@ -16,10 +16,12 @@ if [ -z "$ARI" ] || [ ! -x "$ARI" ]; then
   echo "tests: no ari (put it on PATH, or set ARI=/path/to/ari)" >&2
   exit 2
 fi
+case $ARI in /*) ;; *) ARI=$PWD/$ARI ;; esac
+case $ARIGL in /* | '') ;; *) ARIGL=$PWD/$ARIGL ;; esac
 export LC_ALL=C.UTF-8 LANG=C.UTF-8 # FTXUI and tvision draw box glyphs only in a UTF-8 locale
 
 out=${NICOTINA_TEST_OUT:-$(mktemp -d "${TMPDIR:-/tmp}/nicotina-test.XXXXXX")}
-mkdir -p "$out"
+mkdir -p "$out" && out=$(cd "$out" && pwd -P)
 work=$(mktemp -d "${TMPDIR:-/tmp}/nicotina-work.XXXXXX")
 sock="nicotina-test-$$"
 
