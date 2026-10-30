@@ -3,5 +3,5 @@
   "src": "main.ari",
   "src_param": false,
   "flags": ["--net"],
-  "args": ["--instance", "https://tx.wtf"]
+  "args": ["--instance", "{origin}"]
 }

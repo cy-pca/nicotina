@@ -158,9 +158,8 @@ on the instance itself:
 
 `/apps/nicotina/` is the ImGui client and `/apps/nicotina/ari.html` the terminal one. The
 config passes `--net`, which lets the document reach the page's own origin and no other,
-and `--instance` for that origin. The pages substitute `{origin}` only in host flags, not in
-document arguments, so an instance other than tx.wtf changes `args` in its copy. A browser
-keeps the token in memory, so a reload signs out. This path is not tested yet: it needs
+and `--instance {origin}`, which the pages replace with that origin, so the same config
+serves every instance. A browser keeps the token in memory, so a reload signs out. This path is not tested yet: it needs
 txwtf to serve `/apps/` (T2 in txwtf's roadmap) and a wasm build with the pull requests above.
 
 ## Tests
