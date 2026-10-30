@@ -1,6 +1,6 @@
-# txwtf-ariadne
+# nicotina
 
-A client for [TX.WTF](https://tx.wtf) instances, written as
+**nicotina** is a client for [TX.WTF](https://tx.wtf) instances, written as
 [Ariadne](https://github.com/transfix/libcvc/blob/master/docs/ARIADNE.md)
 documents. The same documents run as a native desktop app and in the browser.
 
@@ -14,21 +14,21 @@ in **unmodified** Ariadne hosts from [cvcpkg](https://cvcpkg.org), with no
 custom host binary, compiled-in widget or patch.
 
 ```bash
-cvcpkg install txwtf-ariadne
-txwtf-ariadne --instance https://tx.wtf
+cvcpkg install nicotina
+nicotina --instance https://tx.wtf
 ```
 
-The `txwtf-ariadne` package depends on `ari` and `arigl`. It installs:
+The `nicotina` package depends on `ari` and `arigl`. It installs:
 
-- `share/txwtf-ariadne/`: the documents, components and a network policy file.
-- `bin/txwtf-ariadne` (`txwtf-ariadne.cmd` on Windows): a launcher script. It
+- `share/nicotina/`: the documents, components and a network policy file.
+- `bin/nicotina` (`nicotina.cmd` on Windows): a launcher script. It
   runs `arigl` with the client's main document and the host flags the client
   needs, such as allowing network access to the chosen instance and nothing
   else. When there's no display, or with `--terminal`, it runs `ari run` in
   the terminal instead.
 
 In the browser, an instance serves the same documents next to the generic arigl
-wasm shell, at `https://<instance>/apps/txwtf/`.
+wasm shell, at `https://<instance>/apps/nicotina/`.
 
 ## What it talks to
 
@@ -44,10 +44,10 @@ into state that Ariadne replicates or logs.
 ## Layout
 
 ```
-share/txwtf-ariadne/   the .ari documents and components (from M0)
-bin/                   launcher scripts (from M0)
-recipe/                the cvcpkg recipe (M4)
-docs/ROADMAP.md        milestones and the libcvc features each one needs
+share/nicotina/   the .ari documents and components (from M0)
+bin/              launcher scripts (from M0)
+recipe/           the cvcpkg recipe (M4)
+docs/ROADMAP.md   milestones and the libcvc features each one needs
 ```
 
 ## License
