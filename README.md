@@ -2,7 +2,8 @@
 
 **nicotina** is a client for [TX.WTF](https://tx.wtf) instances, written as
 [Ariadne](https://github.com/transfix/libcvc/blob/master/docs/ARIADNE.md)
-documents. The same documents run as a native desktop app and in the browser.
+documents. The same documents run as a native desktop app, **in the terminal**, and in
+the browser.
 
 > **Status: pre-M0.** Nothing runs yet. The first milestone is waiting on
 > generic host features in libcvc; see [docs/ROADMAP.md](docs/ROADMAP.md).
@@ -21,11 +22,18 @@ nicotina --instance https://tx.wtf
 The `nicotina` package depends on `ari` and `arigl`. It installs:
 
 - `share/nicotina/`: the documents, components and a network policy file.
-- `bin/nicotina` (`nicotina.cmd` on Windows): a launcher script. It
-  runs `arigl` with the client's main document and the host flags the client
+- `bin/nicotina` (`nicotina.cmd` on Windows): a launcher script. It runs the
+  client's main document in a stock host, passing the host flags the client
   needs, such as allowing network access to the chosen instance and nothing
-  else. When there's no display, or with `--terminal`, it runs `ari run` in
-  the terminal instead.
+  else:
+  - `arigl` (ImGui) on a desktop;
+  - `ari run` in a terminal. It runs over SSH, uses either of ari's terminal
+    backends (FTXUI, tvision), and is selected with `--terminal` or picked
+    automatically when there's no display.
+
+**The terminal is a first-class target, not a fallback.** Every feature has to
+work and be tested in `ari` as well as `arigl`. CI renders frames with
+`ari snapshot`.
 
 In the browser, an instance serves the same documents next to the generic arigl
 wasm shell, at `https://<instance>/apps/nicotina/`.
