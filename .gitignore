@@ -1,0 +1,5 @@
+# Local build and install prefixes
+build/
+deps/
+.cvcpkg/
+*.log
