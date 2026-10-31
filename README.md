@@ -274,7 +274,8 @@ The client uses only an instance's public API:
   what you type still passes through the document's state until it is sent; the document
   clears it then. A host-held secret field, which would keep it out of state altogether, is
   still to come in libcvc. An older host ignores `password:` and shows the text.
-- Nothing has focus when a form opens; press Tab to reach the first field.
+- A form's first field has the focus when it opens (`autofocus: true`, transfix/libcvc#906, in
+  libcvc master). An older host gives it none; press Tab to reach it.
 - The spinner beside "Signing in...", "Refreshing..." and the like needs libcvc's `spinner`
   widget (transfix/libcvc#915, open). A host without it shows the text alone.
 - The profile's pictures are placeholders: the banner is the plain colour the web app shows
