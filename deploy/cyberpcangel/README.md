@@ -24,8 +24,13 @@ session token in memory (`--credential-store` is refused there), so a reload sig
 
 **CORS.** The instance must allow the origin `https://cyberpcangel.com`. txwtf reads its allowlist
 from `TXWTF_CORS_ORIGINS`; docker deployments pass it to the backend container from
-atx-crypto-club/txwtf#312 on. Until tx.wtf runs that with `TXWTF_CORS_ORIGINS=https://cyberpcangel.com`
-in its `.env.production`, the browser blocks the sign-in (`Disallowed CORS origin`).
+atx-crypto-club/txwtf#312 on. tx.wtf does: `TXWTF_CORS_ORIGINS=https://cyberpcangel.com` is in its
+`.env.production`, and prod runs #312 (prod 5c04fff, from 2026-10-30). Checked on 2026-10-31:
+- the preflights for `/user/login`, `/user/login/2fa`, `/user/`, `/billing/scrip/balance` and
+  `/user/logout` answer 200, allowing this origin, while an unlisted origin still gets 400;
+- a sign-in from the terminal page reaches tx.wtf.
+
+Without CORS the browser blocks the sign-in, and the page says "Can't reach tx.wtf".
 
 To use another instance, change both URLs in `ariadne.config.json`. The pages' Content-Security-Policy
 (`connect-src`) allows tx.wtf and dev.tx.wtf; another instance also needs adding to `CONNECT` in
