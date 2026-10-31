@@ -28,6 +28,7 @@ meta:
 args:
   instance: {type: string, default: "https://tx.wtf", help: "The TX.WTF instance (its base URL)"}
   user: {type: string, help: "Fill in this username on the sign-in form"}
+  start: {type: string, default: feed, help: "The first screen once signed in: feed or profile"}
 
 # Without --net (or --net-allow) the host has no http-request and keeps no credentials, and the
 # load fails here, naming what is missing.
@@ -36,12 +37,14 @@ requires:
   - net.auth
   - {name: net.auth.persist, optional: true}
   - {name: spinner, optional: true}    # turns while a request is out; without it, the text alone
+  - {name: open-url, optional: true}   # "In browser" on a post; without it, the post's URL shown
   - json-parse
   - state-set-tree
 
 import:
   - ui/signin.ari
   - ui/home.ari
+  - ui/feed.ari
 
 init: |
   (set base (string.trim (state-get "args.instance")))
@@ -67,6 +70,10 @@ init: |
   (while (< (string.length row) 74) (set row (str-concat row "█")))
   (state-set "ui.banner_row" row)
   (state-set "ui.tab" "Posts")
+  (state-set "ui.start" (if (= (string.lower (state-get "args.start")) "profile") "profile" "feed"))
+  (state-set-tree "feed" (dict "items" (list) "mode" "Following" "more" "" "before" "" "empty" ""
+                               "tail" "" "who" ""))
+  (state-set-tree "post" (dict "lines" (list) "media" (list)))
   (state-set-tree "tab" (dict "rows" (list " " " " " " " " " ") "offset" 0 "more" "" "page" ""))
   (state-set "login.username" (if (state-exists "args.user") (state-get "args.user") ""))
   (state-set "login.password" "")
@@ -93,7 +100,12 @@ init: |
 #   login    POST /user/login, capturing the token
 #   verify   POST /user/login/2fa with the emailed code, capturing the token
 #   back     leave the code screen for the sign-in form
-#   refresh  GET /user/ and /billing/scrip/balance again, and the tab's first page
+#   refresh  on the feed: GET /user/ and the feed's first page again; on the profile: GET
+#            /user/, /billing/scrip/balance and the tab's first page again
+#   profile  the profile (the balance, the tab's first page); to-feed, back to the feed
+#   feed     the feed feed.mode names (Following, Everyone): its first page
+#   more     the feed's next page, added below
+#   open     the post post.want names, whole (GET /social/posts/{id}); back-to-feed leaves it
 #   tab      the tab ui.tab names: its first page (Posts, Replies), or nothing to load (Balances)
 #   older    the tab's next page; newer, the one before
 #   signout  POST /user/logout, then drop the credential
@@ -167,6 +179,9 @@ on_tick: |
           (state-set-tree "me" (dict))
           (state-set-tree "scrip" (dict))
           (state-set "ui.tab" "Posts") ;; the next profile opens at Posts, as the web app's does
+          (state-set-tree "feed" (dict "items" (list) "mode" "Following" "more" "" "before" ""
+                                       "empty" "" "tail" "" "who" ""))
+          (state-set-tree "post" (dict "lines" (list) "media" (list)))
           (state-set-tree "tab" (dict "rows" (list " " " " " " " " " ") "offset" 0 "more" "" "page" ""))
           (state-set "ui.screen" "signin")
           (if is-error (fail msg) (say msg))))
@@ -287,10 +302,10 @@ on_tick: |
                     "header_url" (picture-url (opt p "header_image_url" nil))
                     "card_url" (picture-url (opt p "card_image_url" nil))
                     "avatar_box" (avatar-box (initials (if (= name "") user name)))
-                    ;; Beside the action bar's buttons: [ Refresh ][ Sign out ] take 23 columns.
+                    ;; Beside the action bar's buttons: [ Feed ][ Refresh ][ Sign out ] take 31 columns.
                     "groups_line" (pad (if (= (length groups) 0) " "
                                          (str-concat "Groups: " (string.join groups ", ")))
-                                       (- WIDE 23))
+                                       (- WIDE 31))
                     "groups" groups)))))
       (defun show-balance (b)
         (state-set-tree "scrip"
@@ -349,30 +364,234 @@ on_tick: |
                                         (str (status r)) ")."))))
                   nil))))))
 
-      ;; The profile, then the balance, then the tab's first page. True when all came back.
-      (defun load-home ()
+      ;; Who is signed in: GET /user/. True when it came back.
+      (defun load-me ()
         (let ((r (get-authed "/user/")))
           (if (ok? r)
-            (begin
-              (show-profile (reply-json r))
-              (set b (get-authed "/billing/scrip/balance"))
-              (state-set "ui.screen" "home")
-              (if (ok? b)
-                (begin
-                  (show-balance (reply-json b))
-                  (state-set "tab.offset" 0)
-                  (load-tab))
-                (begin
-                  (state-set-tree "scrip" (dict "symbol" "SCRIP" "balance" "unavailable" "value" "-"))
-                  (if (= (status b) 0) (unreachable b)
-                    (fail (str-concat "The SCRIP balance isn't available (HTTP "
-                                      (str (status b)) ").")))
-                  nil)))
+            (begin (show-profile (reply-json r)) true)
             (begin
               (if (session-over? r) (session-over)
                 (if (= (status r) 0) (unreachable r)
                   (fail (str-concat "Couldn't load your profile (HTTP " (str (status r)) ")."))))
               nil))))
+      ;; The rest of the profile: the balance, then the tab's first page.
+      (defun load-profile ()
+        (let ((b (get-authed "/billing/scrip/balance")))
+          (if (ok? b)
+            (begin
+              (show-balance (reply-json b))
+              (state-set "tab.offset" 0)
+              (load-tab))
+            (begin
+              (state-set-tree "scrip" (dict "symbol" "SCRIP" "balance" "unavailable" "value" "-"))
+              (if (session-over? b) (session-over)
+                (if (= (status b) 0) (unreachable b)
+                  (fail (str-concat "The SCRIP balance isn't available (HTTP "
+                                    (str (status b)) ")."))))
+              nil))))
+
+      ;; --- the feed: cards ---------------------------------------------------------------
+      ;; A card's text is CARDW columns wide: the window's inside, less its scroll bar and the
+      ;; card's frame.
+      (set CARDW 70)
+      (set FEEDPAGE 10)
+      ;; s's words in lines of at most n columns; a longer word is cut.
+      (defun wrap (s n)
+        (begin
+          (set lines (list))
+          (set line "")
+          (for w (string.split s " ")
+            (if (!= w "")
+              (begin
+                (while (> (string.length w) n)
+                  (if (!= line "") (begin (set lines (append lines line)) (set line "")))
+                  (set lines (append lines (string.substring w 0 n)))
+                  (set w (string.substring w n (string.length w))))
+                (if (= line "")
+                  (set line w)
+                  (if (<= (+ (string.length line) 1 (string.length w)) n)
+                    (set line (str-concat line " " w))
+                    (begin (set lines (append lines line)) (set line w)))))))
+          (if (!= line "") (set lines (append lines line)))
+          lines))
+      ;; Paragraphs, for a post shown whole: the rich editor's </p> and <br> end one.
+      (defun paragraphs (s)
+        (begin
+          (set s (text s))
+          (for b (list "</p>" "<br>" "<br/>" "<br />") (set s (string.replace s b "\n")))
+          (collections.filter (collections.map (string.split s "\n") one-line)
+                              (lambda (p) (!= p "")))))
+      (defun nth-or (l k) (if (> (length l) k) (nth l k) ""))
+      (defun posted-at (iso) ;; 2026-10-30T22:40:00 -> 2026-10-30 22:40 (txwtf's time, UTC)
+        (let ((stamp (text iso)))
+          (if (>= (string.length stamp) 16)
+            (str-concat (string.substring stamp 0 10) " " (string.substring stamp 11 5))
+            stamp)))
+      (defun human-size (n)
+        (let ((n (int n)))
+          (if (< n 1024) (str-concat (text n) " B")
+            (if (< n 1048576) (str-concat (text (int (math.round (/ n 1024)))) " KB")
+              (str-concat (text (/ (int (math.round (/ n 104857.6))) 10)) " MB")))))
+      ;; txwtf gives an attachment's mime type, never a kind.
+      (defun kind (mime)
+        (if (string.starts-with mime "image/") "image"
+          (if (string.starts-with mime "video/") "video"
+            (if (string.starts-with mime "audio/") "audio" "file"))))
+      (defun media-row (a)
+        (if (or (opt a "deleted" nil) (= (opt a "url" "") ""))
+          "[deleted attachment]"
+          (let ((alt (one-line (opt a "alt_text" ""))))
+            (str-concat "[" (kind (text (opt a "mime_type" ""))) "] " (text (opt a "filename" ""))
+                        " · " (human-size (opt a "file_size" 0))
+                        (if (= alt "") "" (str-concat " · " alt))))))
+      (defun counts-of (q)
+        (str-concat "↩" (text (opt q "reply_count" 0)) " ⇄" (text (opt q "repost_count" 0))
+                    " ♥" (text (opt q "reaction_count" 0)) " · " (text (opt q "view_count" 0))
+                    " views"))
+      (defun author-name (a)
+        (let ((n (text (opt a "name" ""))))
+          (if (= n "") (text (opt a "username" "?")) n)))
+      ;; What a card shows of a post: a repost shows the post it reposts, under a note.
+      (defun shown (q)
+        (let ((r (opt q "reposted_post" nil)))
+          (if (= (type-of r) "dict") r q)))
+      (defun repost-note (q)
+        (if (= (type-of (opt q "reposted_post" nil)) "dict")
+          (clip (str-concat "⇄ " (author-name (opt q "author" (dict))) " reposted") CARDW)
+          ""))
+      ;; A repost's own words (a quote) go before the post it reposts.
+      (defun body-of (q)
+        (let ((own (one-line (opt q "content" "")))
+              (orig (one-line (opt (shown q) "content" ""))))
+          (if (= (type-of (opt q "reposted_post" nil)) "dict")
+            (if (= own "") orig (str-concat own " | " orig))
+            own)))
+      (defun web-of (q) (str-concat (state-get "app.origin") "/app/post/" (text (opt q "id" 0))))
+      (defun feed-card (q)
+        (let ((p (shown q))
+              (a (opt (shown q) "author" (dict))))
+          (begin
+            (set lines (wrap (body-of q) CARDW))
+            ;; three lines at most: the third ends in ... when there is more
+            (if (> (length lines) 3)
+              (set lines (list (nth lines 0) (nth lines 1)
+                               (clip (str-concat (nth lines 2) " " (nth lines 3)) CARDW))))
+            (set media (opt p "attachments" (list)))
+            (if (= (type-of media) "nil") (set media (list)))
+            (set ini (str-concat "(" (initials (author-name a)) ") "))
+            (dict "id" (opt q "id" 0)
+                  "web" (web-of q)
+                  "note" (repost-note q)
+                  "avatar" ini
+                  "avatar_url" (picture-url (opt a "avatar_url" nil))
+                  "head" (clip (str-concat (author-name a) "  " (handle (text (opt a "username" "?")))
+                                           " · " (posted-at (opt p "created_at" "")))
+                               (- CARDW (string.length ini)))
+                  "l0" (nth-or lines 0)
+                  "l1" (nth-or lines 1)
+                  "l2" (nth-or lines 2)
+                  "m0" (if (> (length media) 0) (clip (media-row (nth media 0)) CARDW) "")
+                  "m0_url" (if (> (length media) 0) (picture-url (opt (nth media 0) "url" nil)) "")
+                  "m0_kind" (if (> (length media) 0) (kind (text (opt (nth media 0) "mime_type" ""))) "")
+                  "m1" (if (> (length media) 1) (clip (media-row (nth media 1)) CARDW) "")
+                  "m1_url" (if (> (length media) 1) (picture-url (opt (nth media 1) "url" nil)) "")
+                  "m1_kind" (if (> (length media) 1) (kind (text (opt (nth media 1) "mime_type" ""))) "")
+                  "mmore" (if (> (length media) 2)
+                            (str-concat "+" (text (- (length media) 2)) " more (Open shows them all)")
+                            "")
+                  ;; the buttons follow the counts: [ Open ] and, with open-url, [ In browser ]
+                  "counts" (pad (counts-of q) (- CARDW (if (has? "open-url") 22 8)))))))
+
+      ;; A page of the feed: Following is GET /social/timeline/home, Everyone the public one.
+      ;; mode=latest pages cleanly by before_id (the ranked order re-ranks each page). The
+      ;; first page replaces the cards; a later one is added below them.
+      (defun load-feed (first)
+        (let ((everyone (= (state-get "feed.mode") "Everyone")))
+          (let ((r (get-authed (str-concat "/social/timeline/" (if everyone "public" "home")
+                                           "?mode=latest&limit=" (text FEEDPAGE)
+                                           (if first ""
+                                             (str-concat "&before_id=" (state-get "feed.before")))))))
+            (if (ok? r)
+              (let ((b (reply-json r)))
+                (begin
+                  (set cards (collections.map (opt b "posts" (list)) feed-card))
+                  (if first
+                    (state-set-tree "feed.items" cards)
+                    (begin
+                      (set n (int (state-get "feed.items")))
+                      (for c cards
+                        (state-set-tree (str-concat "feed.items." (text n)) c)
+                        (set n (+ n 1)))
+                      (state-set "feed.items" n)))
+                  (set total (int (state-get "feed.items")))
+                  (state-set "feed.before" (text (opt b "next_before_id" "")))
+                  (state-set "feed.more" (if (opt b "has_more" nil) "1" ""))
+                  (state-set "feed.empty"
+                    (if (> total 0) ""
+                      (if everyone "No posts yet."
+                        "Your feed is empty. Follow people, or Show: Everyone.")))
+                  (state-set "feed.tail"
+                    (str-concat "  " (text total) (if (= total 1) " post" " posts")
+                                (if (= (state-get "feed.more") "1") "" "; no more")))
+                  true))
+              (begin
+                (if (session-over? r) (session-over)
+                  (if (= (status r) 0) (unreachable r)
+                    (fail (str-concat "Couldn't load the feed (HTTP " (str (status r)) ")."))))
+                nil)))))
+
+      ;; One post in full: GET /social/posts/{id}, which also has its reactions.
+      (defun show-post (q)
+        (let ((p (shown q)))
+          (begin
+            (set lines (list))
+            (for para (if (= (type-of (opt q "reposted_post" nil)) "dict")
+                        (append (paragraphs (opt q "content" "")) (body-of (dict "content" (opt p "content" ""))))
+                        (paragraphs (opt q "content" "")))
+              (for l (wrap para WIDE) (set lines (append lines l))))
+            (set media (opt p "attachments" (list)))
+            (if (= (type-of media) "nil") (set media (list)))
+            (set reactions (collections.map (opt q "reactions_summary" (list))
+                             (lambda (e) (str-concat ":" (text (opt e "emoji" "?")) ": "
+                                                     (text (opt e "count" 0))))))
+            (state-set-tree "post"
+              (dict "id" (opt q "id" 0)
+                    "web" (web-of q)
+                    "web_note" (if (has? "open-url") "" (clip (str-concat "  " (web-of q)) (- WIDE 9)))
+                    "note" (repost-note q)
+                    "avatar" (str-concat "(" (initials (author-name (opt p "author" (dict)))) ") ")
+                    "head" (clip (str-concat (author-name (opt p "author" (dict))) "  "
+                                             (handle (text (opt (opt p "author" (dict)) "username" "?")))
+                                             " · " (posted-at (opt p "created_at" "")))
+                                 (- WIDE 6))
+                    "lines" (if (= (length lines) 0) (list "(no text)") lines)
+                    "media" (collections.map media
+                              (lambda (m) (dict "row" (clip (media-row m) WIDE)
+                                                "url" (picture-url (opt m "url" nil))
+                                                "kind" (kind (text (opt m "mime_type" "")))
+                                                "where" (clip (str-concat "  " (picture-url (opt m "url" nil)))
+                                                              WIDE))))
+                    "counts" (counts-of q)
+                    "reactions" (if (= (length reactions) 0) ""
+                                  (clip (str-concat "Reactions: " (string.join reactions "  ")) WIDE)))))))
+
+      ;; After signing in: who it is, then the feed, the first screen (as the web app's home),
+      ;; or the profile the first time when --start profile asks for it.
+      (defun load-home ()
+        (if (load-me)
+          (begin
+            (state-set "feed.who" (pad (state-get "me.handle") (- WIDE 35)))
+            (if (= (state-get "ui.start") "profile")
+              (begin
+                (state-set "ui.start" "feed")
+                (set ok (load-profile))
+                (state-set "ui.screen" "home")
+                ok)
+              (begin
+                (set ok (load-feed true))
+                (state-set "ui.screen" "feed")
+                ok)))
+          nil))
 
       (defun signed-in-msg () (str-concat "Signed in to " (state-get "app.host") "."))
 
@@ -415,7 +634,7 @@ on_tick: |
           ;; and/or are functions here, not special forms: they evaluate every argument.
           (if (if (net-auth-has? "txwtf" (base)) (load-home) nil)
             (say (signed-in-msg))
-            (state-set "ui.screen" (if (= (state-get "ui.screen") "home") "home" "signin")))
+            (state-set "ui.screen" (if (= (state-get "ui.screen") "boot") "signin" (state-get "ui.screen"))))
         (if (= cmd "login")
           (let ((u (string.trim (state-get "login.username")))
                 (p (state-get "login.password")))
@@ -437,10 +656,40 @@ on_tick: |
                                         true)))))
         (if (= cmd "back")
           (to-signin "" nil)
-        (if (= cmd "refresh")
+        (if (= cmd "refresh") ;; the screen it was pressed on: the profile, or the feed
           (begin
             (say "Refreshing...")
-            (if (load-home) (say (str-concat "Updated. " (signed-in-msg)))))
+            (if (= (state-get "ui.screen") "home")
+              (if (and (load-me) (load-profile)) (say (str-concat "Updated. " (signed-in-msg))))
+              (if (load-home) (say (str-concat "Updated. " (signed-in-msg))))))
+        (if (= cmd "profile")
+          (begin
+            (say "Loading your profile...")
+            (if (load-profile) (say ""))
+            (if (= (state-get "ui.screen") "feed") (state-set "ui.screen" "home")))
+        (if (= cmd "to-feed")
+          (begin (state-set "ui.screen" "feed") (say ""))
+        (if (= cmd "feed") ;; Following or Everyone
+          (begin
+            (say (str-concat "Loading " (if (= (state-get "feed.mode") "Everyone")
+                                          "everyone's posts..." "your feed...")))
+            (if (load-feed true) (say "")))
+        (if (= cmd "more")
+          (if (= (state-get "feed.more") "1")
+            (begin
+              (say "Loading more...")
+              (state-set "feed.tail" "  Loading more...")
+              (if (load-feed nil) (say "")))
+            (say "That's the whole feed."))
+        (if (= cmd "open")
+          (let ((r (get-authed (str-concat "/social/posts/" (text (state-get "post.want"))))))
+            (if (ok? r)
+              (begin (show-post (reply-json r)) (state-set "ui.screen" "post") (say ""))
+              (if (session-over? r) (session-over)
+                (if (= (status r) 0) (unreachable r)
+                  (fail (str-concat "Couldn't open the post (HTTP " (str (status r)) ")."))))))
+        (if (= cmd "back-to-feed")
+          (begin (state-set "ui.screen" "feed") (say ""))
         (if (or (= cmd "tab") (= cmd "older") (= cmd "newer"))
           (let ((step (if (= (state-get "ui.tab") "Posts") PAGE 20))
                 (off (int (state-get "tab.offset"))))
@@ -455,7 +704,7 @@ on_tick: |
           (begin
             (http-request "POST" (str-concat (base) "/user/logout") (dict "auth" "txwtf"))
             (net-auth-forget "txwtf")
-            (to-signin "Signed out." nil)))))))))
+            (to-signin "Signed out." nil)))))))))))))))
         ;; Nothing in here may raise: an exception this resident doesn't catch ends it, and the
         ;; buttons with it.
         (catch (e)
@@ -470,12 +719,22 @@ windows_menu: false
 menubar:
   - menu: nicotina
     items:
+      - menu_item: Home feed
+        on: (state-set "ui.cmd" "to-feed")
+        enabled_when: (and (or (= (state-get "ui.screen") "home") (= (state-get "ui.screen") "post"))
+                           (!= (state-get "ui.busy") "1"))
+      - menu_item: Profile
+        on: (state-set "ui.cmd" "profile")
+        enabled_when: (and (= (state-get "ui.screen") "feed") (!= (state-get "ui.busy") "1"))
       - menu_item: Refresh
         on: (state-set "ui.cmd" "refresh")
-        enabled_when: (and (= (state-get "ui.screen") "home") (!= (state-get "ui.busy") "1"))
+        enabled_when: (and (or (= (state-get "ui.screen") "home") (= (state-get "ui.screen") "feed"))
+                           (!= (state-get "ui.busy") "1"))
       - menu_item: Sign out
         on: (state-set "ui.cmd" "signout")
-        enabled_when: (and (= (state-get "ui.screen") "home") (!= (state-get "ui.busy") "1"))
+        enabled_when: (and (or (= (state-get "ui.screen") "home") (= (state-get "ui.screen") "feed")
+                               (= (state-get "ui.screen") "post"))
+                           (!= (state-get "ui.busy") "1"))
       - separator
       - menu_item: Quit
         on: quit
@@ -484,5 +743,7 @@ windows:
   - include: starting_window
   - include: signin_window
   - include: twofactor_window
+  - include: feed_window
+  - include: post_window
   - include: home_window
   - include: details_window

@@ -16,9 +16,18 @@ and with the errors tx.wtf answers that the schema doesn't list:
   GET  /billing/scrip/balance  Bearer -> ScripBalanceResponse
   GET  /social/timeline/user/{id}?include_replies=&limit=&offset=
                              Bearer -> TimelineResponse: that user's posts, newest first
+  GET  /social/timeline/home?limit=&before_id=&mode=, /social/timeline/public?...
+                             Bearer -> TimelineResponse: the posts of the people the user
+                             follows (ada follows three authors; grace no one), or everyone's,
+                             newest first, paged by before_id. Their attachments are pictures,
+                             a video, a recording and a PDF; one post is a repost, one is paid
+                             for and withheld
+  GET  /social/posts/{id}    Bearer -> PostResponse, with its reactions_summary
   GET  /uploads/..., /static/img/...
                              no auth (as txwtf's /uploads mount): a small PNG drawn here, the
-                             same picture for the same path; 404 for a path no profile names
+                             same picture for the same path, or a recording from
+                             tests/fixtures (engine.mp4, lecture.ogg); 404 for a path nothing
+                             names
 
 Accounts (password "correct horse" for all of them):
 
@@ -200,30 +209,155 @@ POSTS = {
 }
 
 
-def post_response(username, post):
-    pid, created, content, reply_to, (replies, reposts, reactions, views) = post
-    u = USERS[username]
+# Authors in the feed who are not accounts here: no password, no token.
+AUTHORS = {
+    "charles": {"id": 7, "name": "Charles Babbage", "avatar_url": "/uploads/u7/avatar-c4b1.png",
+                "status": "busy", "country": "GB"},
+    "alan@peer.example": {"id": 8, "name": "Alan Turing", "status": "online", "country": "GB"},
+}
+
+# Attachments, as txwtf lists them (get_post_attachments): a mime type, never a kind, and
+# root-relative /uploads URLs that need no sign-in. FILES holds what /uploads serves for each.
+FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
+FILES = {
+    "/uploads/media/engine-diagram.png": ("image/png", None),
+    "/uploads/media/moth.png": ("image/png", None),
+    "/uploads/media/relay-70.png": ("image/png", None),
+    "/uploads/media/log-book.png": ("image/png", None),
+    "/uploads/media/engine.mp4": ("video/mp4", "engine.mp4"),
+    "/uploads/media/lecture.ogg": ("audio/ogg", "lecture.ogg"),
+    "/uploads/media/cobol-notes.pdf": ("application/pdf", b"%PDF-1.4\n% nicotina test\n%%EOF\n"),
+}
+
+
+def attachment(aid, path, size, alt=None):
+    mime = FILES[path][0]
+    return {"id": aid, "filename": path.rsplit("/", 1)[1], "mime_type": mime, "file_size": size,
+            "url": path, "preview_url": None, "display_order": 0, "alt_text": alt,
+            "description": None, "deleted": False}
+
+
+def brief(username):
+    """A post's author, as txwtf's _get_user_brief gives it: emblems carry `type` here."""
+    u = USERS.get(username) or AUTHORS[username]
+    return {
+        "id": u["id"],
+        "username": username,
+        "name": u["name"],
+        "avatar_url": u.get("avatar_url", DEFAULT_AVATAR),
+        "status": u.get("status", "offline"),
+        "is_admin": u.get("is_admin", False),
+        "emblems": [{"type": e["emblem_type"], "name": e["name"], "icon": e["icon"],
+                     "color": e["color"]} for e in u.get("emblems", [])],
+        "last_login_country": u.get("country", "US"),
+    }
+
+
+def post(author, pid, created, content, reply_to=None, counts=(0, 0, 0, 0), attachments=(),
+         repost=None, price=None):
+    """A post: counts are replies, reposts, reactions and views. Content is what txwtf stores:
+    plain text, or the rich editor's HTML. repost is the reposted post; price makes it a paid
+    post this viewer hasn't unlocked, which txwtf withholds."""
+    return {"author": author, "id": pid, "created": created, "content": content,
+            "reply_to": reply_to, "counts": counts, "attachments": list(attachments),
+            "repost": repost, "price": price}
+
+
+# Each account's posts, newest first.
+POSTS = {
+    "ada": [
+        post("ada", 107, "2026-10-30T09:15:00",
+             "Finished the notes on Menabrea's paper. Note G is the long one.", None, (2, 1, 5, 40)),
+        post("ada", 106, "2026-10-29T18:02:00",
+             "Agreed: the engine might compose music, given the rules of harmony.", 90, (0, 0, 3, 12)),
+        post("ada", 105, "2026-10-28T11:30:00",
+             "<p>The <strong>Analytical Engine</strong> weaves algebraic patterns just as the "
+             "Jacquard loom weaves flowers &amp; leaves.</p>", None, (4, 2, 9, 77)),
+        post("ada", 104, "2026-10-27T16:45:00", "The engine's mill, drawn from the plans.", None,
+             (1, 0, 2, 30)),
+        post("ada", 103, "2026-10-26T08:00:00",
+             "Bernoulli numbers, step by step, in a table anyone can follow.", None, (0, 1, 1, 19)),
+        post("ada", 102, "2026-10-25T21:10:00", "Thank you, Mr. Babbage.", 80, (0, 0, 1, 8)),
+        post("ada", 101, "2026-10-24T07:00:00", "Hello, TX.WTF.", None, (3, 0, 6, 51)),
+        post("ada", 100, "2026-10-23T23:59:00", "Testing, testing.", None, (0, 0, 0, 4)),
+    ],
+}
+
+# The home feed: posts by the people ada follows, newest first, two pages of ten. Grace follows
+# no one, so hers is empty, as txwtf's is then. The public feed has these, linus's and ada's.
+FEED = [
+    post("charles", 312, "2026-10-30T22:40:00", "The Difference Engine No. 2, working at last.",
+         None, (5, 3, 21, 310),
+         [attachment(901, "/uploads/media/engine-diagram.png", 48213, "The engine, from the side"),
+          attachment(902, "/uploads/media/engine.mp4", 11142)]),
+    post("grace", 311, "2026-10-30T21:05:00",
+         "A ship in port is safe, but that's not what ships are built for. Sail out to sea and do "
+         "new things. It's easier to ask forgiveness than it is to get permission, and the most "
+         "dangerous phrase in the language is: we've always done it this way. Nanoseconds are "
+         "about a foot of wire.", None, (12, 8, 64, 900)),
+    post("alan@peer.example", 310, "2026-10-30T19:30:00",
+         "Lecture on computable numbers, part one.", None, (2, 0, 7, 120),
+         [attachment(903, "/uploads/media/lecture.ogg", 4680, "Lecture, part one")]),
+    post("charles", 309, "2026-10-30T18:00:00", "", None, (0, 0, 1, 15),
+         repost=post("ada", 107, "2026-10-30T09:15:00",
+                     "Finished the notes on Menabrea's paper. Note G is the long one.", None,
+                     (2, 1, 5, 40))),
+    post("grace", 308, "2026-10-30T15:45:00",
+         "<p>Found a <em>moth</em> in relay 70.</p><p>First actual case of bug being found.</p>",
+         None, (9, 4, 33, 410),
+         [attachment(904, "/uploads/media/moth.png", 30120, "The moth, taped into the log book")]),
+    post("charles", 307, "2026-10-30T12:00:00", "Plans for the Analytical Engine, all of them.",
+         None, (0, 0, 2, 40), price="5"),
+    post("alan@peer.example", 306, "2026-10-29T20:00:00", "Can machines think?", None,
+         (40, 12, 88, 2000)),
+    post("grace", 305, "2026-10-29T16:20:00", "Notes from the COBOL meeting, and the log.", None,
+         (1, 0, 4, 60),
+         [attachment(905, "/uploads/media/cobol-notes.pdf", 2048),
+          attachment(906, "/uploads/media/relay-70.png", 31000),
+          attachment(907, "/uploads/media/log-book.png", 29000)]),
+    post("charles", 304, "2026-10-29T10:00:00", "Notes on the mill.", None, (0, 0, 1, 9)),
+    post("grace", 303, "2026-10-28T09:00:00", "Nanoseconds, in wire.", None, (0, 0, 2, 14)),
+    post("alan@peer.example", 302, "2026-10-27T11:00:00", "On morphogenesis.", None, (0, 0, 3, 22)),
+    post("charles", 301, "2026-10-26T08:30:00", "The engine needs more brass.", None, (0, 0, 0, 5)),
+    post("grace", 300, "2026-10-25T07:15:00", "Good morning, TX.WTF.", None, (1, 0, 2, 30)),
+]
+FOLLOWS = {"ada": {"charles", "grace", "alan@peer.example"}}
+# In the public feed only: someone ada doesn't follow.
+PUBLIC_ONLY = [post("linus", 313, "2026-10-30T23:00:00", "Hello from someone you don't follow.",
+                    None, (0, 0, 1, 3))]
+# A post's reactions, by emoji name, as GET /social/posts/{id} sums them (dislikes left out).
+REACTIONS = {312: [{"emoji": "thumbsup", "count": 12}, {"emoji": "heart", "count": 9}],
+             308: [{"emoji": "bug", "count": 30}, {"emoji": "laughing", "count": 3}]}
+
+
+def post_response(p):
+    replies, reposts, reactions, views = p["counts"]
+    locked = p["price"] is not None
+    a = brief(p["author"])
+    r = p["repost"]
     return {  # PostResponse: the fields a client reads, and the required ones
-        "id": pid,
-        "user_id": u["id"],
-        "content": content,
+        "id": p["id"],
+        "user_id": a["id"],
+        # txwtf withholds a locked post's content and attachments (_redact_locked_post)
+        "content": f"\U0001f512 This post is locked. Pay {p['price']} scrip to unlock." if locked
+        else p["content"],
         "content_html": None,
         "visibility": "public",
-        "reply_to_id": reply_to,
-        "repost_id": None,
-        "thread_root_id": reply_to,
+        "reply_to_id": p["reply_to"],
+        "repost_id": r["id"] if r else None,
+        "thread_root_id": p["reply_to"],
         "reply_count": replies,
         "repost_count": reposts,
         "reaction_count": reactions,
         "view_count": views,
-        "created_at": created,
+        "created_at": p["created"],
         "updated_at": None,
         "tip_count": 0,
         "tip_total_scrip": None,
         "show_tip_total": False,
-        "is_paid_content": False,
-        "price_scrip": None,
-        "is_locked": False,
+        "is_paid_content": locked,
+        "price_scrip": p["price"],
+        "is_locked": locked,
         "unlock_count": 0,
         "revenue_scrip": None,
         "expires_at": None,
@@ -232,21 +366,30 @@ def post_response(username, post):
         "is_promoted": False,
         "promoted_until": None,
         "promotion_tier": None,
-        "author": {  # txwtf's brief user: a post author's emblems carry `type`
-            "id": u["id"],
-            "username": username,
-            "name": u["name"],
-            "avatar_url": u.get("avatar_url", DEFAULT_AVATAR),
-            "status": u.get("status", "offline"),
-            "is_admin": u.get("is_admin", False),
-            "emblems": [{"type": e["emblem_type"], "name": e["name"], "icon": e["icon"],
-                         "color": e["color"]} for e in u.get("emblems", [])],
-            "last_login_country": u.get("country", "US"),
-        },
+        "author": a,
         "reactions_summary": None,  # the timeline leaves it out
-        "attachments": [],
-        "reposted_post": None,
+        "attachments": [] if locked else p["attachments"],
+        # txwtf's reposted-post brief (asoc:992): created_at an ISO string, author the same brief
+        "reposted_post": {
+            "id": r["id"], "user_id": brief(r["author"])["id"], "content": r["content"],
+            "content_html": None, "created_at": r["created"], "author": brief(r["author"]),
+            "attachments": r["attachments"], "reaction_count": r["counts"][2],
+            "reply_count": r["counts"][0], "repost_count": r["counts"][1], "link_previews": None,
+            "is_paid_content": False, "is_locked": False, "price_scrip": None,
+        } if r else None,
         "link_previews": None,
+    }
+
+
+def page_of(posts, has_more):
+    return {
+        "posts": [post_response(p) for p in posts],
+        "has_more": has_more,
+        "next_before_id": posts[-1]["id"] if posts else None,
+        "total": None,
+        "feed_mode": None,
+        "tag": None,
+        "pinned_post": None,
     }
 
 
@@ -255,19 +398,24 @@ def user_timeline(user_id, query):
     username = next((n for n, u in USERS.items() if u["id"] == user_id), None)
     posts = POSTS.get(username, [])
     if query.get("include_replies", ["true"])[0] == "false":
-        posts = [p for p in posts if p[3] is None]
+        posts = [p for p in posts if p["reply_to"] is None]
     limit = min(int(query.get("limit", ["20"])[0]), 100)
     offset = int(query.get("offset", ["0"])[0])
-    page = posts[offset:offset + limit]
-    return {
-        "posts": [post_response(username, p) for p in page],
-        "has_more": offset + limit < len(posts),
-        "next_before_id": page[-1][0] if page else None,
-        "total": None,
-        "feed_mode": None,
-        "tag": None,
-        "pinned_post": None,
-    }
+    return page_of(posts[offset:offset + limit], offset + limit < len(posts))
+
+
+def feed(username, which, query):
+    """GET /social/timeline/home and /public: before_id paging (no offset), replies left out."""
+    if which == "home":
+        posts = [p for p in FEED if p["author"] in FOLLOWS.get(username, set())]
+    else:
+        posts = sorted(FEED + PUBLIC_ONLY + [p for p in POSTS["ada"] if p["reply_to"] is None],
+                       key=lambda p: p["id"], reverse=True)
+    before = query.get("before_id", [None])[0]
+    if before is not None:
+        posts = [p for p in posts if p["id"] < int(before)]
+    limit = min(int(query.get("limit", ["50"])[0]), 100)
+    return page_of(posts[:limit], len(posts) > limit)
 
 
 def png(width, height, pixel):
@@ -289,15 +437,18 @@ def picture(path):
     """The picture for a media path a profile names, or None. Each is drawn so a person can tell
     them apart: a banner is a wide gradient, a card a dark one, an avatar a disc on a ground."""
     known = {DEFAULT_AVATAR} | {
-        u[k] for u in USERS.values() for k in ("avatar_url", "header_image_url", "card_image_url")
-        if u.get(k)
-    }
+        u[k] for u in list(USERS.values()) + list(AUTHORS.values())
+        for k in ("avatar_url", "header_image_url", "card_image_url") if u.get(k)
+    } | {f for f, (mime, _) in FILES.items() if mime == "image/png"}
     if path not in known:
         return None
     if "header" in path:
         return png(300, 100, lambda x, y: (40 + x * 180 // 300, 90 + y, 160 - x * 60 // 300))
     if "card" in path:
         return png(240, 120, lambda x, y: (20 + x // 8, 24 + y // 8, 48))
+    if "/media/" in path:  # a post's picture: 4:3, stripes in a colour of its own
+        tint = [(200, 90, 60), (60, 140, 200), (90, 170, 90), (180, 160, 60)][sum(path.encode()) % 4]
+        return png(160, 120, lambda x, y: tint if (x // 16 + y // 16) % 2 else (230, 225, 210))
     seed = sum(path.encode()) % 3
     ground = [(70, 110, 200), (200, 120, 60), (90, 160, 90)][seed]
     return png(64, 64, lambda x, y: (240, 230, 210) if (x - 32) ** 2 + (y - 26) ** 2 < 196
@@ -444,10 +595,16 @@ def make_handler(state):
             if method == "POST" and path == "/user/login/2fa":
                 return self.login_2fa(), None
             if method == "GET" and (path.startswith("/uploads/") or path.startswith("/static/")):
-                data = picture(path)  # no auth, as txwtf serves them
+                # no auth, as txwtf serves them
+                mime, source = FILES.get(path, ("image/png", None))
+                if isinstance(source, str):  # a recording in tests/fixtures
+                    with open(os.path.join(FIXTURES, source), "rb") as f:
+                        data = f.read()
+                else:
+                    data = source if source is not None else picture(path)
                 if data is None:
                     return self.reply(404, {"detail": "Not Found"}), None
-                return self.reply_bytes(200, data, "image/png"), None
+                return self.reply_bytes(200, data, mime), None
             user, refused = self.bearer_user()
             if refused:
                 return self.reply(401, {"detail": refused}), None
@@ -468,6 +625,16 @@ def make_handler(state):
                     ),
                     user,
                 )
+            if method == "GET" and path in ("/social/timeline/home", "/social/timeline/public"):
+                return self.reply(200, feed(user, path.rsplit("/", 1)[1], query)), user
+            if method == "GET" and path.startswith("/social/posts/"):
+                found = [p for p in FEED + POSTS["ada"] if str(p["id"]) == path.rsplit("/", 1)[1]]
+                if not found:
+                    return self.reply(404, {"detail": "Post not found"}), user
+                body = post_response(found[0])
+                # GET /social/posts/{id} fills in the reactions the timeline leaves out
+                body["reactions_summary"] = REACTIONS.get(found[0]["id"], [])
+                return self.reply(200, body), user
             if method == "GET" and path.startswith("/social/timeline/user/"):
                 try:
                     user_id = int(path.rsplit("/", 1)[1])

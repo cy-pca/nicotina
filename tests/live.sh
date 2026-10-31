@@ -14,8 +14,8 @@
 #
 # For each terminal backend (FTXUI, tvision), bin/nicotina --terminal runs in a tmux pane:
 #   - a wrong password;
-#   - the right one: the profile, its Posts tab and the Balances tab (SCRIP and its value), and
-#     the host keeps the session;
+#   - the right one: the home feed and the public one, then the profile, its Posts tab and the
+#     Balances tab (SCRIP and its value), and the host keeps the session;
 #   - ari snapshot and arigl snapshot --terminal resume that session from the store;
 #   - started again, still signed in;
 #   - sign out, and the session is dropped.
@@ -83,9 +83,16 @@ for backend in ftxui tvision; do
   start "$backend" "$xdg" "$instance" -- --user "$user"
   step "$t: the form again" "Username: [$user"
   sign_in "$work/password"
-  step "$t: signed in, the profile" "@$user@$host" "Joined " " posts · " " views" \
-    "Show: (*) Posts" "[ Newer ][ Older ]" "Signed in to $host."
-  keys Tab; keys Tab; keys Tab; keys Right; keys Right # the tabs: Balances
+  step "$t: signed in, the home feed" "@$user@$host" "[ Profile ][ Refresh ][ Sign out ]" \
+    "Show: (*) Following" "Signed in to $host."
+  keys Tab; keys Tab; keys Tab; keys Tab; keys Right # past Profile, Refresh, Sign out: Everyone
+  step "$t: Everyone: the instance's public timeline" "(*) Everyone"
+  check_not "$t: ... loaded" "$out/tmux-$(slug "$t: Everyone: the instance's public timeline").txt" \
+    "Couldn't load" "Something went wrong"
+  keys BTab; keys BTab; keys BTab; keys Enter # back past Sign out and Refresh to Profile
+  step "$t: the profile" "Show: (*) Posts" "@$user@$host" "Joined " " posts · " " views" \
+    "[ Newer ][ Older ]"
+  keys Tab; keys Tab; keys Tab; keys Tab; keys Right; keys Right # the tabs: Balances
   step "$t: the Balances tab" "(*) Balances" "SCRIP    " "Value    \$"
   check_not "$t: ... and no runway" "$out/tmux-$(slug "$t: the Balances tab").txt" "Runway"
   check_store "$t: the host keeps the session, owner-only (0600 in 0700)" "$store"
@@ -96,17 +103,17 @@ for backend in ftxui tvision; do
   "$ARI" snapshot --backend "$backend" --width 80 --height 24 --net --net-allow "$instance" \
     --credential-store "$store" "$main" --instance "$instance" >"$out/live-snap-$backend.txt" 2>&1
   check "$t: ari snapshot resumes the stored session" "$out/live-snap-$backend.txt" \
-    "@$user@$host" "Show: (*) Posts" "Signed in to $host."
+    "@$user@$host" "Show: (*) Following" "Signed in to $host."
   if [ "$backend" = ftxui ] && [ -n "$ARIGL" ] && [ -x "$ARIGL" ]; then
     "$ARIGL" snapshot --terminal --frames 60 --width 80 --height 24 --net --net-allow "$instance" \
       --credential-store "$store" "$main" --instance "$instance" >"$out/live-arigl.txt" 2>&1
     check "$t: arigl snapshot --terminal resumes it too" "$out/live-arigl.txt" "@$user@$host" \
-      "Show: (*) Posts"
+      "Show: (*) Following"
   fi
 
   start "$backend" "$xdg" "$instance"
-  step "$t: started again, still signed in" "@$user@$host" "Show: (*) Posts"
-  keys Tab; keys Tab; keys Enter # Refresh, Sign out
+  step "$t: started again, still signed in" "@$user@$host" "Show: (*) Following"
+  keys Tab; keys Tab; keys Tab; keys Enter # past Profile and Refresh to Sign out
   step "$t: signed out" "Signed out." "Username: [$user"
   if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: sign-out drops the session"; else
     fail "$t: the session is still in the store after signing out"

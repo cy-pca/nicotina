@@ -46,6 +46,11 @@ on TX.WTF is tracked as T-items in the TX.WTF repository.
     (2.1 MB lean).
 - **M1, read:** PKCE sign-in (a pairing code in the terminal), which also
   covers federated users; the home feed, profiles and live notifications.
+  - Drafted: the home feed (Following and Everyone, a card a post, Load more, a post opened
+    whole) and the profile laid out as the web app's (banner, card, Posts/Replies/Balances
+    tabs), in every host. Pictures, video and audio are placeholders until libcvc can show media
+    from a URL (L5's images from `https://`, and the media widgets being designed in
+    transfix/libcvc#929). Left: PKCE sign-in, live notifications, other users' profiles.
 - **M2, write:** posts, replies, reactions, and non-E2EE direct messages.
   E2EE threads open in the browser.
 - **M3, SCRIP:** live balance, top-up through hosted checkout in the system

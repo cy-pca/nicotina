@@ -17,7 +17,8 @@
 # does goes through the real HTTP API.
 #
 # For each terminal backend (FTXUI, tvision), bin/nicotina --terminal runs in a tmux pane:
-#   - ada: a wrong password; the right one, with the profile, her posts and replies from the
+#   - ada: a wrong password; the right one: her home feed (empty: she follows no one) and the
+#     public one (her posts, as cards), then her profile with her posts and replies from the
 #     server's timeline, and the balance it works out; the session resumed by ari snapshot (and
 #     arigl snapshot), and on restart; sign-out, after which the server refuses her old token;
 #   - grace: the emailed code, a wrong one and then the one from the email; no posts, and a
@@ -126,13 +127,20 @@ for backend in ftxui tvision; do
   start "$backend" "$xdg" "$base" -- --user ada
   step "$t: the form again" "Username: [ada"
   sign_in "$work/password"
-  step "$t: ada signs in: the profile" "@ada@127.0.0.1:$port  Ada Lovelace" \
+  # She follows no one, so her home feed is empty, as txwtf's is then.
+  step "$t: ada signs in: her home feed, empty" "@ada@127.0.0.1:$port" "Show: (*) Following" \
+    "Your feed is empty. Follow people, or Show: Everyone." "Signed in to 127.0.0.1"
+  keys Tab; keys Tab; keys Tab; keys Tab; keys Right # past Profile, Refresh, Sign out: Everyone
+  step "$t: Everyone: the public timeline, a card a post" "(*) Everyone" \
+    "(AL) Ada Lovelace  @ada@127.0.0.1:$port · " "│Bernoulli numbers, step by step." \
+    "│Hello from the analytical engine." "[ Open ]"
+  keys BTab; keys BTab; keys BTab; keys Enter # back past Sign out and Refresh to Profile
+  step "$t: her profile" "@ada@127.0.0.1:$port  Ada Lovelace" \
     "Writes notes on the analytical engine. Prefers punched cards t..." "Joined " \
-    "Show: (*) Posts" "  Bernoulli numbers, step by step." "  Hello from the analytical engine." \
-    "Signed in to 127.0.0.1"
-  check_not "$t: ... her posts, not her reply" "$out/tmux-$(slug "$t: ada signs in: the profile").txt" \
+    "Show: (*) Posts" "  Bernoulli numbers, step by step." "  Hello from the analytical engine."
+  check_not "$t: ... her posts, not her reply" "$out/tmux-$(slug "$t: her profile").txt" \
     "Note G is the long one."
-  keys Tab; keys Tab; keys Tab; keys Right # the tabs: Replies
+  keys Tab; keys Tab; keys Tab; keys Tab; keys Right # past Feed, Refresh, Sign out: Replies
   step "$t: the Replies tab: her reply" "(*) Replies" "  Note G is the long one."
   keys Right
   step "$t: the Balances tab: the balance the server works out" "(*) Balances" \
@@ -148,17 +156,18 @@ for backend in ftxui tvision; do
   "$ARI" snapshot --backend "$backend" --width 80 --height 24 --net --net-allow "$base" \
     --credential-store "$store" "$main" --instance "$base" >"$out/txwtf-snap-$backend.txt" 2>&1
   check "$t: ari snapshot resumes the session" "$out/txwtf-snap-$backend.txt" \
-    "@ada@127.0.0.1:$port  Ada Lovelace" "Hello from the analytical engine."
+    "@ada@127.0.0.1:$port" "Your feed is empty."
   if [ "$backend" = ftxui ] && [ -n "$ARIGL" ] && [ -x "$ARIGL" ]; then
     "$ARIGL" snapshot --terminal --frames 60 --width 80 --height 24 --net --net-allow "$base" \
-      --credential-store "$store" "$main" --instance "$base" >"$out/txwtf-arigl.txt" 2>&1
+      --credential-store "$store" "$main" --instance "$base" --start profile \
+      >"$out/txwtf-arigl.txt" 2>&1
     check "$t: arigl snapshot --terminal resumes it too" "$out/txwtf-arigl.txt" \
       "@ada@127.0.0.1:$port  Ada Lovelace" "Hello from the analytical engine."
   fi
 
   start "$backend" "$xdg" "$base"
-  step "$t: started again, still signed in" "@ada@127.0.0.1:$port  Ada Lovelace"
-  keys Tab; keys Tab; keys Enter # Refresh, Sign out
+  step "$t: started again, still signed in" "@ada@127.0.0.1:$port" "Show: (*) Following"
+  keys Tab; keys Tab; keys Tab; keys Enter # past Profile and Refresh to Sign out
   step "$t: ada signs out" "Signed out." "Username: [ada"
   if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: sign-out drops the session"; else
     fail "$t: the session is still in the store after signing out"
@@ -185,9 +194,11 @@ for backend in ftxui tvision; do
     fail "$t: no code in the mail the instance sent"
   fi
   keys BTab; type_secret "$work/code"; keys Tab; keys Enter
-  step "$t: the emailed code signs grace in" "@grace@127.0.0.1:$port  Grace Hopper" "No posts yet."
+  step "$t: the emailed code signs grace in" "@grace@127.0.0.1:$port" "Your feed is empty."
   tokens_from "$store"
-  keys Tab; keys Tab; keys Tab; keys Right; keys Right # the tabs: Balances
+  keys Tab; keys Enter # Profile
+  step "$t: grace's profile" "@grace@127.0.0.1:$port  Grace Hopper" "No posts yet."
+  keys Tab; keys Tab; keys Tab; keys Tab; keys Right; keys Right # the tabs: Balances
   step "$t: grace's balance: nothing minted" "(*) Balances" "SCRIP    0" "Value    \$0.00"
   keys BTab; keys Enter # back from the tabs to Sign out
   step "$t: grace signs out" "Signed out."
