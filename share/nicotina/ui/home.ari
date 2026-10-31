@@ -3,9 +3,9 @@
 #
 # The web app's profile is a header banner, then a card (the avatar beside the name, handle,
 # badges, description and counts, then the groups and an action bar), then tabs: Posts, Replies
-# and Balances. home_window is that, for an 80x24 terminal first: 76 columns by 19 rows, below the
-# menu bar, fixed for the tvision host (see the top of signin.ari). ImGui draws the same window
-# and adds the Details window beside it.
+# and Balances. home_window is that, for an 80x24 terminal first: 76 columns wide (the banner's
+# crop), at most 19 rows, below the menu bar. ImGui draws the same window and adds the Details
+# window beside it.
 #
 # The banner and the avatar are the account's own pictures (txwtf's header_image_url and
 # avatar_url, resolved against the instance; no sign-in needed), where the host can show a

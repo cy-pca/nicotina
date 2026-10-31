@@ -2,14 +2,12 @@
 # these units and runs the commands their buttons set (ui.cmd).
 #
 # Laid out for the terminal first (8 x 16 px cells): every window opens at column 2, row 2, and
-# is 62 columns wide, so it fits 80 columns. The controller keeps its messages to 60 characters.
-# The width is fixed, and the status row always there, for the tvision host: it refits a window
-# that opens, but one that closes and opens again in the same run (the sign-in form after
-# signing out) comes back at its first size, which would cut off a message that wasn't there.
+# fits what it shows. The controller keeps its messages to 60 characters, so a window stays within
+# 80 columns. A window that closes and opens again (the sign-in form after signing out) fits what
+# it shows then, in every host (tvision since transfix/libcvc#930).
 
 units:
-  # The controller's last word, info as is and errors in red. Always one row, even when empty
-  # (see the top of this file).
+  # The controller's last word, info as is and errors in red; no row while there is none.
   # While a request is out (ui.busy) a spinner turns beside it ("Signing in...", "Checking the
   # code...", "Refreshing..."). The spinner turns by the host's frame clock, since the
   # controller is parked on the request. A host without the spinner widget shows the line alone.
@@ -20,18 +18,17 @@ units:
         bind: ui.msg
         visible_when: (and (= (state-get "ui.busy") "1") (has? "spinner"))
       - text: ""
-        bind: '(if (= (state-get "ui.msg") "") " " (state-get "ui.msg"))'
-        visible_when: (and (!= (state-get "ui.err") "1") (not (and (= (state-get "ui.busy") "1") (has? "spinner"))))
+        bind: ui.msg
+        visible_when: (and (!= (state-get "ui.msg") "") (!= (state-get "ui.err") "1") (not (and (= (state-get "ui.busy") "1") (has? "spinner"))))
       - text: ""
         bind: ui.msg
         color: [1.0, 0.45, 0.4]
-        visible_when: (and (= (state-get "ui.err") "1") (not (and (= (state-get "ui.busy") "1") (has? "spinner"))))
+        visible_when: (and (!= (state-get "ui.msg") "") (= (state-get "ui.err") "1") (not (and (= (state-get "ui.busy") "1") (has? "spinner"))))
 
   starting_window:
     window: nicotina
     id: starting
     pos: [16, 32]
-    size: [496, auto]
     visible_when: (= (state-get "ui.screen") "boot")
     children:
       - spinner: ""
@@ -45,7 +42,6 @@ units:
     window: Sign in to TX.WTF
     id: signin
     pos: [16, 32]
-    size: [496, auto]
     visible_when: (= (state-get "ui.screen") "signin")
     children:
       - text: "Instance"
@@ -69,7 +65,6 @@ units:
     window: Two-step verification
     id: twofactor
     pos: [16, 32]
-    size: [496, auto]
     visible_when: (= (state-get "ui.screen") "2fa")
     children:
       - text: ""
