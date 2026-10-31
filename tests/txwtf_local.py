@@ -4,7 +4,8 @@ Run it with the Python of a txwtf install (a cvcpkg prefix with txwtf-cp312), af
 `txwtf init-db`, before `txwtf backend`. It uses txwtf's own core functions, the ones the
 server runs, so the accounts are what the API would make:
 
-  ada    plain sign-in; a description, and 1234.56789 SCRIP minted to her
+  ada    plain sign-in; a description, 1234.56789 SCRIP minted to her, two posts and a
+         reply to the first (txwtf's create_post), for the profile's Posts and Replies tabs
   grace  a verified email and the emailed second factor turned on
   linus  force_password_change set
 
@@ -25,6 +26,7 @@ from txwtf.core import register_user, set_setting
 from txwtf.core.db import get_engine, get_session
 from txwtf.core.model import User
 from txwtf.core.scrip import ensure_scrip_currency, mint_scrip
+from txwtf.core.social import create_post
 
 ACCOUNTS = {
     "ada": {
@@ -32,6 +34,9 @@ ACCOUNTS = {
         "email": "ada@example.org",
         "description": "Writes notes on the analytical engine. Prefers punched cards to paper tape.",
         "scrip": "1234.56789",
+        # oldest first; a post that starts with "> " replies to the one before it
+        "posts": ["Hello from the analytical engine.", "> Note G is the long one.",
+                  "Bernoulli numbers, step by step."],
     },
     "grace": {"name": "Grace Hopper", "email": "grace@example.org", "two_factor": True},
     "linus": {"name": "Linus", "email": "linus@example.org", "force_password_change": True},
@@ -77,6 +82,13 @@ async def provision(db_url, password, smtp_port):
                 await ensure_scrip_currency(session)
                 await mint_scrip(session, user.id, Decimal(a["scrip"]), reason="nicotina tests")
                 await session.commit()
+            last = None
+            for content in a.get("posts", []):
+                reply = content.startswith("> ")
+                post = await create_post(session, user.id, content[2:] if reply else content,
+                                         reply_to_id=last.id if reply else None, emit_event=False)
+                await session.commit()
+                last = post
     await engine.dispose()
 
 

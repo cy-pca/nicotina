@@ -1,82 +1,208 @@
-# The signed-in windows: the profile and SCRIP balance, and (outside a terminal) the details.
+# The signed-in windows: the profile, laid out as the TX.WTF web app lays one out, and (outside a
+# terminal) the details.
 #
-# home_window is the whole client in a terminal: 62 columns by 18 rows, below the menu bar
-# (fixed for the tvision host; see the top of signin.ari).
-# details_window is what ImGui adds below it: the full description and the groups.
+# The web app's profile is a header banner, then a card (the avatar beside the name, handle,
+# badges, description and counts, then the groups and an action bar), then tabs: Posts, Replies
+# and Balances. home_window is that, for an 80x24 terminal first: 76 columns by 19 rows, below the
+# menu bar, fixed for the tvision host (see the top of signin.ari). ImGui draws the same window
+# and adds the Details window beside it.
+#
+# The banner and the avatar are the account's own pictures (txwtf's header_image_url and
+# avatar_url, resolved against the instance; no sign-in needed), where the host can show a
+# picture from a URL (image.url: transfix/libcvc#931). Elsewhere, for an account without a header
+# image, and for a video avatar or banner (the web app plays those as muted loops; Ariadne has no
+# video widget yet), each slot shows a placeholder: the banner the plain colour the web app shows
+# without one, and the avatar a frame with the account's initials. An animated GIF or WebP shows
+# its first frame. The card and the window have the account's card and page pictures behind
+# them where the host has background: (transfix/libcvc#932); a host without it ignores the key.
 
 units:
+  # The banner: the header image, cropped to the window's width and two rows (592 x 32 px), as
+  # the web app crops it to its banner. Without one, two rows of colour, as the web app's
+  # banner without a header image; a window outside a terminal has no block glyphs to spare, so
+  # it shows a rule there.
+  banner_slot:
+    type: group
+    children:
+      - image: header image
+        bind: me.header_pic
+        size: [592, 32]
+        fit: cover
+        visible_when: (and (has? "image.url") (!= (state-get "me.header_pic") ""))
+      - type: group
+        visible_when: (not (and (has? "image.url") (!= (state-get "me.header_pic") "")))
+        children:
+          - text: ""
+            bind: ui.banner_row
+            color: [0.27, 0.33, 0.45]
+            visible_when: (has? "term")
+          - text: ""
+            bind: ui.banner_row
+            color: [0.27, 0.33, 0.45]
+            visible_when: (has? "term")
+          - separator: ""
+            visible_when: (not (has? "term"))
+
+  # The avatar: a round picture 64 px square, 8 x 4 cells in a terminal. Without one, an 8 x 4
+  # frame with the initials in it. (txwtf always has an avatar URL: its default when the account
+  # has none of its own.)
+  avatar_slot:
+    type: group
+    children:
+      - image: avatar
+        bind: me.avatar_pic
+        size: [64, 64]
+        fit: cover
+        shape: circle
+        visible_when: (and (has? "image.url") (!= (state-get "me.avatar_pic") ""))
+      - type: group
+        visible_when: (not (and (has? "image.url") (!= (state-get "me.avatar_pic") "")))
+        children:
+          - text: ""
+            bind: me.avatar_box.0
+            color: [0.55, 0.6, 0.7]
+          - text: ""
+            bind: me.avatar_box.1
+            color: [0.55, 0.6, 0.7]
+          - text: ""
+            bind: me.avatar_box.2
+            color: [0.55, 0.6, 0.7]
+          - text: ""
+            bind: me.avatar_box.3
+            color: [0.55, 0.6, 0.7]
+
   home_window:
-    window: nicotina
+    window: Profile
     id: home
     pos: [16, 32]
-    size: [496, auto]
+    size: [608, auto]
     visible_when: (= (state-get "ui.screen") "home")
+    # The account's page background (profile_bg_url), faint, behind the window in ImGui, as the
+    # web app puts it behind the page. A terminal shows none: the card's is enough there.
+    background: {bind: me.bg_pic, fit: cover, opacity: 0.25, terminal: none}
     children:
-      # The full handle, @user@instance, then the display name, cut to fit (main.ari's header).
-      - text: ""
-        bind: me.header
-      - separator
+      - include: banner_slot
+      # The card, over the account's card picture (card_image_url), dimmed as the web app dims it
+      # (a host with background:, transfix/libcvc#932; others ignore the key). Not in a terminal
+      # yet: #932's half-blocks behind text take a coloured text's colour to the row's end.
       - type: group
-        layout: {kind: grid, col_widths: [72, auto]}
+        background: {bind: me.card_pic, fit: cover, opacity: 0.3, terminal: none}
         children:
-          - text: "Email"
-          - text: ""
-            bind: me.email
-          - text: "Joined"
-          - text: ""
-            bind: me.joined
-          - text: "Posts"
-          - text: ""
-            bind: me.posts
-          - text: "About"
-          - text: ""
-            bind: '(if (= (state-get "me.about_short") "") "-" (state-get "me.about_short"))'
+          # The card: the avatar beside who it is.
+          - type: group
+            layout: {kind: horizontal}
+            children:
+              - include: avatar_slot
+              - text: " "
+              - type: group
+                children:
+                  # The full handle, @user@instance, then the display name, cut to fit.
+                  - text: ""
+                    bind: me.header
+                  - text: ""
+                    bind: me.badges
+                    color: [0.95, 0.75, 0.3]
+                  - text: ""
+                    bind: '(if (= (state-get "me.about_short") "") " " (state-get "me.about_short"))'
+                  - text: ""
+                    bind: me.stats
+                    color: [0.6, 0.6, 0.6]
+          # The groups, and the action bar at the end of the card.
+          - type: group
+            layout: {kind: horizontal}
+            children:
+              - text: ""
+                bind: me.groups_line
+              - button: Refresh
+                on: (state-set "ui.cmd" "refresh")
+                enabled_when: (!= (state-get "ui.busy") "1")
+              - button: Sign out
+                on: (state-set "ui.cmd" "signout")
+                enabled_when: (!= (state-get "ui.busy") "1")
       - separator
-      - type: group
-        layout: {kind: grid, col_widths: [72, auto]}
-        children:
-          - text: "SCRIP"
-          - text: ""
-            bind: scrip.balance
-          - text: "Value"
-          - text: ""
-            bind: scrip.value
-          - text: "Runway"
-          - text: ""
-            bind: scrip.runway
-          - text: "Session"
-          - text: ""
-            bind: '(if (has? "net.auth.persist") "kept on this device" "until you quit")'
+      # The tabs. Choosing one loads it (main.ari's "tab"). A terminal host draws a radio row's
+      # label even when it is empty (a lone ":"), so it has one.
+      - radio_row: Show
+        bind: ui.tab
+        options: [Posts, Replies, Balances]
+        on: (state-set "ui.cmd" "tab")
       - separator
+      # Posts and Replies: a page of five, newest first, a row each.
       - type: group
-        layout: {kind: horizontal}
+        visible_when: (!= (state-get "ui.tab") "Balances")
         children:
-          - button: Refresh
-            on: (state-set "ui.cmd" "refresh")
-            enabled_when: (!= (state-get "ui.busy") "1")
-          - button: Sign out
-            on: (state-set "ui.cmd" "signout")
-            enabled_when: (!= (state-get "ui.busy") "1")
+          - type: group
+            repeat: (state-get "tab.rows")
+            children:
+              - text: ""
+                bind: tab.rows.{i}
+          - type: group
+            layout: {kind: horizontal}
+            children:
+              - button: Newer
+                on: (state-set "ui.cmd" "newer")
+                enabled_when: (and (!= (state-get "ui.busy") "1") (> (int (state-get "tab.offset")) 0))
+              - button: Older
+                on: (state-set "ui.cmd" "older")
+                enabled_when: (and (!= (state-get "ui.busy") "1") (= (state-get "tab.more") "1"))
+              - text: ""
+                bind: tab.page
+                color: [0.6, 0.6, 0.6]
+      # Balances: the SCRIP balance and what it is worth. Six rows, as the lists take.
+      - type: group
+        visible_when: (= (state-get "ui.tab") "Balances")
+        children:
+          - type: group
+            layout: {kind: grid, col_widths: [72, auto]}
+            children:
+              - text: ""
+                bind: scrip.symbol
+              - text: ""
+                bind: scrip.balance
+              - text: "Value"
+              - text: ""
+                bind: scrip.value
+          - text: " "
+          - text: " "
+          - text: " "
+          - text: " "
+      - separator
       - include: status_line
 
   details_window:
     window: Details
     id: details
-    pos: [16, 352]
+    pos: [640, 32]
     visible_when: (and (= (state-get "ui.screen") "home") (not (has? "term")))
     children:
       - text: "Handle"
         bind: me.handle
       - text: "Name"
         bind: me.name
+      - text: "Email"
+        bind: me.email
       - text: "Email verified"
         bind: me.email_verified
       - text: "Two-step sign-in"
         bind: me.two_factor
+      - text: "Presence"
+        bind: me.presence
+      - text: "Session"
+        bind: '(if (has? "net.auth.persist") "kept on this device" "until you quit")'
       - separator
       - text: "About"
       - text: ""
         bind: '(if (= (state-get "me.about") "") "-" (state-get "me.about"))'
+      - separator
+      - text: "Pictures (on this instance)"
+      - text: "Avatar"
+        bind: '(if (= (state-get "me.avatar_url") "") "-" (string.replace (state-get "me.avatar_url") (state-get "app.origin") ""))'
+      - text: "Header"
+        bind: '(if (= (state-get "me.header_url") "") "-" (string.replace (state-get "me.header_url") (state-get "app.origin") ""))'
+      - text: "Card"
+        bind: '(if (= (state-get "me.card_url") "") "-" (string.replace (state-get "me.card_url") (state-get "app.origin") ""))'
+      - text: "Background"
+        bind: '(if (= (state-get "me.bg_url") "") "-" (string.replace (state-get "me.bg_url") (state-get "app.origin") ""))'
       - separator
       - text: "Groups"
         bind: me.groups
