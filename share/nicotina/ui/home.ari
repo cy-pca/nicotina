@@ -13,7 +13,8 @@
 # image, and for a video avatar or banner (the web app plays those as muted loops; Ariadne has no
 # video widget yet), each slot shows a placeholder: the banner the plain colour the web app shows
 # without one, and the avatar a frame with the account's initials. An animated GIF or WebP shows
-# its first frame. The card's background (me.card_url) waits for libcvc's background: on groups.
+# its first frame. The card and the window have the account's card and page pictures behind
+# them where the host has background: (transfix/libcvc#932); a host without it ignores the key.
 
 units:
   # The banner: the header image, cropped to the window's width and two rows (592 x 32 px), as
@@ -76,43 +77,52 @@ units:
     pos: [16, 32]
     size: [608, auto]
     visible_when: (= (state-get "ui.screen") "home")
+    # The account's page background (profile_bg_url), faint, behind the window in ImGui, as the
+    # web app puts it behind the page. A terminal shows none: the card's is enough there.
+    background: {bind: me.bg_pic, fit: cover, opacity: 0.25, terminal: none}
     children:
       - include: banner_slot
-      # The card: the avatar beside who it is.
+      # The card, over the account's card picture (card_image_url), dimmed as the web app dims it
+      # (a host with background:, transfix/libcvc#932; others ignore the key). Not in a terminal
+      # yet: #932's half-blocks behind text take a coloured text's colour to the row's end.
       - type: group
-        layout: {kind: horizontal}
+        background: {bind: me.card_pic, fit: cover, opacity: 0.3, terminal: none}
         children:
-          - include: avatar_slot
-          - text: " "
+          # The card: the avatar beside who it is.
           - type: group
+            layout: {kind: horizontal}
             children:
-              # The full handle, @user@instance, then the display name, cut to fit.
+              - include: avatar_slot
+              - text: " "
+              - type: group
+                children:
+                  # The full handle, @user@instance, then the display name, cut to fit.
+                  - text: ""
+                    bind: me.header
+                  - text: ""
+                    bind: me.badges
+                    color: [0.95, 0.75, 0.3]
+                  - text: ""
+                    bind: '(if (= (state-get "me.about_short") "") " " (state-get "me.about_short"))'
+                  - text: ""
+                    bind: me.stats
+                    color: [0.6, 0.6, 0.6]
+          # The groups, and the action bar at the end of the card: back to the feed, Refresh,
+          # Sign out.
+          - type: group
+            layout: {kind: horizontal}
+            children:
               - text: ""
-                bind: me.header
-              - text: ""
-                bind: me.badges
-                color: [0.95, 0.75, 0.3]
-              - text: ""
-                bind: '(if (= (state-get "me.about_short") "") " " (state-get "me.about_short"))'
-              - text: ""
-                bind: me.stats
-                color: [0.6, 0.6, 0.6]
-      # The groups, and the action bar at the end of the card: back to the feed, Refresh, Sign
-      # out.
-      - type: group
-        layout: {kind: horizontal}
-        children:
-          - text: ""
-            bind: me.groups_line
-          - button: Feed
-            on: (state-set "ui.cmd" "to-feed")
-            enabled_when: (!= (state-get "ui.busy") "1")
-          - button: Refresh
-            on: (state-set "ui.cmd" "refresh")
-            enabled_when: (!= (state-get "ui.busy") "1")
-          - button: Sign out
-            on: (state-set "ui.cmd" "signout")
-            enabled_when: (!= (state-get "ui.busy") "1")
+                bind: me.groups_line
+              - button: Feed
+                on: (state-set "ui.cmd" "to-feed")
+                enabled_when: (!= (state-get "ui.busy") "1")
+              - button: Refresh
+                on: (state-set "ui.cmd" "refresh")
+                enabled_when: (!= (state-get "ui.busy") "1")
+              - button: Sign out
+                on: (state-set "ui.cmd" "signout")
+                enabled_when: (!= (state-get "ui.busy") "1")
       - separator
       # The tabs. Choosing one loads it (main.ari's "tab"). A terminal host draws a radio row's
       # label even when it is empty (a lone ":"), so it has one.
@@ -195,6 +205,8 @@ units:
         bind: '(if (= (state-get "me.header_url") "") "-" (string.replace (state-get "me.header_url") (state-get "app.origin") ""))'
       - text: "Card"
         bind: '(if (= (state-get "me.card_url") "") "-" (string.replace (state-get "me.card_url") (state-get "app.origin") ""))'
+      - text: "Background"
+        bind: '(if (= (state-get "me.bg_url") "") "-" (string.replace (state-get "me.bg_url") (state-get "app.origin") ""))'
       - separator
       - text: "Groups"
         bind: me.groups

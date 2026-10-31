@@ -295,8 +295,10 @@ The client uses only an instance's public API:
 - Video and audio are rows naming each attachment (its kind, file name, size and alt text); a post
   opened whole shows each attachment's URL. libcvc has no `video:` or `audio:` widgets yet. A
   video avatar or banner (the web app plays `.mp4`, `.webm`, `.mov` and `.m4v` ones as muted
-  loops) keeps its placeholder too, and an animated GIF or WebP shows its first frame. The
-  profile card's own background picture waits for libcvc's `background:`.
+  loops) keeps its placeholder too, and an animated GIF or WebP shows its first frame.
+- Where the host has `background:` (transfix/libcvc#932, open), the profile card and window have
+  the account's card and page pictures behind them, dimmed as the web app dims them, in a window
+  (ImGui) only for now: #932's half-blocks behind coloured text bleed that colour.
 - The feed's header scrolls away with its cards: Ariadne has no scrolling region inside a window
   yet, so the whole window scrolls.
 - "In browser" (open a post in the web app) needs libcvc's `open-url` (transfix/libcvc#916,
