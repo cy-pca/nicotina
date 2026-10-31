@@ -230,6 +230,15 @@ on_tick: |
           (set u (text (if (= (type-of u) "nil") "" u)))
           (if (or (string.starts-with u "https://") (string.starts-with u "http://")) u
             (if (string.starts-with u "/") (str-concat (state-get "app.origin") u) ""))))
+      ;; Whether a picture URL is a video, as txwtf's web app decides (isVideoMediaUrl): it plays
+      ;; .mp4, .webm, .mov and .m4v avatars, banners and backgrounds as muted loops. Until the
+      ;; host has a video widget, those keep their placeholder: image: can't draw them.
+      (defun video-url? (u)
+        (let ((path (string.lower (car (string.split (car (string.split (text u) "?")) "#")))))
+          (or (string.ends-with path ".mp4") (string.ends-with path ".webm")
+              (string.ends-with path ".mov") (string.ends-with path ".m4v"))))
+      ;; The URL for an image: slot: a picture's, or "" for none or a video.
+      (defun picture-only (u) (if (video-url? u) "" u))
       ;; The avatar's placeholder: a frame with the initials, 8 x 4 (64 px square) in a terminal.
       (defun initials (name)
         (let ((words (collections.filter (string.split (string.trim name) " ")
@@ -287,6 +296,9 @@ on_tick: |
                     "avatar_url" (picture-url (opt p "avatar_url" nil))
                     "header_url" (picture-url (opt p "header_image_url" nil))
                     "card_url" (picture-url (opt p "card_image_url" nil))
+                    ;; what the image: slots show: the pictures, never a video
+                    "avatar_pic" (picture-only (picture-url (opt p "avatar_url" nil)))
+                    "header_pic" (picture-only (picture-url (opt p "header_image_url" nil)))
                     "avatar_box" (avatar-box (initials (if (= name "") user name)))
                     ;; Beside the action bar's buttons: [ Refresh ][ Sign out ] take 23 columns.
                     "groups_line" (pad (if (= (length groups) 0) " "

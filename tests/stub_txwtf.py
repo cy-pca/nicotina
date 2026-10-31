@@ -156,6 +156,8 @@ USERS = {
         "login_2fa_email_enabled": False,
         "force_password_change": False,
         "shadow": True,
+        # a video avatar, which txwtf's web app plays as a muted loop
+        "avatar_url": "/uploads/u5/avatar-loop.mp4",
         "balance": "0E-10",
         "runway_days": None,
         "cents": 0,
@@ -444,7 +446,12 @@ def make_handler(state):
             if method == "POST" and path == "/user/login/2fa":
                 return self.login_2fa(), None
             if method == "GET" and (path.startswith("/uploads/") or path.startswith("/static/")):
-                data = picture(path)  # no auth, as txwtf serves them
+                # no auth, as txwtf serves them
+                if path.endswith(".mp4"):
+                    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                           "fixtures", "engine.mp4"), "rb") as f:
+                        return self.reply_bytes(200, f.read(), "video/mp4"), None
+                data = picture(path)
                 if data is None:
                     return self.reply(404, {"detail": "Not Found"}), None
                 return self.reply_bytes(200, data, "image/png"), None
