@@ -185,8 +185,8 @@ cyberpcangel.com is not a TX.WTF instance, so the API is cross-origin:
   and pins the document (`src_param: false`).
 - The instance must allow the origin `https://cyberpcangel.com` in its CORS settings.
 
-tx.wtf doesn't allow it yet: that needs atx-crypto-club/txwtf#312 deployed there. Until then,
-the pages load and show the sign-in form, but signing in stops at "Can't reach tx.wtf".
+tx.wtf allows it (`TXWTF_CORS_ORIGINS=https://cyberpcangel.com`, atx-crypto-club/txwtf#312),
+since 2026-10-30. So signing in from the pages reaches tx.wtf.
 
 ## Tests
 
