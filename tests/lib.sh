@@ -88,16 +88,18 @@ type_secret() {
     tmux -L "$sock" paste-buffer -d -b secret -t app
   sleep 0.3
 }
-# start BACKEND XDG INSTANCE [nicotina args...]: the client in a 100x30 pane, as a person runs it.
+# start BACKEND XDG INSTANCE [nicotina args...]: the client in a 100x30 pane (PANE=80x24 for
+# another size), as a person runs it.
 start() {
   local backend=$1 xdg=$2 instance=$3 cmd _
+  local PANE=${PANE:-100x30}
   shift 3
   stop
   cmd=$(printf '%q ' env TERM=xterm-256color XDG_CONFIG_HOME="$xdg" NICOTINA_ARI="$ARI" \
     sh "$root/bin/nicotina" --terminal --backend "$backend" --instance "$instance" "$@")
   # Keep the pane after the client exits, so a crash shows on the screen.
   for _ in 1 2 3; do
-    tmux -L "$sock" -f /dev/null new-session -d -s app -x 100 -y 30 \
+    tmux -L "$sock" -f /dev/null new-session -d -s app -x "${PANE%x*}" -y "${PANE#*x}" \
       "$cmd; echo \"[nicotina exited \$?]\"; sleep 60" 2>/dev/null && return 0
     sleep 0.5
   done

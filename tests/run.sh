@@ -6,14 +6,15 @@
 #
 #  1. bin/nicotina --dry-run: the host, flags and credential store it picks.
 #  2. ari check: without the network flags the document refuses to load, and says why.
-#  3. ari snapshot, FTXUI and tvision: the sign-in form; a stored session, resumed (the profile
-#     and the balance); a stored session the server no longer knows (back to the form, and the
-#     host forgets it).
+#  3. ari snapshot, FTXUI and tvision: the sign-in form; a stored session, resumed (the profile,
+#     laid out as the web app's: the banner and avatar slots, the card, the Posts tab); a stored
+#     session the server no longer knows (back to the form, and the host forgets it).
 #  4. arigl snapshot, if arigl is here: the resumed session as text (--terminal) and in a window
 #     (a PNG; checked only for being drawn, since nothing here reads pixels).
 #  5. bin/nicotina --terminal in a tmux pane, FTXUI and tvision, typed at the way a person types:
-#     sign in, see the profile and balance, start again still signed in, sign out; a wrong
-#     password; the emailed code, wrong and then right; an account that must change its password.
+#     sign in, see the profile, the Replies and Balances tabs and an older page of posts, start
+#     again still signed in, sign out; a wrong password; the emailed code, wrong and then right;
+#     an account that must change its password.
 #
 # `ari snapshot` lays a frame out with FTXUI whatever --backend says, so 5 is what checks the
 # tvision desktop itself. 5 needs tmux; without it those cases are skipped.
@@ -121,11 +122,24 @@ for backend in ftxui tvision; do
   store=$work/snap-$backend/credentials
   seed_store "$store" ada
   snap "snap-$backend-resume" "$backend" "$store"
-  check "ari snapshot ($backend): a stored session shows the profile and balance" \
-    "$out/snap-$backend-resume.txt" "@ada@$hostport  Ada Lovelace" "Email    ada@example.org" \
-    "Joined   2025-03-01" "Posts    42" "SCRIP    1234.56789" "Value    \$1234.57" \
-    "Runway   41 days" "Session  kept on this device" "[ Refresh ][ Sign out ]" \
-    "Signed in to 127.0.0.1"
+  check "ari snapshot ($backend): a stored session shows the profile, as the web app lays it out" \
+    "$out/snap-$backend-resume.txt" "╭ Profile ─" "│████████" "│╭──────╮ @ada@$hostport  Ada Lovelace" \
+    "││  AL  │ Writes notes on the analytical engine. Prefers punched cards t..." \
+    "││      │ admin · Verified · online" "│╰──────╯ GB · Joined 2025-03-01 · 42 posts · 1234 views" \
+    "│Groups: users, analysts" "[ Refresh ][ Sign out ]│" \
+    "Show: (*) Posts  ( ) Replies  ( ) Balances" \
+    "2026-10-30  Finished the notes on Menabrea's paper. Note G is th...  ↩2 ♥5" \
+    "2026-10-28  The Analytical Engine weaves algebraic patterns just...  ↩4 ♥9" \
+    "2026-10-24  Hello, TX.WTF." "[ Newer ][ Older ]  Page 1" "Signed in to 127.0.0.1"
+  # The owner found the SCRIP runway (days left at the current burn) confusing: it is gone.
+  check_not "ari snapshot ($backend): ... no Runway, no replies on the Posts tab" \
+    "$out/snap-$backend-resume.txt" "Runway" "Thank you, Mr. Babbage." "Testing, testing."
+  if [ "$(wc -l <"$out/snap-$backend-resume.txt")" -le 24 ] &&
+    [ "$(wc -L <"$out/snap-$backend-resume.txt")" -le 80 ]; then
+    pass "ari snapshot ($backend): the profile fits 80x24"
+  else
+    fail "ari snapshot ($backend): the profile runs past 80x24" "$out/snap-$backend-resume.txt"
+  fi
 
   seed_store "$store" stale
   snap "snap-$backend-expired" "$backend" "$store"
@@ -138,13 +152,14 @@ for backend in ftxui tvision; do
   fi
 done
 
-# The header: the full handle, @user@instance, then the display name cut to fit 60 columns.
+# The card's first row: the full handle, @user@instance, then the display name cut to fit the
+# 65 columns beside the avatar.
 store=$work/snap-handles/credentials
 seed_store "$store" mary
 snap snap-handle-long ftxui "$store"
 long_name="Mary Kenneth Keller of the University of Wisconsin-Madison"
 handle="@mary@$hostport"
-room=$((60 - ${#handle} - 2))
+room=$((65 - ${#handle} - 2))
 check "ari snapshot: a long display name is cut to fit beside the full handle" \
   "$out/snap-handle-long.txt" "$handle  ${long_name:0:room-3}..."
 check_not "ari snapshot: ... and not drawn whole" "$out/snap-handle-long.txt" "$long_name"
@@ -201,8 +216,9 @@ if [ -n "$ARIGL" ] && [ -x "$ARIGL" ]; then
   seed_store "$store" ada
   "$ARIGL" snapshot --terminal --frames 60 --width 80 --height 24 --net --net-allow "$base" \
     --credential-store "$store" "$main" --instance "$base" >"$out/arigl-terminal.txt" 2>&1
-  check "arigl snapshot --terminal: the profile and balance" "$out/arigl-terminal.txt" \
-    "@ada@$hostport  Ada Lovelace" "SCRIP    1234.56789" "Value    \$1234.57"
+  check "arigl snapshot --terminal: the profile" "$out/arigl-terminal.txt" \
+    "@ada@$hostport  Ada Lovelace" "admin · Verified · online" "Show: (*) Posts" \
+    "2026-10-30  Finished the notes on Menabrea's paper."
   if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] || [ -n "${NICOTINA_TEST_PNG:-}" ]; then
     "$ARIGL" snapshot --frames 60 --png "$out/arigl.png" --net --net-allow "$base" \
       --credential-store "$store" "$main" --instance "$base" >"$out/arigl-window.txt" 2>&1
@@ -242,17 +258,35 @@ else
         "correct horse"
     fi
     keys Tab; keys Enter
-    step "$t: signed in, the profile and balance" "@ada@$hostport  Ada Lovelace" "ada@example.org" \
-      "SCRIP    1234.56789" "\$1234.57" "41 days" "kept on this device"
+    step "$t: signed in, the profile" "@ada@$hostport  Ada Lovelace" "admin · Verified · online" \
+      "GB · Joined 2025-03-01 · 42 posts · 1234 views" "Groups: users, analysts" \
+      "(*) Posts" "Finished the notes on Menabrea's paper." "Page 1"
     check_store "$t: the host keeps the session, owner-only (0600 in 0700)" "$store"
     check_not "$t: the password is not on the screen" \
-      "$out/tmux-$(slug "$t: signed in, the profile and balance").txt" "correct horse"
+      "$out/tmux-$(slug "$t: signed in, the profile").txt" "correct horse"
+    # The tabs: Tab past Refresh and Sign out to them, then Right picks the next one.
+    keys Tab; keys Tab; keys Tab; keys Right
+    step "$t: the Replies tab" "(*) Replies" "2026-10-29  Agreed: the engine might compose music" \
+      "2026-10-25  Thank you, Mr. Babbage."
+    check_not "$t: ... and no posts that aren't replies" \
+      "$out/tmux-$(slug "$t: the Replies tab").txt" "Finished the notes"
+    keys Right
+    step "$t: the Balances tab: SCRIP and its value, and no runway" "(*) Balances" \
+      "SCRIP    1234.56789" "Value    \$1234.57"
+    check_not "$t: ... no runway" "$out/tmux-$(slug "$t: the Balances tab: SCRIP and its value, and no runway").txt" \
+      "Runway" "days"
+    keys Right # round to Posts again, then Older (Newer is off on the first page)
+    step "$t: back to Posts" "(*) Posts" "Finished the notes on Menabrea's paper."
+    keys Tab; keys Enter
+    step "$t: Older: the next page" "Page 2" "2026-10-23  Testing, testing."
+    keys BTab; keys Enter
+    step "$t: Newer: the first page again" "Page 1" "Finished the notes on Menabrea's paper."
 
     start "$backend" "$xdg" "$base"
-    step "$t: started again, still signed in" "@ada@$hostport  Ada Lovelace" "1234.56789"
+    step "$t: started again, still signed in" "@ada@$hostport  Ada Lovelace" "Hello, TX.WTF."
     keys Tab; keys Enter # Refresh
-    step "$t: Refresh loads the profile and balance again" "Updated. Signed in to $hostport." \
-      "SCRIP    1234.56789"
+    step "$t: Refresh loads the profile again" "Updated. Signed in to $hostport." \
+      "@ada@$hostport  Ada Lovelace" "Hello, TX.WTF."
     keys Tab; keys Enter # Sign out
     step "$t: signed out" "Signed out." "Sign in to TX.WTF" "Username: [ada"
     if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: sign-out drops the session"; else
@@ -270,8 +304,10 @@ else
     form_focus; type_text 000000; keys Tab; keys Enter
     step "$t: a wrong code" "That code didn't work. Try again, or go Back." "Code: []"
     keys BTab; type_text 123456; keys Tab; keys Enter
-    step "$t: the right code signs in" "@grace@$hostport  Grace Hopper" "SCRIP    25" "Runway   -"
-    keys Tab; keys Tab; keys Enter
+    step "$t: the right code signs in" "@grace@$hostport  Grace Hopper" "No posts yet."
+    keys Tab; keys Tab; keys Tab; keys Right; keys Right # the tabs: Balances
+    step "$t: grace's balance" "(*) Balances" "SCRIP    25" "Value    \$25.00"
+    keys BTab; keys Enter # back from the tabs to Sign out
     step "$t: grace signs out" "Signed out."
 
     # mary's profile takes the stub 3 s: the spinner turns beside "Signing in..." meanwhile,
@@ -295,12 +331,28 @@ else
         fail "$t: no 'Signing in...' while mary's profile loads" \
           "$out/tmux-$(slug "$t: the spinner").txt"
       fi
-      step "$t: and then mary's profile" "@mary@$hostport" "SCRIP    3.5"
+      step "$t: and then mary's profile" "@mary@$hostport" "No posts yet."
       check_not "$t: no spinner once the requests are back" \
         "$out/tmux-$(slug "$t: and then mary's profile").txt" "Signing in..."
       keys Tab; keys Tab; keys Enter
       step "$t: mary signs out" "Signed out."
     fi
+
+    # The whole profile in an 80x24 terminal: the frame's bottom edge and the status row are on
+    # the screen (the tvision desktop has a status line below it too).
+    PANE=80x24 start "$backend" "$xdg" "$base" -- --user ada
+    step "$t: the form for ada at 80x24" "Username: [ada"
+    form_focus; keys Tab; type_text "correct horse"; keys Tab; keys Enter
+    step "$t: the profile fits an 80x24 terminal" "Signed in to $hostport." \
+      "@ada@$hostport  Ada Lovelace" "Show: (*) Posts" "[ Newer ][ Older ]  Page 1"
+    f80=$out/tmux-$(slug "$t: the profile fits an 80x24 terminal").txt
+    if grep -qE '╰─{20}|└─═{20}' "$f80" && [ "$(wc -L <"$f80")" -le 80 ]; then
+      pass "$t: ... its frame whole, within 80 columns"
+    else
+      fail "$t: the profile's frame is cut off at 80x24" "$f80"
+    fi
+    keys Tab; keys Tab; keys Enter
+    step "$t: ada signs out at 80x24" "Signed out."
 
     start "$backend" "$xdg" "$base" -- --user linus
     step "$t: the form for linus" "Username: [linus"

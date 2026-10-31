@@ -1,7 +1,8 @@
 # nicotina — a TX.WTF client, written as Ariadne documents.
 #
-# M0: sign in to an instance (username, password and the emailed second factor), then show the
-# profile and the SCRIP balance. The same document runs in stock hosts, unmodified:
+# Sign in to an instance (username, password and the emailed second factor), then show the
+# profile as the TX.WTF web app lays it out: the banner, the card, and the Posts, Replies and
+# Balances tabs. The same document runs in stock hosts, unmodified:
 #
 #   ari run   --net-allow https://tx.wtf --credential-store PATH main.ari [--instance URL]
 #   ari run   --backend tvision ... main.ari
@@ -55,6 +56,18 @@ init: |
   (if (and (string.starts-with base "http://") (string.ends-with host ":80"))
     (set host (string.substring host 0 (- (string.length host) 3))))
   (state-set "app.host" host)
+  ;; The origin, for the root-relative URLs txwtf gives pictures (/uploads/..., /static/...).
+  (state-set "app.origin"
+    (if (string.contains base "://")
+      (let ((parts (string.split base "://")))
+        (str-concat (car parts) "://" (car (string.split (nth parts 1) "/"))))
+      base))
+  ;; The banner placeholder's row: the profile window's inner width (76 columns, less its frame).
+  (set row "")
+  (while (< (string.length row) 74) (set row (str-concat row "█")))
+  (state-set "ui.banner_row" row)
+  (state-set "ui.tab" "Posts")
+  (state-set-tree "tab" (dict "rows" (list " " " " " " " " " ") "offset" 0 "more" "" "page" ""))
   (state-set "login.username" (if (state-exists "args.user") (state-get "args.user") ""))
   (state-set "login.password" "")
   (state-set "login.code" "")
@@ -80,7 +93,9 @@ init: |
 #   login    POST /user/login, capturing the token
 #   verify   POST /user/login/2fa with the emailed code, capturing the token
 #   back     leave the code screen for the sign-in form
-#   refresh  GET /user/ and /billing/scrip/balance again
+#   refresh  GET /user/ and /billing/scrip/balance again, and the tab's first page
+#   tab      the tab ui.tab names: its first page (Posts, Replies), or nothing to load (Balances)
+#   older    the tab's next page; newer, the one before
 #   signout  POST /user/logout, then drop the credential
 on_tick: |
   (if (and (!= (state-get "ui.cmd") "") (!= (state-get "ui.busy") "1"))
@@ -90,6 +105,11 @@ on_tick: |
       (state-set "ui.busy" "1")
 
       (defun base () (state-get "app.base"))
+      ;; The profile window's widths, in columns: inside its frame, and the card's text beside
+      ;; the avatar. A tab's page is five rows.
+      (set WIDE 74)
+      (set CARD 65)
+      (set PAGE 5)
       (defun clip (s n)
         (if (> (string.length s) n) (str-concat (string.substring s 0 (- n 3)) "...") s))
       ;; The status line: one row of at most 60 characters, the windows' width.
@@ -146,6 +166,8 @@ on_tick: |
           (state-set "login.challenge" "")
           (state-set-tree "me" (dict))
           (state-set-tree "scrip" (dict))
+          (state-set "ui.tab" "Posts") ;; the next profile opens at Posts, as the web app's does
+          (state-set-tree "tab" (dict "rows" (list " " " " " " " " " ") "offset" 0 "more" "" "page" ""))
           (state-set "ui.screen" "signin")
           (if is-error (fail msg) (say msg))))
       ;; The host refused the token (it expired, or was signed out elsewhere), or holds none.
@@ -163,39 +185,171 @@ on_tick: |
       ;; in its home instance (txwtf names it <user>@<home domain>), so it keeps that one.
       (defun handle (u)
         (str-concat "@" u (if (string.contains u "@") "" (str-concat "@" (state-get "app.host")))))
-      ;; The header row: the handle, then as much of the display name as fits 60 columns.
+      ;; The card's first row: the handle, then as much of the display name as fits.
       (defun header (h name)
-        (let ((room (- 60 (string.length h) 2)))
-          (if (or (= name "") (< room 4)) (clip h 60) (str-concat h "  " (clip name room)))))
-      (defun show-profile (p)
+        (let ((room (- CARD (string.length h) 2)))
+          (if (or (= name "") (< room 4)) (clip h CARD) (str-concat h "  " (clip name room)))))
+      (defun pad (s n) ;; s cut or filled with spaces to exactly n columns
         (begin
-          (state-set "login.username" (opt p "username" "")) ;; for the form, after signing out
-          (state-set-tree "me"
-            (dict "username" (opt p "username" "")
-                  "handle" (handle (text (opt p "username" "")))
-                  "header" (header (handle (text (opt p "username" ""))) (text (opt p "name" "")))
-                  "name" (opt p "name" "")
-                  ;; A brokered account's local email is a placeholder in .invalid; its real
-                  ;; address is its home instance's. Others are cut to the value column.
-                  "email" (let ((e (text (opt p "email" ""))))
-                            (if (string.ends-with e ".invalid") "-" (clip e 51)))
-                  "email_verified" (if (opt p "email_verified" nil) "yes" "no")
-                  "two_factor" (if (opt p "login_2fa_email_enabled" nil) "on" "off")
-                  "joined" (string.substring (text (opt p "created_time" "")) 0 10)
-                  "posts" (opt p "post_count" 0)
-                  "about" (text (opt p "description" ""))
-                  "about_short" (clip (text (opt p "description" "")) 44)
-                  "groups" (collections.map (opt p "groups" (list))
-                                            (lambda (g) (opt g "group_name" "")))))))
+          (set s (clip s n))
+          (while (< (string.length s) n) (set s (str-concat s " ")))
+          s))
+      ;; Text as txwtf stores it is plain, or the rich editor's HTML (a tag in it, as txwtf
+      ;; tells them apart). One line of it: the tags out, the common entities decoded, every run
+      ;; of white space one space.
+      (defun one-line (s)
+        (begin
+          (set s (text s))
+          (if (string.contains s "<")
+            (begin
+              (set out "")
+              (set in-tag nil)
+              (set i 0)
+              (while (< i (string.length s))
+                (set c (string.char-at s i))
+                (if in-tag
+                  (if (= c ">") (set in-tag nil))
+                  (if (= c "<") (begin (set in-tag true) (set out (str-concat out " ")))
+                    (set out (str-concat out c))))
+                (set i (+ i 1)))
+              (set s out)))
+          (for e (list (list "&nbsp;" " ") (list "&lt;" "<") (list "&gt;" ">")
+                       (list "&quot;" "\"") (list "&#39;" "'") (list "&amp;" "&"))
+            (set s (string.replace s (car e) (car (cdr e)))))
+          (set s (string.replace (string.replace (string.replace s "\r" " ") "\n" " ") "\t" " "))
+          (while (string.contains s "  ") (set s (string.replace s "  " " ")))
+          ;; a tag between a word and its punctuation left a space before it
+          (for p (list "." "," ";" ":" "!" "?")
+            (set s (string.replace s (str-concat " " p) p)))
+          (string.trim s)))
+      ;; A picture's URL as a request names it: txwtf gives /uploads/... and /static/... from
+      ;; the instance's origin, or a whole URL; "" for none.
+      (defun picture-url (u)
+        (begin
+          (set u (text (if (= (type-of u) "nil") "" u)))
+          (if (or (string.starts-with u "https://") (string.starts-with u "http://")) u
+            (if (string.starts-with u "/") (str-concat (state-get "app.origin") u) ""))))
+      ;; The avatar's placeholder: a frame with the initials, 8 x 4 (64 px square) in a terminal.
+      (defun initials (name)
+        (let ((words (collections.filter (string.split (string.trim name) " ")
+                                         (lambda (w) (!= w "")))))
+          (string.upper
+            (if (= (length words) 0) "?"
+              (if (= (length words) 1) (string.substring (car words) 0 1)
+                (str-concat (string.substring (car words) 0 1)
+                            (string.substring (nth words (- (length words) 1)) 0 1)))))))
+      (defun avatar-box (ini)
+        (if (has? "term")
+          (list "╭──────╮ " "│      │ " (str-concat "│" (pad (str-concat "  " ini) 6) "│ ")
+                "╰──────╯ ")
+          (list " " (str-concat "(" ini ")  ") " " " ")))
+      (defun show-profile (p)
+        (let ((user (text (opt p "username" "")))
+              (name (text (opt p "name" ""))))
+          (begin
+            (state-set "login.username" user) ;; for the form, after signing out
+            ;; The badges, as the web app shows them beside the name: an administrator, the
+            ;; account's emblems, then its presence (txwtf's raw status) and a disabled account.
+            (set badges (list))
+            (if (opt p "is_admin" nil) (set badges (append badges "admin")))
+            (for e (opt p "emblems" (list))
+              (set badges (append badges (text (opt e "name" (opt e "emblem_type" "emblem"))))))
+            (if (!= (text (opt p "status" "")) "") (set badges (append badges (text (opt p "status" "")))))
+            (if (= (opt p "enabled" true) false) (set badges (append badges "disabled")))
+            ;; The counts row: where they last signed in from, joined, posts, views.
+            (set stats (list))
+            (if (!= (text (opt p "last_login_country" "")) "")
+              (set stats (append stats (text (opt p "last_login_country" "")))))
+            (if (!= (text (opt p "created_time" "")) "")
+              (set stats (append stats (str-concat "Joined "
+                                                   (string.substring (text (opt p "created_time" "")) 0 10)))))
+            (set stats (append stats (str-concat (text (opt p "post_count" 0)) " posts")))
+            (set stats (append stats (str-concat (text (opt p "view_count" 0)) " views")))
+            (set groups (collections.map (opt p "groups" (list)) (lambda (g) (text (opt g "group_name" "")))))
+            (state-set-tree "me"
+              (dict "id" (opt p "id" 0)
+                    "username" user
+                    "handle" (handle user)
+                    "header" (header (handle user) name)
+                    "name" name
+                    "badges" (if (= (length badges) 0) " " (clip (string.join badges " · ") CARD))
+                    "stats" (clip (string.join stats " · ") CARD)
+                    "about" (one-line (opt p "description" ""))
+                    "about_short" (clip (one-line (opt p "description" "")) CARD)
+                    "presence" (text (opt p "status" "-"))
+                    ;; A brokered account's local email is a placeholder in .invalid; its real
+                    ;; address is its home instance's.
+                    "email" (let ((e (text (opt p "email" ""))))
+                              (if (string.ends-with e ".invalid") "-" e))
+                    "email_verified" (if (opt p "email_verified" nil) "yes" "no")
+                    "two_factor" (if (opt p "login_2fa_email_enabled" nil) "on" "off")
+                    "avatar_url" (picture-url (opt p "avatar_url" nil))
+                    "header_url" (picture-url (opt p "header_image_url" nil))
+                    "card_url" (picture-url (opt p "card_image_url" nil))
+                    "avatar_box" (avatar-box (initials (if (= name "") user name)))
+                    ;; Beside the action bar's buttons: [ Refresh ][ Sign out ] take 23 columns.
+                    "groups_line" (pad (if (= (length groups) 0) " "
+                                         (str-concat "Groups: " (string.join groups ", ")))
+                                       (- WIDE 23))
+                    "groups" groups)))))
       (defun show-balance (b)
         (state-set-tree "scrip"
           (dict "symbol" (opt b "symbol" "SCRIP")
                 "balance" (plain-number (opt b "balance" "0"))
-                "value" (dollars (opt b "cents_equivalent" 0))
-                "runway" (let ((d (opt b "runway_days" nil)))
-                           (if (= (type-of d) "nil") "-" (str-concat (str d) " days"))))))
+                "value" (dollars (opt b "cents_equivalent" 0)))))
 
-      ;; The profile, then the balance. True when both came back.
+      ;; A tab's page: five rows, always, so the window keeps its height. Each row is a post's
+      ;; date, its text on one line, and its counts.
+      (defun post-row (q)
+        (let ((counts (str-concat "  ↩" (text (opt q "reply_count" 0))
+                                  " ♥" (text (opt q "reaction_count" 0))))
+              (body (one-line (opt q "content" ""))))
+          (begin
+            (if (= body "")
+              (set body (if (> (length (opt q "attachments" (list))) 0) "(attachment)" "(no text)")))
+            (str-concat (string.substring (text (opt q "created_at" "")) 0 10) "  "
+                        (pad body (- WIDE 12 (string.length counts))) counts))))
+      (defun show-rows (rows)
+        (begin
+          (while (< (length rows) PAGE) (set rows (append rows " ")))
+          (state-set-tree "tab.rows" rows)))
+      ;; The tab ui.tab names, from tab.offset: Posts asks for a page of five; Replies, as the
+      ;; web app does, asks for twenty posts and replies together and keeps the replies.
+      (defun load-tab ()
+        (let ((tab (state-get "ui.tab"))
+              (off (int (state-get "tab.offset"))))
+          (if (= tab "Balances")
+            true
+            (let ((r (get-authed (str-concat "/social/timeline/user/" (text (state-get "me.id"))
+                                             (if (= tab "Posts")
+                                               (str-concat "?include_replies=false&limit=" (text PAGE))
+                                               "?include_replies=true&limit=20")
+                                             "&offset=" (text off)))))
+              (if (ok? r)
+                (let ((posts (opt (reply-json r) "posts" (list))))
+                  (begin
+                    (if (= tab "Replies")
+                      (set posts (collections.filter posts
+                                   (lambda (q) (!= (type-of (opt q "reply_to_id" nil)) "nil")))))
+                    (if (> (length posts) PAGE) (set posts (slice posts 0 PAGE)))
+                    (show-rows (if (= (length posts) 0)
+                                 (list (if (= tab "Posts") "No posts yet." "No replies yet."))
+                                 (collections.map posts post-row)))
+                    (state-set "tab.more" (if (opt (reply-json r) "has_more" nil) "1" ""))
+                    (state-set "tab.page"
+                      (if (and (= off 0) (= (state-get "tab.more") "")) ""
+                        (str-concat "  Page " (text (+ 1 (int (/ off (if (= tab "Posts") PAGE 20))))))))
+                    true))
+                (begin
+                  (show-rows (list (str-concat "Couldn't load the " (string.lower tab) ".")))
+                  (state-set "tab.more" "")
+                  (if (session-over? r) (session-over)
+                    (if (= (status r) 0) (unreachable r)
+                      (fail (str-concat "Couldn't load the " (string.lower tab) " (HTTP "
+                                        (str (status r)) ")."))))
+                  nil))))))
+
+      ;; The profile, then the balance, then the tab's first page. True when all came back.
       (defun load-home ()
         (let ((r (get-authed "/user/")))
           (if (ok? r)
@@ -204,9 +358,12 @@ on_tick: |
               (set b (get-authed "/billing/scrip/balance"))
               (state-set "ui.screen" "home")
               (if (ok? b)
-                (begin (show-balance (reply-json b)) true)
                 (begin
-                  (state-set-tree "scrip" (dict "balance" "unavailable" "value" "-" "runway" "-"))
+                  (show-balance (reply-json b))
+                  (state-set "tab.offset" 0)
+                  (load-tab))
+                (begin
+                  (state-set-tree "scrip" (dict "symbol" "SCRIP" "balance" "unavailable" "value" "-"))
                   (if (= (status b) 0) (unreachable b)
                     (fail (str-concat "The SCRIP balance isn't available (HTTP "
                                       (str (status b)) ").")))
@@ -284,11 +441,21 @@ on_tick: |
           (begin
             (say "Refreshing...")
             (if (load-home) (say (str-concat "Updated. " (signed-in-msg)))))
+        (if (or (= cmd "tab") (= cmd "older") (= cmd "newer"))
+          (let ((step (if (= (state-get "ui.tab") "Posts") PAGE 20))
+                (off (int (state-get "tab.offset"))))
+            (begin
+              (state-set "tab.offset" (if (= cmd "tab") 0
+                                        (if (= cmd "older") (+ off step) (math.max 0 (- off step)))))
+              (if (!= (state-get "ui.tab") "Balances")
+                (begin
+                  (say (str-concat "Loading " (string.lower (state-get "ui.tab")) "..."))
+                  (if (load-tab) (say ""))))))
         (if (= cmd "signout")
           (begin
             (http-request "POST" (str-concat (base) "/user/logout") (dict "auth" "txwtf"))
             (net-auth-forget "txwtf")
-            (to-signin "Signed out." nil))))))))
+            (to-signin "Signed out." nil)))))))))
         ;; Nothing in here may raise: an exception this resident doesn't catch ends it, and the
         ;; buttons with it.
         (catch (e)

@@ -6,8 +6,9 @@ documents. The same documents run as a native desktop app, **in the terminal**, 
 the browser.
 
 > **Status: M0 drafted.** You can sign in (username, password and the emailed code) and see
-> your profile and SCRIP balance, in `arigl`, in `ari` with either terminal backend, and from
-> the launcher. It needs libcvc features that are still open pull requests, so for now it
+> your profile, laid out as the TX.WTF web app lays one out (a banner, the card, and Posts,
+> Replies and Balances tabs), in `arigl`, in `ari` with either terminal backend, and from the
+> launcher. It needs libcvc features that are still open pull requests, so for now it
 > runs only against a local libcvc build that merges them. See
 > [Running M0 today](#running-m0-today) and [docs/ROADMAP.md](docs/ROADMAP.md).
 
@@ -134,8 +135,9 @@ bin/nicotina --terminal --instance https://dev.tx.wtf           # FTXUI
 bin/nicotina --backend tvision --instance https://dev.tx.wtf    # tvision
 ```
 
-In the terminal, Tab moves between fields and buttons and Enter presses a button. F10 opens
-the menu (Refresh, Sign out, Quit); Ctrl-C quits.
+In the terminal, Tab moves between fields and buttons and Enter presses a button. On the
+profile, Tab reaches the tabs (Posts, Replies, Balances) and Left or Right picks one; Older and
+Newer page through the posts. F10 opens the menu (Refresh, Sign out, Quit); Ctrl-C quits.
 
 ### With cvcpkg
 
@@ -208,8 +210,9 @@ ARI=$NICOTINA_ARI ARIGL=$NICOTINA_ARIGL tests/run.sh
   balance); an expired one (back to the form, and the host forgets it); an instance that
   doesn't answer.
 - `arigl snapshot`, as text (`--terminal`) and as a PNG.
-- In tmux: sign in, start again still signed in, sign out; a wrong password; the emailed code,
-  wrong and then right; an account that must change its password first.
+- In tmux: sign in, the profile's tabs (Replies, Balances) and an older page of posts, start
+  again still signed in, sign out; a wrong password; the emailed code, wrong and then right; an
+  account that must change its password first; the whole profile in an 80x24 pane.
 
 **`tests/local.sh`: a real txwtf instance it starts itself** (about 70 s). It uses txwtf's
 own server from a cvcpkg prefix, on a fresh SQLite database.
@@ -258,6 +261,7 @@ The client uses only an instance's public API:
 
 - the REST API, documented at `/docs` on any instance. M0 uses `POST /user/login`,
   `POST /user/login/2fa`, `GET /user/` (the signed-in user's profile),
+  `GET /social/timeline/user/{id}` (the profile's Posts and Replies tabs),
   `GET /billing/scrip/balance` and `POST /user/logout`. The stub in `tests/` follows
   [tx.wtf's schema](https://tx.wtf/openapi.json) (txwtf 0.4.0), and the errors tx.wtf
   answers that the schema doesn't list (401 `Not authenticated` without a token);
@@ -273,6 +277,11 @@ The client uses only an instance's public API:
 - Nothing has focus when a form opens; press Tab to reach the first field.
 - The spinner beside "Signing in...", "Refreshing..." and the like needs libcvc's `spinner`
   widget (transfix/libcvc#915, open). A host without it shows the text alone.
+- The profile's pictures are placeholders: the banner is the plain colour the web app shows
+  without a header image, and the avatar a frame with the initials. libcvc's `image` widget
+  shows only a picture the host publishes (`--image NAME=FILE`), not one from a URL. txwtf's
+  picture URLs (`/uploads/...`, `/static/...`) need no sign-in, so the profile will show them as
+  soon as an Ariadne host can fetch a picture.
 
 ## Layout
 

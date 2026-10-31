@@ -10,8 +10,15 @@ and with the errors tx.wtf answers that the schema doesn't list:
                              or 400 {"detail": "Access denied! (...)"}
   POST /user/login/2fa       {challenge, code} -> LoginResponse, or 400
   POST /user/logout          Bearer -> {"message": ...}; the token stops working
-  GET  /user/                Bearer -> UserProfileResponse (the signed-in user)
+  GET  /user/                Bearer -> UserProfileResponse (the signed-in user), with the
+                             avatar, header and card image URLs txwtf resolves (/uploads/...,
+                             or its default avatar under /static/), emblems, presence and groups
   GET  /billing/scrip/balance  Bearer -> ScripBalanceResponse
+  GET  /social/timeline/user/{id}?include_replies=&limit=&offset=
+                             Bearer -> TimelineResponse: that user's posts, newest first
+  GET  /uploads/..., /static/img/...
+                             no auth (as txwtf's /uploads mount): a small PNG drawn here, the
+                             same picture for the same path; 404 for a path no profile names
 
 Accounts (password "correct horse" for all of them):
 
@@ -26,8 +33,8 @@ Accounts (password "correct horse" for all of them):
          a brokered account, named as txwtf names one: <user>@<home domain>. Like a real
          one it has no password here (resumed only)
 
-The instance may sit below a path (--instance http://host:port/txwtf): the routes match on
-the end of the request path.
+The instance may sit below a path (--instance http://host:port/txwtf): a route matches from
+the first of its known top-level segments (/user/, /billing/, /social/, /uploads/, /static/).
 
 Without an Authorization header a request gets 401 {"detail": "Not
 authenticated"}, and with a token the server doesn't know (expired, signed out,
@@ -45,12 +52,16 @@ path, status and whether the request carried a valid bearer token.
 import argparse
 import json
 import os
+import struct
 import sys
 import threading
 import time
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs
 
 PASSWORD = "correct horse"
+TOP_LEVEL = ("/user/", "/billing/", "/social/", "/uploads/", "/static/")
 TWO_FACTOR_CODE = "123456"
 CHALLENGE = "Q9mUj4Z1x0bR7nVt2LcYw8sDp3HkGfA5"
 
@@ -80,6 +91,16 @@ USERS = {
         "runway_days": 41,
         "cents": 123457,
         "groups": ["users", "analysts"],
+        # Her own pictures, as txwtf resolves uploaded files (/uploads/<storage key>).
+        "avatar_url": "/uploads/u1/avatar-3f9c.png",
+        "header_image_url": "/uploads/u1/header-77a1.png",
+        "card_image_url": "/uploads/u1/card-0b2e.png",
+        "is_admin": True,
+        "emblems": [{"emblem_type": "verified", "name": "Verified", "icon": "fa-check-circle",
+                     "color": "#3e8ed0"}],
+        "status": "online",
+        "view_count": 1234,
+        "country": "GB",
     },
     "grace": {
         "id": 2,
@@ -157,6 +178,132 @@ USERS = {
 }
 
 
+# Each account's posts, newest first: (id, created_at, content, reply_to_id, counts). counts are
+# replies, reposts, reactions and views. Content is what txwtf stores: plain text, or the rich
+# editor's HTML.
+POSTS = {
+    "ada": [
+        (107, "2026-10-30T09:15:00", "Finished the notes on Menabrea's paper. Note G is the long one.",
+         None, (2, 1, 5, 40)),
+        (106, "2026-10-29T18:02:00", "Agreed: the engine might compose music, given the rules of harmony.",
+         90, (0, 0, 3, 12)),
+        (105, "2026-10-28T11:30:00",
+         "<p>The <strong>Analytical Engine</strong> weaves algebraic patterns just as the "
+         "Jacquard loom weaves flowers &amp; leaves.</p>", None, (4, 2, 9, 77)),
+        (104, "2026-10-27T16:45:00", "The engine's mill, drawn from the plans.", None, (1, 0, 2, 30)),
+        (103, "2026-10-26T08:00:00", "Bernoulli numbers, step by step, in a table anyone can follow.",
+         None, (0, 1, 1, 19)),
+        (102, "2026-10-25T21:10:00", "Thank you, Mr. Babbage.", 80, (0, 0, 1, 8)),
+        (101, "2026-10-24T07:00:00", "Hello, TX.WTF.", None, (3, 0, 6, 51)),
+        (100, "2026-10-23T23:59:00", "Testing, testing.", None, (0, 0, 0, 4)),
+    ],
+}
+
+
+def post_response(username, post):
+    pid, created, content, reply_to, (replies, reposts, reactions, views) = post
+    u = USERS[username]
+    return {  # PostResponse: the fields a client reads, and the required ones
+        "id": pid,
+        "user_id": u["id"],
+        "content": content,
+        "content_html": None,
+        "visibility": "public",
+        "reply_to_id": reply_to,
+        "repost_id": None,
+        "thread_root_id": reply_to,
+        "reply_count": replies,
+        "repost_count": reposts,
+        "reaction_count": reactions,
+        "view_count": views,
+        "created_at": created,
+        "updated_at": None,
+        "tip_count": 0,
+        "tip_total_scrip": None,
+        "show_tip_total": False,
+        "is_paid_content": False,
+        "price_scrip": None,
+        "is_locked": False,
+        "unlock_count": 0,
+        "revenue_scrip": None,
+        "expires_at": None,
+        "time_remaining_seconds": None,
+        "is_ephemeral": False,
+        "is_promoted": False,
+        "promoted_until": None,
+        "promotion_tier": None,
+        "author": {  # txwtf's brief user: a post author's emblems carry `type`
+            "id": u["id"],
+            "username": username,
+            "name": u["name"],
+            "avatar_url": u.get("avatar_url", DEFAULT_AVATAR),
+            "status": u.get("status", "offline"),
+            "is_admin": u.get("is_admin", False),
+            "emblems": [{"type": e["emblem_type"], "name": e["name"], "icon": e["icon"],
+                         "color": e["color"]} for e in u.get("emblems", [])],
+            "last_login_country": u.get("country", "US"),
+        },
+        "reactions_summary": None,  # the timeline leaves it out
+        "attachments": [],
+        "reposted_post": None,
+        "link_previews": None,
+    }
+
+
+def user_timeline(user_id, query):
+    """GET /social/timeline/user/{id}: offset paging, as the web app pages a profile's posts."""
+    username = next((n for n, u in USERS.items() if u["id"] == user_id), None)
+    posts = POSTS.get(username, [])
+    if query.get("include_replies", ["true"])[0] == "false":
+        posts = [p for p in posts if p[3] is None]
+    limit = min(int(query.get("limit", ["20"])[0]), 100)
+    offset = int(query.get("offset", ["0"])[0])
+    page = posts[offset:offset + limit]
+    return {
+        "posts": [post_response(username, p) for p in page],
+        "has_more": offset + limit < len(posts),
+        "next_before_id": page[-1][0] if page else None,
+        "total": None,
+        "feed_mode": None,
+        "tag": None,
+        "pinned_post": None,
+    }
+
+
+def png(width, height, pixel):
+    """A PNG, stdlib only: pixel(x, y) -> (r, g, b)."""
+    rows = b"".join(
+        b"\x00" + bytes(c for x in range(width) for c in pixel(x, y)) for y in range(height)
+    )
+
+    def chunk(kind, data):
+        return (struct.pack(">I", len(data)) + kind + data
+                + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF))
+
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+def picture(path):
+    """The picture for a media path a profile names, or None. Each is drawn so a person can tell
+    them apart: a banner is a wide gradient, a card a dark one, an avatar a disc on a ground."""
+    known = {DEFAULT_AVATAR} | {
+        u[k] for u in USERS.values() for k in ("avatar_url", "header_image_url", "card_image_url")
+        if u.get(k)
+    }
+    if path not in known:
+        return None
+    if "header" in path:
+        return png(300, 100, lambda x, y: (40 + x * 180 // 300, 90 + y, 160 - x * 60 // 300))
+    if "card" in path:
+        return png(240, 120, lambda x, y: (20 + x // 8, 24 + y // 8, 48))
+    seed = sum(path.encode()) % 3
+    ground = [(70, 110, 200), (200, 120, 60), (90, 160, 90)][seed]
+    return png(64, 64, lambda x, y: (240, 230, 210) if (x - 32) ** 2 + (y - 26) ** 2 < 196
+               or (x - 32) ** 2 + (y - 70) ** 2 < 900 else ground)
+
+
 class State:
     def __init__(self, log_path):
         self.lock = threading.Lock()
@@ -195,6 +342,11 @@ def login_response(username):
     }
 
 
+# txwtf's default avatar (the default_avatar setting), for an account with none of its own. Header
+# and card images have no default: null means the theme's colour.
+DEFAULT_AVATAR = "/static/img/atxcf_logo_small.jpg"
+
+
 def profile_response(username):
     u = USERS[username]
     return {
@@ -202,13 +354,13 @@ def profile_response(username):
         "username": username,
         "email": u["email"],
         "name": u["name"],
-        "avatar_url": None,
-        "avatar_file_id": None,
-        "header_image_url": None,
-        "header_image_file_id": None,
+        "avatar_url": u.get("avatar_url", DEFAULT_AVATAR),
+        "avatar_file_id": 11 if u.get("avatar_url") else None,
+        "header_image_url": u.get("header_image_url"),
+        "header_image_file_id": 12 if u.get("header_image_url") else None,
         "header_text": None,
-        "card_image_url": None,
-        "card_image_file_id": None,
+        "card_image_url": u.get("card_image_url"),
+        "card_image_file_id": 13 if u.get("card_image_url") else None,
         "profile_bg_url": None,
         "profile_bg_file_id": None,
         "email_verified": True,
@@ -218,15 +370,15 @@ def profile_response(username):
         "enabled": True,
         "created_time": u["created_time"],
         "last_login": "2026-10-30T11:59:00",
-        "last_login_country": "US",
+        "last_login_country": u.get("country", "US"),
         "timezone": "UTC",
         "timezone_source": "geoip",
-        "view_count": 3,
+        "view_count": u.get("view_count", 3),
         "post_count": u["post_count"],
-        "status": "offline",
-        "is_admin": False,
+        "status": u.get("status", "offline"),  # presence, raw: online, away, busy, ...
+        "is_admin": u.get("is_admin", False),
         "storage_limit": None,
-        "emblems": [],
+        "emblems": u.get("emblems", []),  # the profile's key is emblem_type (a post author's: type)
         "groups": [
             {"group_id": i + 1, "group_name": g, "is_group_admin": False}
             for i, g in enumerate(u["groups"])
@@ -269,17 +421,33 @@ def make_handler(state):
                 return None
             return body if isinstance(body, dict) else None
 
+        def reply_bytes(self, status, data, content_type):
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            # as txwtf's /uploads mount: never shown inline by a browser
+            self.send_header("Content-Disposition", "attachment")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(data)
+            return status
+
         def handle_one(self, method):
-            path = self.path.split("?", 1)[0]
-            for route in ("/user/login/2fa", "/user/login", "/user/logout", "/user/",
-                          "/billing/scrip/balance"):
-                if path.endswith(route):  # the instance may sit below a path
-                    path = route
-                    break
+            path, _, query = self.path.partition("?")
+            query = parse_qs(query)
+            # The instance may sit below a path: start at the first known top-level segment.
+            starts = [i for i in (path.find(p) for p in TOP_LEVEL) if i >= 0]
+            if starts:
+                path = path[min(starts):]
             if method == "POST" and path == "/user/login":
                 return self.login(), None
             if method == "POST" and path == "/user/login/2fa":
                 return self.login_2fa(), None
+            if method == "GET" and (path.startswith("/uploads/") or path.startswith("/static/")):
+                data = picture(path)  # no auth, as txwtf serves them
+                if data is None:
+                    return self.reply(404, {"detail": "Not Found"}), None
+                return self.reply_bytes(200, data, "image/png"), None
             user, refused = self.bearer_user()
             if refused:
                 return self.reply(401, {"detail": refused}), None
@@ -300,6 +468,12 @@ def make_handler(state):
                     ),
                     user,
                 )
+            if method == "GET" and path.startswith("/social/timeline/user/"):
+                try:
+                    user_id = int(path.rsplit("/", 1)[1])
+                except ValueError:
+                    return self.reply(422, {"detail": "user_id must be an integer"}), user
+                return self.reply(200, user_timeline(user_id, query)), user
             if method == "POST" and path == "/user/logout":
                 token = self.headers["Authorization"].partition(" ")[2]
                 with state.lock:
