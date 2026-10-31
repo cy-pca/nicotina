@@ -285,14 +285,18 @@ The client uses only an instance's public API:
   libcvc master). An older host gives it none; press Tab to reach it.
 - The spinner beside "Signing in...", "Refreshing..." and the like needs libcvc's `spinner`
   widget (transfix/libcvc#915, open). A host without it shows the text alone.
-- Pictures, video and audio are placeholders. The profile's banner is the plain colour the web
-  app shows without a header image, and its avatar a frame with the initials. A card's avatar is
-  the initials, and each attachment a row naming its kind, file name, size and alt text; a post
-  opened whole shows each attachment's URL. libcvc's `image` widget shows only a picture the host
-  publishes (`--image NAME=FILE`), not one from a URL, and it has no video or audio widgets yet.
-  txwtf's media URLs (`/uploads/...`, `/static/...`) need no sign-in, so the document keeps them
-  for a host that can show them; the libcvc media work (URL images, backgrounds, `video:`,
-  `audio:`) is under way.
+- Pictures show where the host can show a picture from a URL: transfix/libcvc#931 (open) adds
+  that, and the document asks for it as the optional capability `image.url`, requested from that
+  work. They are the profile's avatar (round) and header image, the cards' author avatars and
+  first picture, and each picture of a post opened whole. txwtf's media URLs (`/uploads/...`,
+  `/static/...`) need no sign-in. Elsewhere they are placeholders: the profile's banner is the
+  plain colour the web app shows without a header image and its avatar a frame with the
+  initials, and a card's avatar is the initials.
+- Video and audio are rows naming each attachment (its kind, file name, size and alt text); a post
+  opened whole shows each attachment's URL. libcvc has no `video:` or `audio:` widgets yet. A
+  video avatar or banner (the web app plays `.mp4`, `.webm`, `.mov` and `.m4v` ones as muted
+  loops) keeps its placeholder too, and an animated GIF or WebP shows its first frame. The
+  profile card's own background picture waits for libcvc's `background:`.
 - The feed's header scrolls away with its cards: Ariadne has no scrolling region inside a window
   yet, so the whole window scrolls.
 - "In browser" (open a post in the web app) needs libcvc's `open-url` (transfix/libcvc#916,

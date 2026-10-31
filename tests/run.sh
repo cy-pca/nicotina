@@ -115,6 +115,11 @@ snap() { # snap NAME BACKEND STORE [doc args...]
   "$ARI" snapshot "${flags[@]}" "$main" --instance "$base" "$@" >"$out/$name.txt" 2>&1
 }
 
+# Whether this ari shows pictures from a URL (image.url, transfix/libcvc#931): where it does,
+# the avatar and the banner are pictures, not the placeholders.
+pictures=
+"$ARI" check --net "$main" 2>&1 | grep -q "optional requirement image.url" || pictures=1
+
 for backend in ftxui tvision; do
   snap "snap-$backend-signin" "$backend" "" --user ada
   check "ari snapshot ($backend): the sign-in form" "$out/snap-$backend-signin.txt" \
@@ -142,14 +147,19 @@ for backend in ftxui tvision; do
   fi
   snap "snap-$backend-resume" "$backend" "$store" --start profile
   check "ari snapshot ($backend): --start profile: the profile, as the web app lays it out" \
-    "$out/snap-$backend-resume.txt" "╭ Profile ─" "│████████" "│╭──────╮ @ada@$hostport  Ada Lovelace" \
-    "││  AL  │ Writes notes on the analytical engine. Prefers punched cards t..." \
-    "││      │ admin · Verified · online" "│╰──────╯ GB · Joined 2025-03-01 · 42 posts · 1234 views" \
+    "$out/snap-$backend-resume.txt" "╭ Profile ─" " @ada@$hostport  Ada Lovelace" \
+    " Writes notes on the analytical engine. Prefers punched cards t..." \
+    " admin · Verified · online" " GB · Joined 2025-03-01 · 42 posts · 1234 views" \
     "│Groups: users, analysts" "[ Feed ][ Refresh ][ Sign out ]│" \
     "Show: (*) Posts  ( ) Replies  ( ) Balances" \
     "2026-10-30  Finished the notes on Menabrea's paper. Note G is th...  ↩2 ♥5" \
     "2026-10-28  The Analytical Engine weaves algebraic patterns just...  ↩4 ♥9" \
     "2026-10-24  Hello, TX.WTF." "[ Newer ][ Older ]  Page 1" "Signed in to 127.0.0.1"
+  if [ -z "$pictures" ]; then
+    check "ari snapshot ($backend): ... the banner and avatar placeholders" \
+      "$out/snap-$backend-resume.txt" "│████████" "│╭──────╮ @ada@$hostport  Ada Lovelace" \
+      "││  AL  │ Writes notes" "││      │ admin · Verified" "│╰──────╯ GB · Joined"
+  fi
   # The owner found the SCRIP runway (days left at the current burn) confusing: it is gone.
   check_not "ari snapshot ($backend): ... no Runway, no replies on the Posts tab" \
     "$out/snap-$backend-resume.txt" "Runway" "Thank you, Mr. Babbage." "Testing, testing."
@@ -228,7 +238,7 @@ check "ari snapshot: following no one: the feed says so" "$out/snap-feed-empty.t
 # avatar and banner and the cards' avatars and pictures are drawn (half-blocks in a snapshot)
 # where the placeholders were, and fetched without the session token (txwtf's /uploads needs
 # none, and the document never asks the host to send one there).
-if "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement image.url"; then
+if [ -z "$pictures" ]; then
   skip "ari snapshot: pictures by URL (this ari has no image.url; transfix/libcvc#931)"
 else
   seed_store "$store" ada
@@ -241,6 +251,8 @@ else
     --instance "$base" >"$out/snap-pictures-feed.txt" 2>&1
   check_not "ari snapshot: the cards' avatars are pictures, not initials" \
     "$out/snap-pictures-feed.txt" "(CB) Charles" "(GH) Grace"
+  check "ari snapshot: ... but a video avatar keeps its initials" "$out/snap-pictures-feed.txt" \
+    "(AT) Alan Turing"
   check "ari snapshot: ... and the cards' text is all there" "$out/snap-pictures-feed.txt" \
     "Charles Babbage  @charles@$hostport" "[image] moth.png · 29 KB" "▀"
   for pic in /uploads/u1/avatar-3f9c.png /uploads/u1/header-77a1.png \
@@ -252,6 +264,13 @@ else
       fail "the picture $pic was not fetched, or was sent a token" "$out/stub.log"
     fi
   done
+  # A video avatar keeps the placeholder (no video widget yet), and isn't fetched as a picture.
+  seed_store "$store" bob@peer.example
+  snap snap-pictures-video-avatar ftxui "$store" --start profile
+  check "ari snapshot: a video avatar keeps its placeholder" "$out/snap-pictures-video-avatar.txt" \
+    "│╭──────╮ @bob@peer.example  Bob" "││  B   │"
+  check_not "ari snapshot: ... and isn't fetched as a picture" "$out/stub.log" \
+    '"path": "/uploads/u5/avatar-loop.mp4"' '"path": "/uploads/u8/avatar-loop.webm"'
 fi
 
 # The spinner, while a request is out: slowpoke's profile takes the stub 12 s, longer than

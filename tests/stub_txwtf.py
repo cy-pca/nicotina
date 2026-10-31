@@ -165,6 +165,8 @@ USERS = {
         "login_2fa_email_enabled": False,
         "force_password_change": False,
         "shadow": True,
+        # a video avatar, which txwtf's web app plays as a muted loop
+        "avatar_url": "/uploads/u5/avatar-loop.mp4",
         "balance": "0E-10",
         "runway_days": None,
         "cents": 0,
@@ -213,7 +215,9 @@ POSTS = {
 AUTHORS = {
     "charles": {"id": 7, "name": "Charles Babbage", "avatar_url": "/uploads/u7/avatar-c4b1.png",
                 "status": "busy", "country": "GB"},
-    "alan@peer.example": {"id": 8, "name": "Alan Turing", "status": "online", "country": "GB"},
+    # a video avatar, which txwtf's web app plays as a muted loop
+    "alan@peer.example": {"id": 8, "name": "Alan Turing", "status": "online", "country": "GB",
+                          "avatar_url": "/uploads/u8/avatar-loop.webm"},
 }
 
 # Attachments, as txwtf lists them (get_post_attachments): a mime type, never a kind, and
@@ -225,6 +229,8 @@ FILES = {
     "/uploads/media/relay-70.png": ("image/png", None),
     "/uploads/media/log-book.png": ("image/png", None),
     "/uploads/media/engine.mp4": ("video/mp4", "engine.mp4"),
+    "/uploads/u5/avatar-loop.mp4": ("video/mp4", "engine.mp4"),  # bob's avatar: a video
+    "/uploads/u8/avatar-loop.webm": ("video/webm", "engine.mp4"),  # alan's: a video too
     "/uploads/media/lecture.ogg": ("audio/ogg", "lecture.ogg"),
     "/uploads/media/cobol-notes.pdf": ("application/pdf", b"%PDF-1.4\n% nicotina test\n%%EOF\n"),
 }
