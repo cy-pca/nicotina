@@ -81,6 +81,12 @@ launch launcher-tvision DISPLAY=:0 XDG_CONFIG_HOME="$work/xdg" -- --backend tvis
 check "launcher: --backend tvision, host flags before the document, document args after" \
   "$out/launcher-tvision.txt" "$ARI 'run' '--backend' 'tvision' '--net'" \
   "'$work/xdg/nicotina/credentials' '--fps' '30' '$main' '--instance' 'https://tx.wtf' '--user' 'ada'"
+# ari-media (ari with sound and video) is the terminal's ari where it is installed.
+mkdir -p "$work/fakebin" && printf '#!/bin/sh\n' >"$work/fakebin/ari-media" &&
+  chmod +x "$work/fakebin/ari-media"
+launch launcher-ari-media NICOTINA_ARI= PATH="$work/fakebin:/usr/bin:/bin" -- --terminal
+check "launcher: a terminal gets ari-media (sound and video) where it is installed" \
+  "$out/launcher-ari-media.txt" "$work/fakebin/ari-media 'run' '--net'"
 launch launcher-bad -- --instance ftp://example.org
 check "launcher: refuses an instance that is not http(s)" "$out/launcher-bad.txt" \
   "--instance must be an http:// or https:// URL"
@@ -119,6 +125,13 @@ snap() { # snap NAME BACKEND STORE [doc args...]
 # the avatar and the banner are pictures, not the placeholders.
 pictures=
 "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement image.url" || pictures=1
+# Whether this ari plays video and audio (media.player: ari-media and arigl with
+# transfix/libcvc#935): then a card's video and recording have players, three Tab stops each
+# (Play, the seek slider, Mute).
+media=
+"$ARI" check --net "$main" 2>&1 | grep -q "optional requirement media.player" || media=1
+player_stops=0
+[ -n "$media" ] && player_stops=3
 
 for backend in ftxui tvision; do
   snap "snap-$backend-signin" "$backend" "" --user ada
@@ -132,9 +145,12 @@ for backend in ftxui tvision; do
     "$out/snap-$backend-feed.txt" "╭ Home ─" "│@ada@$hostport " "[ Profile ][ Refresh ][ Sign out ]" \
     "Show: (*) Following  ( ) Everyone" "Signed in to 127.0.0.1" \
     " Charles Babbage  @charles@$hostport" " 2026-10-30 22:40" \
-    "││The Difference Engine No. 2, working at last.                          │" \
-    "││[image] engine-diagram.png · 47 KB · The engine, from the side         │" \
-    "││[video] engine.mp4 · 11 KB                                             │"
+    "││The Difference Engine No. 2, working at last.                          │"
+  if [ -z "$pictures$media" ]; then
+    check "ari snapshot ($backend): ... its attachments, a row each" "$out/snap-$backend-feed.txt" \
+      "││[image] engine-diagram.png · 47 KB · The engine, from the side         │" \
+      "││[video] engine.mp4 · 11 KB                                             │"
+  fi
   if [ -z "$pictures" ]; then
     check "ari snapshot ($backend): ... the author's initials, and the next card" \
       "$out/snap-$backend-feed.txt" "││(CB) Charles Babbage  @charles@$hostport" "││     2026-10-30 22:40" \
@@ -223,6 +239,7 @@ seed_store "$store" ada
   --instance "$base" >"$out/snap-feed-tall.txt" 2>&1
 check "ari snapshot: the feed's first page: attachments, a repost, a paid post, rich text" \
   "$out/snap-feed-tall.txt" "[audio] lecture.ogg · 5 KB · Lecture, part one" \
+  "[image] engine-diagram.png · 47 KB · The engine, from the side" "[video] engine.mp4 · 11 KB" \
   "│⇄ Charles Babbage reposted" " Ada Lovelace  @ada@$hostport" " 2026-10-30 09:15" \
   " Alan Turing  @alan@peer.example" " 2026-10-30 19:30" \
   "│A ship in port is safe, but that's not what ships are built for. Sail" \
@@ -278,6 +295,33 @@ else
     '"path": "/uploads/u5/avatar-loop.mp4"' '"path": "/uploads/u8/avatar-loop.webm"'
 fi
 
+# Video and audio, where the host has a player: the first card's video and the third card's
+# recording have their controls, and the recordings were fetched without the session token. (In
+# tmux, below, Play runs the video to its end: its 2 s.)
+if [ -z "$media" ]; then
+  skip "ari snapshot: video and audio players (this ari has no media.player; ari-media, transfix/libcvc#935)"
+else
+  seed_store "$store" ada
+  "$ARI" snapshot --width 80 --height 200 --net-allow "$base" --credential-store "$store" "$main" \
+    --instance "$base" >"$out/snap-feed-players.txt" 2>&1
+  # (ari snapshot doesn't wait for a player whose URL comes from a reply, so not the durations)
+  check "ari snapshot: the cards' video and recording have players" "$out/snap-feed-players.txt" \
+    "[ Play ]" "Mute" "[video] engine.mp4 · 11 KB" "[audio] lecture.ogg · 5 KB"
+  if [ "$(grep -c '\[ Play \]' "$out/snap-feed-players.txt")" -ge 2 ]; then
+    pass "ari snapshot: ... one each"
+  else
+    fail "ari snapshot: fewer than two players" "$out/snap-feed-players.txt"
+  fi
+  for rec in /uploads/media/engine.mp4 /uploads/media/lecture.ogg; do
+    if grep -F "\"path\": \"$rec\"" "$out/stub.log" | grep -qF '"authorization": "none"' &&
+      ! grep -F "\"path\": \"$rec\"" "$out/stub.log" | grep -qvF '"authorization": "none"'; then
+      pass "the recording $rec was fetched, without the session token"
+    else
+      fail "the recording $rec was not fetched, or was sent a token" "$out/stub.log"
+    fi
+  done
+fi
+
 # The spinner, while a request is out: slowpoke's profile takes the stub 12 s, longer than
 # `ari snapshot` waits for requests (10 s), so the frame shows the start-up line still turning.
 if "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement spinner"; then
@@ -312,7 +356,7 @@ if [ -n "$ARIGL" ] && [ -x "$ARIGL" ]; then
     --credential-store "$store" "$main" --instance "$base" >"$out/arigl-terminal.txt" 2>&1
   check "arigl snapshot --terminal: the feed" "$out/arigl-terminal.txt" \
     "@ada@$hostport" "Show: (*) Following" " Charles Babbage  @charles@$hostport" \
-    "[image] engine-diagram.png · 47 KB" "[ Open ]"
+    "The Difference Engine No. 2, working at last."
   if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] || [ -n "${NICOTINA_TEST_PNG:-}" ]; then
     "$ARIGL" snapshot --frames 60 --png "$out/arigl.png" --net --net-allow "$base" \
       --credential-store "$store" "$main" --instance "$base" >"$out/arigl-window.txt" 2>&1
@@ -361,7 +405,7 @@ else
     keys Tab; keys Enter
     step "$t: signed in, the home feed" "Home" "@ada@$hostport" "Show: (*) Following" \
       " Charles Babbage  @charles@$hostport" " 2026-10-30 22:40" \
-      "The Difference Engine No. 2, working at last." "[video] engine.mp4 · 11 KB"
+      "The Difference Engine No. 2, working at last."
     check_store "$t: the host keeps the session, owner-only (0600 in 0700)" "$store"
     check_not "$t: the password is not on the screen" \
       "$out/tmux-$(slug "$t: signed in, the home feed").txt" "correct horse"
@@ -390,7 +434,9 @@ else
     # The feed: a card's Open shows the whole post; Back; Load more adds the next page.
     start "$backend" "$xdg" "$base"
     step "$t: started again, still signed in: the feed" "@ada@$hostport" " Charles Babbage"
-    keys Tab; keys Tab; keys Tab; keys Tab; keys Tab; keys Enter # past Profile, Refresh, Sign out, Show
+    # past Profile, Refresh, Sign out, Show (and, with a player, the first card's video)
+    for _ in $(seq $((5 + player_stops))); do keys Tab; done
+    keys Enter
     step "$t: Open: the whole post, its attachments' URLs and its reactions" "[ Back ]" \
       " Charles Babbage  @charles@$hostport" " 2026-10-30 22:40" \
       "↩5 ⇄3 ♥21 · 310 views" "Reactions: :thumbsup: 12  :heart: 9" \
@@ -399,11 +445,19 @@ else
     keys Enter # Back has the focus
     step "$t: Back to the feed" "Show: (*) Following" " Charles Babbage"
     # The feed comes back with nothing focused: Load more is the 15th stop (Profile, Refresh,
-    # Sign out, Show, then ten cards' Open).
-    for _ in $(seq 15); do keys Tab; done
+    # Sign out, Show, then ten cards' Open), and 6 more with players (a video and a recording).
+    for _ in $(seq $((15 + 2 * player_stops))); do keys Tab; done
     keys Enter
     step "$t: Load more: the next page, below the first" "13 posts; no more" \
       "Good morning, TX.WTF."
+    # Play the first card's video, where the host has a player: it runs to its end.
+    if [ -n "$media" ]; then
+      PANE=100x40 start "$backend" "$xdg" "$base" --media-play always
+      step "$t: the feed, with a player" "0:00 / 0:02" "[ Play ]"
+      for _ in $(seq 5); do keys Tab; done
+      keys Enter # Play
+      step "$t: Play: the video plays to its end" "0:02 / 0:02"
+    fi
     # Everyone: the public feed, with someone ada doesn't follow.
     start "$backend" "$xdg" "$base"
     step "$t: the feed again" "Show: (*) Following" " Charles Babbage"

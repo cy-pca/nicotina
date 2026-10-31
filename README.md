@@ -66,7 +66,8 @@ arigl run --net --net-allow <origin> --credential-store <config>/nicotina/creden
 ```
 
 or `ari run [--backend tvision] ...` in a terminal (or `arigl run --terminal ...` where only
-arigl is installed). `<config>` is `$XDG_CONFIG_HOME` or `~/.config`, and `%APPDATA%` on
+arigl is installed). In a terminal it runs `ari-media` (ari with sound and video, the `ari-media`
+package) instead of `ari` where that is installed. `<config>` is `$XDG_CONFIG_HOME` or `~/.config`, and `%APPDATA%` on
 Windows. `<prefix>` is the launcher's own directory's parent, so it works from an install
 and from a checkout alike. It takes `ari` and `arigl` from `<prefix>/bin`, else from `PATH`;
 `NICOTINA_ARI` and `NICOTINA_ARIGL` name others.
@@ -292,10 +293,13 @@ The client uses only an instance's public API:
   `/static/...`) need no sign-in. Elsewhere they are placeholders: the profile's banner is the
   plain colour the web app shows without a header image and its avatar a frame with the
   initials, and a card's avatar is the initials.
-- Video and audio are rows naming each attachment (its kind, file name, size and alt text); a post
-  opened whole shows each attachment's URL. libcvc has no `video:` or `audio:` widgets yet. A
+- Video and audio play in a card (its first one) and in a post opened whole, with their
+  controls (Play/Pause, seek, Mute), where the host has a player: `ari-media` and `arigl` with
+  transfix/libcvc#935 (open; the optional capability `media.player`). Elsewhere each is a row
+  naming it (its kind, file name, size and alt text), and a post opened whole shows its URL. A
   video avatar or banner (the web app plays `.mp4`, `.webm`, `.mov` and `.m4v` ones as muted
-  loops) keeps its placeholder too, and an animated GIF or WebP shows its first frame.
+  loops) keeps its placeholder, since `video:` always has its controls, and an animated GIF or
+  WebP shows its first frame.
 - Where the host has `background:` (transfix/libcvc#932, open), the profile card and window have
   the account's card and page pictures behind them, dimmed as the web app dims them, in a window
   (ImGui) only for now: #932's half-blocks behind coloured text bleed that colour.

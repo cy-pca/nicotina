@@ -38,6 +38,7 @@ requires:
   - {name: net.auth.persist, optional: true}
   - {name: spinner, optional: true}    # turns while a request is out; without it, the text alone
   - {name: open-url, optional: true}   # "In browser" on a post; without it, the post's URL shown
+  - {name: media.player, optional: true}  # video and audio play; without it, a row each
   - {name: image.url, optional: true}  # the account's pictures; without it, placeholders
   - json-parse
   - state-set-tree
@@ -519,6 +520,17 @@ on_tick: |
                   "m1" (if (> (length media) 1) (clip (media-row (nth media 1)) CARDW) "")
                   "m1_url" (if (> (length media) 1) (picture-url (opt (nth media 1) "url" nil)) "")
                   "m1_kind" (if (> (length media) 1) (kind (text (opt (nth media 1) "mime_type" ""))) "")
+                  ;; the first video or recording, played in the card where the host can
+                  "av_url" (let ((avs (collections.filter media
+                                        (lambda (m) (and (or (= (kind (text (opt m "mime_type" ""))) "video")
+                                                             (= (kind (text (opt m "mime_type" ""))) "audio"))
+                                                         (!= (opt m "url" "") ""))))))
+                             (if (= (length avs) 0) "" (picture-url (opt (nth avs 0) "url" nil))))
+                  "av_kind" (let ((avs (collections.filter media
+                                         (lambda (m) (and (or (= (kind (text (opt m "mime_type" ""))) "video")
+                                                              (= (kind (text (opt m "mime_type" ""))) "audio"))
+                                                          (!= (opt m "url" "") ""))))))
+                              (if (= (length avs) 0) "" (kind (text (opt (nth avs 0) "mime_type" "")))))
                   "mmore" (if (> (length media) 2)
                             (str-concat "+" (text (- (length media) 2)) " more (Open shows them all)")
                             "")

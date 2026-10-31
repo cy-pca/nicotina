@@ -100,6 +100,9 @@ if defined SSH_CLIENT set "TERMINAL=1"
 
 rem The hosts: NICOTINA_ARI / NICOTINA_ARIGL, else <prefix>\bin, else PATH.
 set "ARI=%NICOTINA_ARI%"
+rem ari-media (ari with sound and video) first, where it is installed.
+if not defined ARI if exist "%PREFIX%\bin\ari-media.exe" set "ARI=%PREFIX%\bin\ari-media.exe"
+if not defined ARI for %%X in (ari-media.exe) do set "ARI=%%~$PATH:X"
 if not defined ARI if exist "%PREFIX%\bin\ari.exe" set "ARI=%PREFIX%\bin\ari.exe"
 if not defined ARI for %%X in (ari.exe) do set "ARI=%%~$PATH:X"
 set "ARIGL=%NICOTINA_ARIGL%"

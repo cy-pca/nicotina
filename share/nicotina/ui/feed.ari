@@ -15,7 +15,8 @@
 # Avatars and pictures show where the host can fetch a picture from a URL (image.url:
 # transfix/libcvc#931); txwtf's /uploads/... and /static/... need no sign-in. Elsewhere an avatar
 # is the author's initials. Every attachment also has a row naming it (its kind, file name, size
-# and alt text). Video and audio are rows until libcvc's video: and audio: widgets land.
+# and alt text). Video and audio play in the card and the post (video: and audio:, with their
+# controls) where the host has a player; elsewhere they are rows too.
 # A host with open-url (transfix/libcvc#916) also gets an "In browser" button that opens the post
 # in the web app.
 
@@ -60,12 +61,25 @@ units:
       - text: ""
         bind: feed.items.{i}.l2
         visible_when: (!= (state-get "feed.items.{i}.l2") "")
-      # The first picture, inline (224 x 128 px, 28 x 8 cells), where the host can show one.
+      # The first picture, inline (192 x 112 px, 24 x 7 cells), where the host can show one.
       - image: ""
         bind: feed.items.{i}.pic
-        size: [224, 128]
+        size: [192, 112]
         fit: contain
         visible_when: (and (has? "image.url") (!= (state-get "feed.items.{i}.pic") ""))
+      # The first video or recording, with its controls (play/pause, seek, mute), where the host
+      # has a player (media.player: ari-media and arigl; transfix/libcvc#935). The lean ari, and
+      # a host without the widgets, show the rows below; "In browser" opens the post.
+      - video: video
+        src: (state-get "feed.items.{i}.av_url")
+        size: [192, 108]
+        fit: contain
+        bind: feed.items.{i}.player
+        visible_when: (and (has? "media.player") (= (state-get "feed.items.{i}.av_kind") "video"))
+      - audio: recording
+        src: (state-get "feed.items.{i}.av_url")
+        bind: feed.items.{i}.player
+        visible_when: (and (has? "media.player") (= (state-get "feed.items.{i}.av_kind") "audio"))
       # The attachments: two rows at most, and how many more there are.
       - text: ""
         bind: feed.items.{i}.m0
@@ -213,3 +227,13 @@ units:
             size: [384, 216]
             fit: contain
             visible_when: (and (has? "image.url") (= (state-get "post.media.{i}.kind") "image"))
+          - video: video
+            src: (state-get "post.media.{i}.url")
+            size: [384, 216]
+            fit: contain
+            bind: post.media.{i}.player
+            visible_when: (and (has? "media.player") (= (state-get "post.media.{i}.kind") "video"))
+          - audio: recording
+            src: (state-get "post.media.{i}.url")
+            bind: post.media.{i}.player
+            visible_when: (and (has? "media.player") (= (state-get "post.media.{i}.kind") "audio"))
