@@ -132,6 +132,17 @@ media=
 "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement media.player" || media=1
 player_stops=0
 [ -n "$media" ] && player_stops=3
+# Whether this ari opens a URL in a browser (open-url, transfix/libcvc#916): then each card has an
+# "In browser" button after Open, one more Tab stop a card, and a post shows that button instead
+# of its URL.
+open_url=
+"$ARI" check --net "$main" 2>&1 | grep -q "optional requirement open-url" || open_url=1
+open_row="││↩5 ⇄3 ♥21 · 310 views                                         [ Open ] │"
+browser_stops=0
+if [ -n "$open_url" ]; then
+  open_row="││↩5 ⇄3 ♥21 · 310 views                           [ Open ][ In browser ] │"
+  browser_stops=10
+fi
 
 for backend in ftxui tvision; do
   snap "snap-$backend-signin" "$backend" "" --user ada
@@ -154,7 +165,7 @@ for backend in ftxui tvision; do
   if [ -z "$pictures" ]; then
     check "ari snapshot ($backend): ... the author's initials, and the next card" \
       "$out/snap-$backend-feed.txt" "││(CB) Charles Babbage  @charles@$hostport" "││     2026-10-30 22:40" \
-      "││↩5 ⇄3 ♥21 · 310 views                                         [ Open ] │" \
+      "$open_row" \
       "││(GH) Grace Hopper  @grace@$hostport"
   fi
   grep -v '^ari: ' "$out/snap-$backend-feed.txt" >"$work/frame.txt"
@@ -441,12 +452,14 @@ else
       " Charles Babbage  @charles@$hostport" " 2026-10-30 22:40" \
       "↩5 ⇄3 ♥21 · 310 views" "Reactions: :thumbsup: 12  :heart: 9" \
       "[image] engine-diagram.png · 47 KB · The engine, from the side" \
-      "  $base/uploads/media/engine-diagram.png" "$base/app/post/312"
+      "  $base/uploads/media/engine-diagram.png" \
+      "$(if [ -n "$open_url" ]; then echo "[ Back ][ In browser ]"; else echo "$base/app/post/312"; fi)"
     keys Enter # Back has the focus
     step "$t: Back to the feed" "Show: (*) Following" " Charles Babbage"
     # The feed comes back with nothing focused: Load more is the 15th stop (Profile, Refresh,
-    # Sign out, Show, then ten cards' Open), and 6 more with players (a video and a recording).
-    for _ in $(seq $((15 + 2 * player_stops))); do keys Tab; done
+    # Sign out, Show, then ten cards' Open), 10 more with open-url (each card's In browser), and 6
+    # more with players (a video and a recording).
+    for _ in $(seq $((15 + browser_stops + 2 * player_stops))); do keys Tab; done
     keys Enter
     step "$t: Load more: the next page, below the first" "13 posts; no more" \
       "Good morning, TX.WTF."
