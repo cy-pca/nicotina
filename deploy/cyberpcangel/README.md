@@ -66,10 +66,15 @@ verify.py          every staged file served byte for byte, the CSP, the redirect
   before the build (`ci/libcvc-prs.sh`, as CI's hosts get). A merged one is skipped, and a closed or
   conflicting one fails the run. It is empty since M0's (#883, #885, #887, #888) merged; a run by
   hand can name one (`libcvc_prs`).
-- **Only when something moved.** Each site has a `.built-from` whose first word fingerprints
-  libcvc master, the pull requests' heads, the documents and this directory. A run compares it
-  with the live one and stops when they match; `force` rebuilds anyway. Until nicotina's `main`
-  has `share/nicotina/main.ari`, a run from `main` finds nothing to publish.
+- **Only when something moved.** Each site has a `.built-from` whose first word fingerprints:
+  - libcvc master and the pull requests' heads;
+  - the documents;
+  - the files that shape the payload: `ariadne.config.json`, `build-hosts.sh`, `stage.sh`,
+    `ci/libcvc-prs.sh` and the workflow.
+
+  A change to this README, `verify.py` or `nicotina-deploy.sh` doesn't rebuild. A run compares the
+  fingerprint with the live one and stops when they match; `force` rebuilds anyway. Until
+  nicotina's `main` has `share/nicotina/main.ari`, a run from `main` finds nothing to publish.
 - **Only what CI passed.** A failing `ci` run, a pull request's run, and a run from a fork (whose
   branch may also be called `main`) don't trigger it.
 - **The payload runs nothing.** `nicotina-deploy.sh` is installed once and fixed; it refuses

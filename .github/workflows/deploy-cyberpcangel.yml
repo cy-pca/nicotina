@@ -103,7 +103,13 @@ jobs:
           for n in $LIBCVC_PRS; do
             heads="$heads $n:$(git -C libcvc ls-remote origin "refs/pull/$n/head" | cut -f1)"
           done
-          inputs="libcvc=$(git -C libcvc rev-parse HEAD) prs=[${heads# }] docs=$(git -C docs-src rev-parse HEAD:share/nicotina) deploy=$(git -C nicotina rev-parse HEAD:deploy/cyberpcangel)"
+          # The deploy side counts only the files that shape the payload: the page config, the build
+          # and staging scripts, the PR merges, and this workflow (the deps list). Not the README,
+          # verify.py, or nicotina-deploy.sh (installed in the instance by hand, not in the payload).
+          shaping=$(git -C nicotina ls-tree HEAD -- deploy/cyberpcangel/ariadne.config.json \
+                      deploy/cyberpcangel/build-hosts.sh deploy/cyberpcangel/stage.sh \
+                      ci/libcvc-prs.sh .github/workflows/deploy-cyberpcangel.yml | sha256sum | cut -c1-16)
+          inputs="libcvc=$(git -C libcvc rev-parse HEAD) prs=[${heads# }] docs=$(git -C docs-src rev-parse HEAD:share/nicotina) deploy=$shaping"
           fp=$(printf '%s' "$inputs" | sha256sum | cut -c1-16)
           echo "built_from=$fp $inputs nicotina=$(git -C docs-src rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           live=$(python3 -I -c 'import urllib.request as u
