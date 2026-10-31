@@ -5,10 +5,10 @@
 documents. The same documents run as a native desktop app, **in the terminal**, and in
 the browser.
 
-> **Status: M0 drafted.** You can sign in (username, password and the emailed code) and see
-> your profile, laid out as the TX.WTF web app lays one out (a banner, the card, and Posts,
-> Replies and Balances tabs), in `arigl`, in `ari` with either terminal backend, and from the
-> launcher. It needs libcvc features that are still open pull requests, so for now it
+> **Status: M0 drafted.** You can sign in (username, password and the emailed code), read
+> your home feed (a card a post, with its attachments), and see your profile, laid out as the
+> TX.WTF web app lays one out (a banner, the card, and Posts, Replies and Balances tabs), in
+> `arigl`, in `ari` with either terminal backend, and from the launcher. It needs libcvc features that are still open pull requests, so for now it
 > runs only against a local libcvc build that merges them. See
 > [Running M0 today](#running-m0-today) and [docs/ROADMAP.md](docs/ROADMAP.md).
 
@@ -55,7 +55,7 @@ nicotina [--instance URL] [--terminal] [--backend ftxui|tvision] [host flags...]
 | `--backend ftxui\|tvision` | the terminal backend (FTXUI by default); implies `--terminal` |
 | `--dry-run` | print the host command instead of running it |
 | other options | go to the host, before the document (`--fps 30`, `--no-mouse`, ...) |
-| after `--` | go to the document: `--user NAME` fills in the sign-in form |
+| after `--` | go to the document: `--user NAME` fills in the sign-in form; `--start profile` opens the profile first, not the feed |
 
 It picks the terminal when there is no display: no `DISPLAY` or `WAYLAND_DISPLAY` on
 Linux and the BSDs, or an SSH session without X forwarding anywhere. It runs
@@ -66,7 +66,8 @@ arigl run --net --net-allow <origin> --credential-store <config>/nicotina/creden
 ```
 
 or `ari run [--backend tvision] ...` in a terminal (or `arigl run --terminal ...` where only
-arigl is installed). `<config>` is `$XDG_CONFIG_HOME` or `~/.config`, and `%APPDATA%` on
+arigl is installed). In a terminal it runs `ari-media` (ari with sound and video, the `ari-media`
+package) instead of `ari` where that is installed. `<config>` is `$XDG_CONFIG_HOME` or `~/.config`, and `%APPDATA%` on
 Windows. `<prefix>` is the launcher's own directory's parent, so it works from an install
 and from a checkout alike. It takes `ari` and `arigl` from `<prefix>/bin`, else from `PATH`;
 `NICOTINA_ARI` and `NICOTINA_ARIGL` name others.
@@ -135,9 +136,12 @@ bin/nicotina --terminal --instance https://dev.tx.wtf           # FTXUI
 bin/nicotina --backend tvision --instance https://dev.tx.wtf    # tvision
 ```
 
-In the terminal, Tab moves between fields and buttons and Enter presses a button. On the
-profile, Tab reaches the tabs (Posts, Replies, Balances) and Left or Right picks one; Older and
-Newer page through the posts. F10 opens the menu (Refresh, Sign out, Quit); Ctrl-C quits.
+In the terminal, Tab moves between fields and buttons and Enter presses a button. Signed in,
+you see your home feed: Left or Right on its Show row picks Following or Everyone, Tab walks the
+cards (the window scrolls to keep the focused one in view), a card's Open shows the whole post,
+and Load more, at the end, adds the next page. Profile opens the profile: Tab reaches its tabs
+(Posts, Replies, Balances) and Left or Right picks one; Older and Newer page through the posts;
+Feed goes back. F10 opens the menu (Home feed, Profile, Refresh, Sign out, Quit); Ctrl-C quits.
 
 ### With cvcpkg
 
@@ -154,7 +158,7 @@ on the instance itself:
 ```
 /apps/nicotina/index.html arigl-web.js arigl-web.css arigl.js arigl.wasm   (arigl-web)
 /apps/nicotina/ari.html ari.js ari.wasm ari-web.js ari-web.css xterm/      (arigl-web, the terminal page)
-/apps/nicotina/main.ari ui/signin.ari ui/home.ari                          (share/nicotina)
+/apps/nicotina/main.ari ui/signin.ari ui/home.ari ui/feed.ari              (share/nicotina)
 /apps/nicotina/ariadne.config.json                                         (web/)
 ```
 
@@ -206,13 +210,15 @@ ARI=$NICOTINA_ARI ARIGL=$NICOTINA_ARIGL tests/run.sh
 
 - `bin/nicotina --dry-run`: the host, the flags and the credential store it picks.
 - `ari check`: without `--net` the document refuses to load, naming what it needs.
-- `ari snapshot`, FTXUI and tvision: the sign-in form; a stored session resumed (profile and
-  balance); an expired one (back to the form, and the host forgets it); an instance that
-  doesn't answer.
+- `ari snapshot`, FTXUI and tvision: the sign-in form; a stored session resumed (the home feed,
+  and the profile); every kind of card (pictures, a video, a recording, a PDF, a repost, a paid
+  post, rich text); an empty feed; an expired session (back to the form, and the host forgets
+  it); an instance that doesn't answer.
 - `arigl snapshot`, as text (`--terminal`) and as a PNG.
-- In tmux: sign in, the profile's tabs (Replies, Balances) and an older page of posts, start
-  again still signed in, sign out; a wrong password; the emailed code, wrong and then right; an
-  account that must change its password first; the whole profile in an 80x24 pane.
+- In tmux: sign in to the home feed; a post opened whole and back; Load more; Everyone; the
+  profile's tabs (Replies, Balances) and an older page of posts; start again still signed in,
+  sign out; a wrong password; the emailed code, wrong and then right; an account that must
+  change its password first; the whole feed and profile in an 80x24 pane.
 
 **`tests/local.sh`: a real txwtf instance it starts itself** (about 70 s). It uses txwtf's
 own server from a cvcpkg prefix, on a fresh SQLite database.
@@ -261,6 +267,8 @@ The client uses only an instance's public API:
 
 - the REST API, documented at `/docs` on any instance. M0 uses `POST /user/login`,
   `POST /user/login/2fa`, `GET /user/` (the signed-in user's profile),
+  `GET /social/timeline/home` and `/social/timeline/public` (the feed, `mode=latest`, paged by
+  `before_id`), `GET /social/posts/{id}` (a post opened whole, with its reactions),
   `GET /social/timeline/user/{id}` (the profile's Posts and Replies tabs),
   `GET /billing/scrip/balance` and `POST /user/logout`. The stub in `tests/` follows
   [tx.wtf's schema](https://tx.wtf/openapi.json) (txwtf 0.4.0), and the errors tx.wtf
@@ -278,14 +286,27 @@ The client uses only an instance's public API:
   libcvc master). An older host gives it none; press Tab to reach it.
 - The spinner beside "Signing in...", "Refreshing..." and the like needs libcvc's `spinner`
   widget (transfix/libcvc#915, open). A host without it shows the text alone.
-- The profile shows the account's avatar (round) and header image where the host can show a
-  picture from a URL: transfix/libcvc#931 (open) adds that, and the document asks for it as the
-  optional capability `image.url`, requested from that work. txwtf's picture URLs
-  (`/uploads/...`, `/static/...`) need no sign-in. Elsewhere they are placeholders: the banner is
-  the plain colour the web app shows without a header image, and the avatar a frame with the
-  initials. Where the host has `background:` (transfix/libcvc#932, open), the card and the
-  window have the account's card and page pictures behind them, dimmed as the web app dims them,
-  in a window (ImGui) only for now: #932's half-blocks behind coloured text bleed that colour.
+- Pictures show where the host can show a picture from a URL: transfix/libcvc#931 (open) adds
+  that, and the document asks for it as the optional capability `image.url`, requested from that
+  work. They are the profile's avatar (round) and header image, the cards' author avatars and
+  first picture, and each picture of a post opened whole. txwtf's media URLs (`/uploads/...`,
+  `/static/...`) need no sign-in. Elsewhere they are placeholders: the profile's banner is the
+  plain colour the web app shows without a header image and its avatar a frame with the
+  initials, and a card's avatar is the initials.
+- Video and audio play in a card (its first one) and in a post opened whole, with their
+  controls (Play/Pause, seek, Mute), where the host has a player: `ari-media` and `arigl` with
+  transfix/libcvc#935 (open; the optional capability `media.player`). Elsewhere each is a row
+  naming it (its kind, file name, size and alt text), and a post opened whole shows its URL. A
+  video avatar or banner (the web app plays `.mp4`, `.webm`, `.mov` and `.m4v` ones as muted
+  loops) keeps its placeholder, since `video:` always has its controls, and an animated GIF or
+  WebP shows its first frame.
+- Where the host has `background:` (transfix/libcvc#932, open), the profile card and window have
+  the account's card and page pictures behind them, dimmed as the web app dims them, in a window
+  (ImGui) only for now: #932's half-blocks behind coloured text bleed that colour.
+- The feed's header scrolls away with its cards: Ariadne has no scrolling region inside a window
+  yet, so the whole window scrolls.
+- "In browser" (open a post in the web app) needs libcvc's `open-url` (transfix/libcvc#916,
+  open). Without it, the post's URL is shown instead.
 
 ## Layout
 

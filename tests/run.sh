@@ -40,7 +40,8 @@ awk '{ print $2 }' "$work/token-names" >"$work/tokens" # for the scan at the end
 token() { awk -v n="$1" '$1 == n { print $2 }' "$work/token-names"; } # never echoed
 
 python3 -I -B "$here/stub_txwtf.py" --port 0 --port-file "$work/port" --log "$out/stub.log" \
-  --signed-in ada --signed-in mary --signed-in bob@peer.example --signed-in slowpoke \
+  --signed-in ada --signed-in grace --signed-in mary --signed-in bob@peer.example \
+  --signed-in slowpoke \
   2>"$out/stub.stderr" &
 stub_pid=$!
 for _ in $(seq 100); do [ -s "$work/port" ] && break; sleep 0.05; done
@@ -80,6 +81,12 @@ launch launcher-tvision DISPLAY=:0 XDG_CONFIG_HOME="$work/xdg" -- --backend tvis
 check "launcher: --backend tvision, host flags before the document, document args after" \
   "$out/launcher-tvision.txt" "$ARI 'run' '--backend' 'tvision' '--net'" \
   "'$work/xdg/nicotina/credentials' '--fps' '30' '$main' '--instance' 'https://tx.wtf' '--user' 'ada'"
+# ari-media (ari with sound and video) is the terminal's ari where it is installed.
+mkdir -p "$work/fakebin" && printf '#!/bin/sh\n' >"$work/fakebin/ari-media" &&
+  chmod +x "$work/fakebin/ari-media"
+launch launcher-ari-media NICOTINA_ARI= PATH="$work/fakebin:/usr/bin:/bin" -- --terminal
+check "launcher: a terminal gets ari-media (sound and video) where it is installed" \
+  "$out/launcher-ari-media.txt" "$work/fakebin/ari-media 'run' '--net'"
 launch launcher-bad -- --instance ftp://example.org
 check "launcher: refuses an instance that is not http(s)" "$out/launcher-bad.txt" \
   "--instance must be an http:// or https:// URL"
@@ -118,6 +125,13 @@ snap() { # snap NAME BACKEND STORE [doc args...]
 # the avatar and the banner are pictures, not the placeholders.
 pictures=
 "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement image.url" || pictures=1
+# Whether this ari plays video and audio (media.player: ari-media and arigl with
+# transfix/libcvc#935): then a card's video and recording have players, three Tab stops each
+# (Play, the seek slider, Mute).
+media=
+"$ARI" check --net "$main" 2>&1 | grep -q "optional requirement media.player" || media=1
+player_stops=0
+[ -n "$media" ] && player_stops=3
 
 for backend in ftxui tvision; do
   snap "snap-$backend-signin" "$backend" "" --user ada
@@ -126,12 +140,36 @@ for backend in ftxui tvision; do
 
   store=$work/snap-$backend/credentials
   seed_store "$store" ada
-  snap "snap-$backend-resume" "$backend" "$store"
-  check "ari snapshot ($backend): a stored session shows the profile, as the web app lays it out" \
+  snap "snap-$backend-feed" "$backend" "$store"
+  check "ari snapshot ($backend): a stored session opens the home feed, a card a post" \
+    "$out/snap-$backend-feed.txt" "╭ Home ─" "│@ada@$hostport " "[ Profile ][ Refresh ][ Sign out ]" \
+    "Show: (*) Following  ( ) Everyone" "Signed in to 127.0.0.1" \
+    " Charles Babbage  @charles@$hostport" " 2026-10-30 22:40" \
+    "││The Difference Engine No. 2, working at last.                          │"
+  if [ -z "$pictures$media" ]; then
+    check "ari snapshot ($backend): ... its attachments, a row each" "$out/snap-$backend-feed.txt" \
+      "││[image] engine-diagram.png · 47 KB · The engine, from the side         │" \
+      "││[video] engine.mp4 · 11 KB                                             │"
+  fi
+  if [ -z "$pictures" ]; then
+    check "ari snapshot ($backend): ... the author's initials, and the next card" \
+      "$out/snap-$backend-feed.txt" "││(CB) Charles Babbage  @charles@$hostport" "││     2026-10-30 22:40" \
+      "││↩5 ⇄3 ♥21 · 310 views                                         [ Open ] │" \
+      "││(GH) Grace Hopper  @grace@$hostport"
+  fi
+  grep -v '^ari: ' "$out/snap-$backend-feed.txt" >"$work/frame.txt"
+  if [ "$(wc -l <"$work/frame.txt")" -le 24 ] && [ "$(wc -L <"$work/frame.txt")" -le 80 ] &&
+    grep -qE '^  ╰[─┴]{70}' "$work/frame.txt"; then
+    pass "ari snapshot ($backend): the feed fits 80x24, its frame whole"
+  else
+    fail "ari snapshot ($backend): the feed runs past 80x24" "$out/snap-$backend-feed.txt"
+  fi
+  snap "snap-$backend-resume" "$backend" "$store" --start profile
+  check "ari snapshot ($backend): --start profile: the profile, as the web app lays it out" \
     "$out/snap-$backend-resume.txt" "╭ Profile ─" " @ada@$hostport  Ada Lovelace" \
     " Writes notes on the analytical engine. Prefers punched cards t..." \
     " admin · Verified · online" " GB · Joined 2025-03-01 · 42 posts · 1234 views" \
-    "│Groups: users, analysts" "[ Refresh ][ Sign out ]│" \
+    "│Groups: users, analysts" "[ Feed ][ Refresh ][ Sign out ]│" \
     "Show: (*) Posts  ( ) Replies  ( ) Balances" \
     "2026-10-30  Finished the notes on Menabrea's paper. Note G is th...  ↩2 ♥5" \
     "2026-10-28  The Analytical Engine weaves algebraic patterns just...  ↩4 ♥9" \
@@ -167,7 +205,7 @@ done
 # 65 columns beside the avatar.
 store=$work/snap-handles/credentials
 seed_store "$store" mary
-snap snap-handle-long ftxui "$store"
+snap snap-handle-long ftxui "$store" --start profile
 long_name="Mary Kenneth Keller of the University of Wisconsin-Madison"
 handle="@mary@$hostport"
 room=$((65 - ${#handle} - 2))
@@ -176,7 +214,7 @@ check "ari snapshot: a long display name is cut to fit beside the full handle" \
 check_not "ari snapshot: ... and not drawn whole" "$out/snap-handle-long.txt" "$long_name"
 # A brokered account keeps its home instance: txwtf names it bob@peer.example.
 seed_store "$store" bob@peer.example
-snap snap-handle-brokered ftxui "$store"
+snap snap-handle-brokered ftxui "$store" --start profile
 check "ari snapshot: a brokered account shows its home instance, not this one" \
   "$out/snap-handle-brokered.txt" "@bob@peer.example  Bob"
 check_not "ari snapshot: ... with nothing added, and no placeholder email" \
@@ -184,7 +222,7 @@ check_not "ari snapshot: ... with nothing added, and no placeholder email" \
 # The instance below a path: the handle and messages name the host alone.
 seed_store "$store" ada
 "$ARI" snapshot --width 80 --height 24 --net-allow "$base" --credential-store "$store" "$main" \
-  --instance "$base/txwtf/" >"$out/snap-handle-path.txt" 2>&1
+  --instance "$base/txwtf/" --start profile >"$out/snap-handle-path.txt" 2>&1
 check "ari snapshot: an instance URL with a path: the handle names the host" \
   "$out/snap-handle-path.txt" "@ada@$hostport  Ada Lovelace" "Signed in to $hostport."
 # A default port is not part of the host: https://example.invalid:443 is example.invalid.
@@ -195,20 +233,52 @@ seed_store "$store" ada https://example.invalid
 check "ari snapshot: a default port is left out of the host" "$out/snap-handle-port.txt" \
   "Can't reach example.invalid: "
 
-# Pictures, where the host shows them from a URL (image.url, transfix/libcvc#931): the avatar
-# and the banner are drawn (half-blocks in a snapshot) where the placeholders were, and fetched
-# without the session token (txwtf's /uploads needs none, and the document never asks the host
-# to send one there).
+# The whole first page of the feed, in a tall terminal: every kind of card.
+seed_store "$store" ada
+"$ARI" snapshot --width 80 --height 200 --net-allow "$base" --credential-store "$store" "$main" \
+  --instance "$base" >"$out/snap-feed-tall.txt" 2>&1
+check "ari snapshot: the feed's first page: attachments, a repost, a paid post, rich text" \
+  "$out/snap-feed-tall.txt" "[audio] lecture.ogg · 5 KB · Lecture, part one" \
+  "[image] engine-diagram.png · 47 KB · The engine, from the side" "[video] engine.mp4 · 11 KB" \
+  "│⇄ Charles Babbage reposted" " Ada Lovelace  @ada@$hostport" " 2026-10-30 09:15" \
+  " Alan Turing  @alan@peer.example" " 2026-10-30 19:30" \
+  "│A ship in port is safe, but that's not what ships are built for. Sail" \
+  "│is to get permission, and the most dangerous phrase in the language..." \
+  "Found a moth in relay 70. First actual case of bug being found." \
+  "[image] moth.png · 29 KB · The moth, taped into the log book" \
+  "🔒 This post is locked. Pay 5 scrip to unlock." "[file] cobol-notes.pdf · 2 KB" \
+  "[image] relay-70.png · 30 KB" "+1 more (Open shows them all)" "[ Load more ]  10 posts"
+check_not "ari snapshot: ... not the next page, nor someone ada doesn't follow, nor HTML" \
+  "$out/snap-feed-tall.txt" "Good morning, TX.WTF." "Hello from someone you don't follow." \
+  "<p>" "<em>" "log-book.png"
+seed_store "$store" grace
+snap snap-feed-empty ftxui "$store"
+check "ari snapshot: following no one: the feed says so" "$out/snap-feed-empty.txt" \
+  "Your feed is empty. Follow people, or Show: Everyone."
+
+# Pictures, where the host shows them from a URL (image.url, transfix/libcvc#931): the profile's
+# avatar and banner and the cards' avatars and pictures are drawn (half-blocks in a snapshot)
+# where the placeholders were, and fetched without the session token (txwtf's /uploads needs
+# none, and the document never asks the host to send one there).
 if [ -z "$pictures" ]; then
   skip "ari snapshot: pictures by URL (this ari has no image.url; transfix/libcvc#931)"
 else
   seed_store "$store" ada
-  snap snap-pictures-profile ftxui "$store"
-  check_not "ari snapshot: the avatar and banner are pictures, not placeholders" \
+  snap snap-pictures-profile ftxui "$store" --start profile
+  check_not "ari snapshot: the profile's avatar and banner are pictures, not placeholders" \
     "$out/snap-pictures-profile.txt" "╭──────╮" "│  AL  │" "████████"
   check "ari snapshot: ... drawn in half-blocks" "$out/snap-pictures-profile.txt" "▀" \
     "@ada@$hostport  Ada Lovelace"
-  for pic in /uploads/u1/avatar-3f9c.png /uploads/u1/header-77a1.png; do
+  "$ARI" snapshot --width 80 --height 200 --net-allow "$base" --credential-store "$store" "$main" \
+    --instance "$base" >"$out/snap-pictures-feed.txt" 2>&1
+  check_not "ari snapshot: the cards' avatars are pictures, not initials" \
+    "$out/snap-pictures-feed.txt" "(CB) Charles" "(GH) Grace"
+  check "ari snapshot: ... but a video avatar keeps its initials" "$out/snap-pictures-feed.txt" \
+    "(AT) Alan Turing"
+  check "ari snapshot: ... and the cards' text is all there" "$out/snap-pictures-feed.txt" \
+    "Charles Babbage  @charles@$hostport" "[image] moth.png · 29 KB" "▀"
+  for pic in /uploads/u1/avatar-3f9c.png /uploads/u1/header-77a1.png \
+    /uploads/u7/avatar-c4b1.png /static/img/atxcf_logo_small.jpg /uploads/media/moth.png; do
     if grep -F "\"path\": \"$pic\"" "$out/stub.log" | grep -qF '"authorization": "none"' &&
       ! grep -F "\"path\": \"$pic\"" "$out/stub.log" | grep -qvF '"authorization": "none"'; then
       pass "the picture $pic was fetched, without the session token"
@@ -218,11 +288,38 @@ else
   done
   # A video avatar keeps the placeholder (no video widget yet), and isn't fetched as a picture.
   seed_store "$store" bob@peer.example
-  snap snap-pictures-video-avatar ftxui "$store"
+  snap snap-pictures-video-avatar ftxui "$store" --start profile
   check "ari snapshot: a video avatar keeps its placeholder" "$out/snap-pictures-video-avatar.txt" \
     "│╭──────╮ @bob@peer.example  Bob" "││  B   │"
   check_not "ari snapshot: ... and isn't fetched as a picture" "$out/stub.log" \
-    '"path": "/uploads/u5/avatar-loop.mp4"'
+    '"path": "/uploads/u5/avatar-loop.mp4"' '"path": "/uploads/u8/avatar-loop.webm"'
+fi
+
+# Video and audio, where the host has a player: the first card's video and the third card's
+# recording have their controls, and the recordings were fetched without the session token. (In
+# tmux, below, Play runs the video to its end: its 2 s.)
+if [ -z "$media" ]; then
+  skip "ari snapshot: video and audio players (this ari has no media.player; ari-media, transfix/libcvc#935)"
+else
+  seed_store "$store" ada
+  "$ARI" snapshot --width 80 --height 200 --net-allow "$base" --credential-store "$store" "$main" \
+    --instance "$base" >"$out/snap-feed-players.txt" 2>&1
+  # (ari snapshot doesn't wait for a player whose URL comes from a reply, so not the durations)
+  check "ari snapshot: the cards' video and recording have players" "$out/snap-feed-players.txt" \
+    "[ Play ]" "Mute" "[video] engine.mp4 · 11 KB" "[audio] lecture.ogg · 5 KB"
+  if [ "$(grep -c '\[ Play \]' "$out/snap-feed-players.txt")" -ge 2 ]; then
+    pass "ari snapshot: ... one each"
+  else
+    fail "ari snapshot: fewer than two players" "$out/snap-feed-players.txt"
+  fi
+  for rec in /uploads/media/engine.mp4 /uploads/media/lecture.ogg; do
+    if grep -F "\"path\": \"$rec\"" "$out/stub.log" | grep -qF '"authorization": "none"' &&
+      ! grep -F "\"path\": \"$rec\"" "$out/stub.log" | grep -qvF '"authorization": "none"'; then
+      pass "the recording $rec was fetched, without the session token"
+    else
+      fail "the recording $rec was not fetched, or was sent a token" "$out/stub.log"
+    fi
+  done
 fi
 
 # The spinner, while a request is out: slowpoke's profile takes the stub 12 s, longer than
@@ -257,9 +354,9 @@ if [ -n "$ARIGL" ] && [ -x "$ARIGL" ]; then
   seed_store "$store" ada
   "$ARIGL" snapshot --terminal --frames 60 --width 80 --height 24 --net --net-allow "$base" \
     --credential-store "$store" "$main" --instance "$base" >"$out/arigl-terminal.txt" 2>&1
-  check "arigl snapshot --terminal: the profile" "$out/arigl-terminal.txt" \
-    "@ada@$hostport  Ada Lovelace" "admin · Verified · online" "Show: (*) Posts" \
-    "2026-10-30  Finished the notes on Menabrea's paper."
+  check "arigl snapshot --terminal: the feed" "$out/arigl-terminal.txt" \
+    "@ada@$hostport" "Show: (*) Following" " Charles Babbage  @charles@$hostport" \
+    "The Difference Engine No. 2, working at last."
   if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] || [ -n "${NICOTINA_TEST_PNG:-}" ]; then
     "$ARIGL" snapshot --frames 60 --png "$out/arigl.png" --net --net-allow "$base" \
       --credential-store "$store" "$main" --instance "$base" >"$out/arigl-window.txt" 2>&1
@@ -277,6 +374,13 @@ else
 fi
 
 # --- 5. bin/nicotina in tmux ------------------------------------------------------------------
+
+# fits_80x24 NAME FILE: an 80x24 pane shows the window's bottom edge, nothing wider than 80.
+fits_80x24() {
+  if grep -qE '[╰┗][─┴━┷]{20}|└─═{20}' "$2" && [ "$(wc -L <"$2")" -le 80 ]; then pass "$1"; else
+    fail "$1: the window's frame is cut off at 80x24" "$2"
+  fi
+}
 
 masked=
 if masks_passwords; then masked=1; else
@@ -299,14 +403,18 @@ else
         "correct horse"
     fi
     keys Tab; keys Enter
-    step "$t: signed in, the profile" "@ada@$hostport  Ada Lovelace" "admin · Verified · online" \
-      "GB · Joined 2025-03-01 · 42 posts · 1234 views" "Groups: users, analysts" \
-      "(*) Posts" "Finished the notes on Menabrea's paper." "Page 1"
+    step "$t: signed in, the home feed" "Home" "@ada@$hostport" "Show: (*) Following" \
+      " Charles Babbage  @charles@$hostport" " 2026-10-30 22:40" \
+      "The Difference Engine No. 2, working at last."
     check_store "$t: the host keeps the session, owner-only (0600 in 0700)" "$store"
     check_not "$t: the password is not on the screen" \
-      "$out/tmux-$(slug "$t: signed in, the profile").txt" "correct horse"
-    # The tabs: Tab past Refresh and Sign out to them, then Right picks the next one.
-    keys Tab; keys Tab; keys Tab; keys Right
+      "$out/tmux-$(slug "$t: signed in, the home feed").txt" "correct horse"
+    keys Tab; keys Enter # Profile
+    step "$t: Profile: the profile" "@ada@$hostport  Ada Lovelace" "admin · Verified · online" \
+      "GB · Joined 2025-03-01 · 42 posts · 1234 views" "Groups: users, analysts" \
+      "(*) Posts" "Finished the notes on Menabrea's paper." "Page 1"
+    # The tabs: Tab past Feed, Refresh and Sign out to them, then Right picks the next one.
+    keys Tab; keys Tab; keys Tab; keys Tab; keys Right
     step "$t: the Replies tab" "(*) Replies" "2026-10-29  Agreed: the engine might compose music" \
       "2026-10-25  Thank you, Mr. Babbage."
     check_not "$t: ... and no posts that aren't replies" \
@@ -323,11 +431,44 @@ else
     keys BTab; keys Enter
     step "$t: Newer: the first page again" "Page 1" "Finished the notes on Menabrea's paper."
 
+    # The feed: a card's Open shows the whole post; Back; Load more adds the next page.
     start "$backend" "$xdg" "$base"
-    step "$t: started again, still signed in" "@ada@$hostport  Ada Lovelace" "Hello, TX.WTF."
-    keys Tab; keys Enter # Refresh
-    step "$t: Refresh loads the profile again" "Updated. Signed in to $hostport." \
-      "@ada@$hostport  Ada Lovelace" "Hello, TX.WTF."
+    step "$t: started again, still signed in: the feed" "@ada@$hostport" " Charles Babbage"
+    # past Profile, Refresh, Sign out, Show (and, with a player, the first card's video)
+    for _ in $(seq $((5 + player_stops))); do keys Tab; done
+    keys Enter
+    step "$t: Open: the whole post, its attachments' URLs and its reactions" "[ Back ]" \
+      " Charles Babbage  @charles@$hostport" " 2026-10-30 22:40" \
+      "↩5 ⇄3 ♥21 · 310 views" "Reactions: :thumbsup: 12  :heart: 9" \
+      "[image] engine-diagram.png · 47 KB · The engine, from the side" \
+      "  $base/uploads/media/engine-diagram.png" "$base/app/post/312"
+    keys Enter # Back has the focus
+    step "$t: Back to the feed" "Show: (*) Following" " Charles Babbage"
+    # The feed comes back with nothing focused: Load more is the 15th stop (Profile, Refresh,
+    # Sign out, Show, then ten cards' Open), and 6 more with players (a video and a recording).
+    for _ in $(seq $((15 + 2 * player_stops))); do keys Tab; done
+    keys Enter
+    step "$t: Load more: the next page, below the first" "13 posts; no more" \
+      "Good morning, TX.WTF."
+    # Play the first card's video, where the host has a player: it runs to its end.
+    if [ -n "$media" ]; then
+      PANE=100x40 start "$backend" "$xdg" "$base" --media-play always
+      step "$t: the feed, with a player" "0:00 / 0:02" "[ Play ]"
+      for _ in $(seq 5); do keys Tab; done
+      keys Enter # Play
+      step "$t: Play: the video plays to its end" "0:02 / 0:02"
+    fi
+    # Everyone: the public feed, with someone ada doesn't follow.
+    start "$backend" "$xdg" "$base"
+    step "$t: the feed again" "Show: (*) Following" " Charles Babbage"
+    keys Tab; keys Tab; keys Tab; keys Tab; keys Right
+    step "$t: Show: Everyone" "(*) Everyone" "Hello from someone you don't follow."
+
+    start "$backend" "$xdg" "$base"
+    step "$t: started again, still signed in" "@ada@$hostport" " Charles Babbage"
+    keys Tab; keys Tab; keys Enter # Refresh
+    step "$t: Refresh loads the feed again" "Updated. Signed in to $hostport." \
+      " Charles Babbage"
     keys Tab; keys Enter # Sign out
     step "$t: signed out" "Signed out." "Sign in to TX.WTF" "Username: [ada"
     if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: sign-out drops the session"; else
@@ -345,8 +486,11 @@ else
     form_focus; type_text 000000; keys Tab; keys Enter
     step "$t: a wrong code" "That code didn't work. Try again, or go Back." "Code: []"
     keys BTab; type_text 123456; keys Tab; keys Enter
-    step "$t: the right code signs in" "@grace@$hostport  Grace Hopper" "No posts yet."
-    keys Tab; keys Tab; keys Tab; keys Right; keys Right # the tabs: Balances
+    step "$t: the right code signs in: her feed, empty" "@grace@$hostport" \
+      "Your feed is empty. Follow people, or Show: Everyone."
+    keys Tab; keys Enter # Profile
+    step "$t: grace's profile" "@grace@$hostport  Grace Hopper" "No posts yet."
+    keys Tab; keys Tab; keys Tab; keys Tab; keys Right; keys Right # the tabs: Balances
     step "$t: grace's balance" "(*) Balances" "SCRIP    25" "Value    \$25.00"
     keys BTab; keys Enter # back from the tabs to Sign out
     step "$t: grace signs out" "Signed out."
@@ -372,10 +516,10 @@ else
         fail "$t: no 'Signing in...' while mary's profile loads" \
           "$out/tmux-$(slug "$t: the spinner").txt"
       fi
-      step "$t: and then mary's profile" "@mary@$hostport" "No posts yet."
+      step "$t: and then mary's feed" "@mary@$hostport" "Your feed is empty."
       check_not "$t: no spinner once the requests are back" \
-        "$out/tmux-$(slug "$t: and then mary's profile").txt" "Signing in..."
-      keys Tab; keys Tab; keys Enter
+        "$out/tmux-$(slug "$t: and then mary's feed").txt" "Signing in..."
+      keys Tab; keys Tab; keys Tab; keys Enter # past Profile and Refresh to Sign out
       step "$t: mary signs out" "Signed out."
     fi
 
@@ -384,15 +528,16 @@ else
     PANE=80x24 start "$backend" "$xdg" "$base" -- --user ada
     step "$t: the form for ada at 80x24" "Username: [ada"
     form_focus; keys Tab; type_text "correct horse"; keys Tab; keys Enter
-    step "$t: the profile fits an 80x24 terminal" "Signed in to $hostport." \
-      "@ada@$hostport  Ada Lovelace" "Show: (*) Posts" "[ Newer ][ Older ]  Page 1"
-    f80=$out/tmux-$(slug "$t: the profile fits an 80x24 terminal").txt
-    if grep -qE '╰─{20}|└─═{20}' "$f80" && [ "$(wc -L <"$f80")" -le 80 ]; then
-      pass "$t: ... its frame whole, within 80 columns"
-    else
-      fail "$t: the profile's frame is cut off at 80x24" "$f80"
-    fi
-    keys Tab; keys Tab; keys Enter
+    step "$t: the feed fits an 80x24 terminal" "Signed in to $hostport." \
+      "@ada@$hostport" "[ Profile ][ Refresh ][ Sign out ]" " Charles Babbage"
+    fits_80x24 "$t: ... its frame whole, within 80 columns" \
+      "$out/tmux-$(slug "$t: the feed fits an 80x24 terminal").txt"
+    keys Tab; keys Enter # Profile
+    step "$t: the profile fits an 80x24 terminal" "@ada@$hostport  Ada Lovelace" "Show: (*) Posts" \
+      "[ Newer ][ Older ]  Page 1"
+    fits_80x24 "$t: ... its frame whole, within 80 columns" \
+      "$out/tmux-$(slug "$t: the profile fits an 80x24 terminal").txt"
+    keys Tab; keys Tab; keys Tab; keys Enter # past Feed and Refresh to Sign out
     step "$t: ada signs out at 80x24" "Signed out."
 
     start "$backend" "$xdg" "$base" -- --user linus

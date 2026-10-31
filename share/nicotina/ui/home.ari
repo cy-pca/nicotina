@@ -107,12 +107,16 @@ units:
                   - text: ""
                     bind: me.stats
                     color: [0.6, 0.6, 0.6]
-          # The groups, and the action bar at the end of the card.
+          # The groups, and the action bar at the end of the card: back to the feed, Refresh,
+          # Sign out.
           - type: group
             layout: {kind: horizontal}
             children:
               - text: ""
                 bind: me.groups_line
+              - button: Feed
+                on: (state-set "ui.cmd" "to-feed")
+                enabled_when: (!= (state-get "ui.busy") "1")
               - button: Refresh
                 on: (state-set "ui.cmd" "refresh")
                 enabled_when: (!= (state-get "ui.busy") "1")

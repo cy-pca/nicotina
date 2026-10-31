@@ -14,7 +14,8 @@
 #
 # The documents are in <prefix>/share/nicotina, where <prefix> is this script's directory's parent,
 # so the same script works from an install and from a checkout. ari and arigl are taken from
-# <prefix>/bin, else from PATH; NICOTINA_ARI and NICOTINA_ARIGL name others (a libcvc build).
+# <prefix>/bin, else from PATH; NICOTINA_ARI and NICOTINA_ARIGL name others (a libcvc build). In a
+# terminal it prefers ari-media, ari with sound and video, where that is installed.
 set -eu
 
 me=nicotina
@@ -125,8 +126,14 @@ find_host() { # name override
   fi
 }
 
-# In a terminal ari, else arigl --terminal; on a desktop arigl, else ari.
-ari=$(find_host ari "${NICOTINA_ARI:-}")
+# In a terminal ari, else arigl --terminal; on a desktop arigl, else ari. Where ari-media (ari
+# with sound and video, the ari-media package) is installed, it is the terminal's ari.
+if [ -n "${NICOTINA_ARI:-}" ]; then
+  ari=$(find_host ari "$NICOTINA_ARI")
+else
+  ari=$(find_host ari-media "")
+  [ -n "$ari" ] || ari=$(find_host ari "")
+fi
 arigl=$(find_host arigl "${NICOTINA_ARIGL:-}")
 [ -n "$ari$arigl" ] ||
   die "neither ari nor arigl is installed: looked in $prefix/bin and on PATH (cvcpkg install ari arigl)"
