@@ -116,7 +116,7 @@ snap() { # snap NAME BACKEND STORE [doc args...]
 for backend in ftxui tvision; do
   snap "snap-$backend-signin" "$backend" "" --user ada
   check "ari snapshot ($backend): the sign-in form" "$out/snap-$backend-signin.txt" \
-    "Sign in to TX.WTF" "Instance: $base" "Username: [ada]" "Password: []" "[ Sign in ]"
+    "Sign in to TX.WTF" "Instance: $base" "Username: [ada" "Password: []" "[ Sign in ]"
 
   store=$work/snap-$backend/credentials
   seed_store "$store" ada
@@ -235,7 +235,7 @@ else
 
     start "$backend" "$xdg" "$base"
     step "$t: the sign-in form" "Sign in to TX.WTF" "Instance: $base"
-    keys Tab; type_text ada; keys Tab; type_text "correct horse"
+    form_focus; type_text ada; keys Tab; type_text "correct horse"
     if [ -n "$masked" ]; then # a bullet per character, never the text
       step "$t: the password is masked as it is typed" "Password: [•••••••••••••"
       check_not "$t: ... and not shown" "$out/tmux-$(slug "$t: the password is masked as it is typed").txt" \
@@ -254,20 +254,20 @@ else
     step "$t: Refresh loads the profile and balance again" "Updated. Signed in to $hostport." \
       "SCRIP    1234.56789"
     keys Tab; keys Enter # Sign out
-    step "$t: signed out" "Signed out." "Sign in to TX.WTF" "Username: [ada]"
+    step "$t: signed out" "Signed out." "Sign in to TX.WTF" "Username: [ada"
     if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: sign-out drops the session"; else
       fail "$t: the session is still in the store after signing out"
     fi
 
-    keys Tab; keys Tab; type_text "not the password"; keys Tab; keys Enter
+    form_focus; keys Tab; type_text "not the password"; keys Tab; keys Enter
     step "$t: a wrong password" "Wrong username or password." "Sign in to TX.WTF"
 
     start "$backend" "$xdg" "$base" -- --user grace
-    step "$t: --user fills in the form" "Username: [grace]"
-    keys Tab; keys Tab; type_text "correct horse"; keys Tab; keys Enter
+    step "$t: --user fills in the form" "Username: [grace"
+    form_focus; keys Tab; type_text "correct horse"; keys Tab; keys Enter
     step "$t: the emailed code is asked for" "Two-step verification" "Signing in as grace" \
       "We emailed you a code. It expires in 5 minutes."
-    keys Tab; type_text 000000; keys Tab; keys Enter
+    form_focus; type_text 000000; keys Tab; keys Enter
     step "$t: a wrong code" "That code didn't work. Try again, or go Back." "Code: []"
     keys BTab; type_text 123456; keys Tab; keys Enter
     step "$t: the right code signs in" "@grace@$hostport  Grace Hopper" "SCRIP    25" "Runway   -"
@@ -278,8 +278,8 @@ else
     # by the host's clock, while the client waits on the request.
     if [ -n "$have_spinner" ]; then
       start "$backend" "$xdg" "$base" -- --user mary
-      step "$t: the form for mary" "Username: [mary]"
-      keys Tab; keys Tab; type_text "correct horse"; keys Tab; keys Enter
+      step "$t: the form for mary" "Username: [mary"
+      form_focus; keys Tab; type_text "correct horse"; keys Tab; keys Enter
       if wait_for "$t: the spinner" "Signing in..." 5; then
         g1=$(spinner_glyph "$out/tmux-$(slug "$t: the spinner").txt" "Signing in...")
         sleep 0.5
@@ -303,8 +303,8 @@ else
     fi
 
     start "$backend" "$xdg" "$base" -- --user linus
-    step "$t: the form for linus" "Username: [linus]"
-    keys Tab; keys Tab; type_text "correct horse"; keys Tab; keys Enter
+    step "$t: the form for linus" "Username: [linus"
+    form_focus; keys Tab; type_text "correct horse"; keys Tab; keys Enter
     step "$t: a password that must change first" "Change your password at 127.0.0.1" \
       "Sign in to TX.WTF"
     if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: and no session is kept"; else

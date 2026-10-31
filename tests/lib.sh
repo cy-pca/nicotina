@@ -139,6 +139,14 @@ masks_passwords() {
   "$ARI" snapshot --width 40 --height 6 "$work/password-probe.ari" 2>/dev/null | grep -qF '••••'
 }
 
+# form_focus: give the form's first field the focus. A host with transfix/libcvc#906 does it
+# (autofocus: true on Username and Code); an older one needs a Tab. #906 brought password
+# masking too, so masks_passwords answers for both.
+form_focus() {
+  [ -n "${autofocus_probed:-}" ] || { autofocus_probed=1; masks_passwords && autofocus=1; }
+  [ -n "${autofocus:-}" ] || keys Tab
+}
+
 # spinner_glyph FILE LABEL: the spinner glyph drawn just before LABEL in FILE, if there is one
 # (libcvc's spinner: braille dots, or | / - \ on a terminal without them).
 spinner_glyph() {

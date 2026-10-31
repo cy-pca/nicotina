@@ -1,6 +1,7 @@
 # The signed-in windows: the profile and SCRIP balance, and (outside a terminal) the details.
 #
-# home_window is the whole client in a terminal: 62 columns by 18 rows, below the menu bar.
+# home_window is the whole client in a terminal: 62 columns by 18 rows, below the menu bar
+# (fixed for the tvision host; see the top of signin.ari).
 # details_window is what ImGui adds below it: the full description and the groups.
 
 units:
@@ -16,7 +17,6 @@ units:
         bind: me.header
       - separator
       - type: group
-        id: profile_rows
         layout: {kind: grid, col_widths: [72, auto]}
         children:
           - text: "Email"
@@ -33,7 +33,6 @@ units:
             bind: '(if (= (state-get "me.about_short") "") "-" (state-get "me.about_short"))'
       - separator
       - type: group
-        id: scrip_rows
         layout: {kind: grid, col_widths: [72, auto]}
         children:
           - text: "SCRIP"
@@ -50,8 +49,7 @@ units:
             bind: '(if (has? "net.auth.persist") "kept on this device" "until you quit")'
       - separator
       - type: group
-        id: home_buttons
-        layout: {kind: horizontal, col_widths: [auto, auto]}
+        layout: {kind: horizontal}
         children:
           - button: Refresh
             on: (state-set "ui.cmd" "refresh")

@@ -3,10 +3,13 @@
 #
 # Laid out for the terminal first (8 x 16 px cells): every window opens at column 2, row 2, and
 # is 62 columns wide, so it fits 80 columns. The controller keeps its messages to 60 characters.
+# The width is fixed, and the status row always there, for the tvision host: it refits a window
+# that opens, but one that closes and opens again in the same run (the sign-in form after
+# signing out) comes back at its first size, which would cut off a message that wasn't there.
 
 units:
-  # The controller's last word, info as is and errors in red. Always one row, even when empty:
-  # the tvision host sizes a window once, when it opens, so its content must not grow later.
+  # The controller's last word, info as is and errors in red. Always one row, even when empty
+  # (see the top of this file).
   # While a request is out (ui.busy) a spinner turns beside it ("Signing in...", "Checking the
   # code...", "Refreshing..."). The spinner turns by the host's frame clock, since the
   # controller is parked on the request. A host without the spinner widget shows the line alone.
@@ -50,6 +53,7 @@ units:
       - separator
       - input_text: Username
         bind: login.username
+        autofocus: true          # each time the form opens, so a person can type at once
       # Masked (a bullet per character in a terminal, ImGui's password field in a window). The
       # value still sits in login.password while it is typed; the controller clears it as soon
       # as it sends it, whatever the outcome.
@@ -73,9 +77,9 @@ units:
       - separator
       - input_text: Code
         bind: login.code
+        autofocus: true
       - type: group
-        id: code_buttons
-        layout: {kind: horizontal, col_widths: [auto, auto]}
+        layout: {kind: horizontal}
         children:
           - button: Verify
             on: (state-set "ui.cmd" "verify")
