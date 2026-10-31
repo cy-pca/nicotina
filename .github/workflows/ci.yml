@@ -28,7 +28,7 @@ on:
       libcvc_prs:
         description: 'transfix/libcvc pull requests to merge onto master while they are open'
         type: string
-        default: '883 887'
+        default: ''
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -38,8 +38,9 @@ permissions:
   contents: read
 
 env:
-  # Empty this once they have all merged; a merged one is skipped anyway.
-  LIBCVC_PRS: ${{ inputs.libcvc_prs || '883 887' }}
+  # Open libcvc pull requests to merge onto master first (a merged one is skipped). None now:
+  # #883 and #887 have merged. Keep it in step with deploy-cyberpcangel.yml's.
+  LIBCVC_PRS: ${{ inputs.libcvc_prs || '' }}
   # The txwtf server the integration tests run: the newest published (txwtf publishes on v* tags;
   # tx.wtf runs 0.4.0). Pin one with ==VERSION.
   TXWTF_COMPONENT: atxcf/txwtf-cp312

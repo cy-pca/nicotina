@@ -33,10 +33,12 @@ To use another instance, change both URLs in `ariadne.config.json`. The pages' C
 
 ## How it deploys
 
-The [deploy-cyberpcangel](../../.github/workflows/deploy-cyberpcangel.yml) workflow, nightly
-(09:30 UTC) and on demand (Actions → deploy-cyberpcangel → Run workflow; `ref` picks the branch whose
-documents to publish). It uses the same chain as the other cyberpcangel.com deployments (the cvcGL
-gallery, cvcdbg, the imperial lexicon):
+The [deploy-cyberpcangel](../../.github/workflows/deploy-cyberpcangel.yml) workflow publishes what
+CI has tested. It runs after the [`ci`](../../.github/workflows/ci.yml) workflow succeeds on a push
+to `main` in this repository, and deploys that commit. It also runs on demand: Actions →
+deploy-cyberpcangel → Run workflow, where `ref` picks the branch or commit whose documents to
+publish. It uses the same chain as the other cyberpcangel.com deployments (the cvcGL gallery,
+cvcdbg, the imperial lexicon):
 
 ```
 catx-03 runner (label cvcpkg-prod: the cy-pca org runner catx-03-cy-pca, user github-runner)
@@ -55,14 +57,16 @@ verify.py          every staged file served byte for byte, the CSP, the redirect
   (`CVC_ARIGL_WEB_LEAN=1`: no ImageMagick, assimp, mesher, SDF or libigl), since nicotina is
   widgets. Measured on the first deploy (raw / gzip, as Apache sends it): arigl.wasm 34.9 MB /
   9.4 MB (the full build: 49 MB / 13.8 MB), ari.wasm and ari_tvision.wasm 8.9 MB / 3.1 MB each.
-- **The libcvc pull requests.** M0 needs transfix/libcvc #888 (merged), #883, #885 and #887.
-  `LIBCVC_PRS` (default `883 885 887`) lists those merged onto master before the build while they
-  are open; a merged one is skipped, and a closed one fails the run. Empty it once they have all
-  merged.
-- **Nightly only when something moved.** Each site has a `.built-from` whose first word
-  fingerprints libcvc master, the pull requests' heads, the documents and this directory. The
-  nightly compares it with the live one and stops when they match; `force` rebuilds anyway.
-  Until nicotina's `main` has `share/nicotina/main.ari`, the nightly finds nothing to publish.
+- **The libcvc pull requests.** `LIBCVC_PRS` lists open libcvc pull requests to merge onto master
+  before the build (`ci/libcvc-prs.sh`, as CI's hosts get). A merged one is skipped, and a closed or
+  conflicting one fails the run. It is empty since M0's (#883, #885, #887, #888) merged; a run by
+  hand can name one (`libcvc_prs`).
+- **Only when something moved.** Each site has a `.built-from` whose first word fingerprints
+  libcvc master, the pull requests' heads, the documents and this directory. A run compares it
+  with the live one and stops when they match; `force` rebuilds anyway. Until nicotina's `main`
+  has `share/nicotina/main.ari`, a run from `main` finds nothing to publish.
+- **Only what CI passed.** A failing `ci` run, a pull request's run, and a run from a fork (whose
+  branch may also be called `main`) don't trigger it.
 - **The payload runs nothing.** `nicotina-deploy.sh` is installed once and fixed; it refuses
   links, special files and any file a page doesn't serve (no `.php`, no `.htaccess`), writes the
   Apache config itself, and leaves the files owned by root, so WordPress (`www-data`) can't change
@@ -79,7 +83,7 @@ Build, stage and check locally (the emsdk and a single-threaded wasm deps prefix
 `build-hosts.sh`):
 
 ```bash
-LIBCVC_PRS="883 885 887" CVC_EMSDK_DIR=~/emsdk CVC_DEPS_PREFIX=~/cvc-wasm/deps-wasm \
+CVC_EMSDK_DIR=~/emsdk CVC_DEPS_PREFIX=~/cvc-wasm/deps-wasm \
   deploy/cyberpcangel/build-hosts.sh ~/src/libcvc-web /tmp/build-web /tmp/hosts
 deploy/cyberpcangel/stage.sh /tmp/hosts/share/arigl-web share/nicotina /tmp/payload
 ```
