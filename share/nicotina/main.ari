@@ -299,6 +299,9 @@ on_tick: |
                     ;; what the image: slots show: the pictures, never a video
                     "avatar_pic" (picture-only (picture-url (opt p "avatar_url" nil)))
                     "header_pic" (picture-only (picture-url (opt p "header_image_url" nil)))
+                    "card_pic" (picture-only (picture-url (opt p "card_image_url" nil)))
+                    "bg_url" (picture-url (opt p "profile_bg_url" nil))
+                    "bg_pic" (picture-only (picture-url (opt p "profile_bg_url" nil)))
                     "avatar_box" (avatar-box (initials (if (= name "") user name)))
                     ;; Beside the action bar's buttons: [ Refresh ][ Sign out ] take 23 columns.
                     "groups_line" (pad (if (= (length groups) 0) " "

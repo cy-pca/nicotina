@@ -283,7 +283,9 @@ The client uses only an instance's public API:
   optional capability `image.url`, requested from that work. txwtf's picture URLs
   (`/uploads/...`, `/static/...`) need no sign-in. Elsewhere they are placeholders: the banner is
   the plain colour the web app shows without a header image, and the avatar a frame with the
-  initials. The profile card's own background picture waits for libcvc's `background:`.
+  initials. Where the host has `background:` (transfix/libcvc#932, open), the card and the
+  window have the account's card and page pictures behind them, dimmed as the web app dims them,
+  in a window (ImGui) only for now: #932's half-blocks behind coloured text bleed that colour.
 
 ## Layout
 

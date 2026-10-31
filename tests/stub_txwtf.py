@@ -95,6 +95,7 @@ USERS = {
         "avatar_url": "/uploads/u1/avatar-3f9c.png",
         "header_image_url": "/uploads/u1/header-77a1.png",
         "card_image_url": "/uploads/u1/card-0b2e.png",
+        "profile_bg_url": "/uploads/u1/bg-5d2e.png",
         "is_admin": True,
         "emblems": [{"emblem_type": "verified", "name": "Verified", "icon": "fa-check-circle",
                      "color": "#3e8ed0"}],
@@ -291,7 +292,8 @@ def picture(path):
     """The picture for a media path a profile names, or None. Each is drawn so a person can tell
     them apart: a banner is a wide gradient, a card a dark one, an avatar a disc on a ground."""
     known = {DEFAULT_AVATAR} | {
-        u[k] for u in USERS.values() for k in ("avatar_url", "header_image_url", "card_image_url")
+        u[k] for u in USERS.values()
+        for k in ("avatar_url", "header_image_url", "card_image_url", "profile_bg_url")
         if u.get(k)
     }
     if path not in known:
@@ -299,7 +301,9 @@ def picture(path):
     if "header" in path:
         return png(300, 100, lambda x, y: (40 + x * 180 // 300, 90 + y, 160 - x * 60 // 300))
     if "card" in path:
-        return png(240, 120, lambda x, y: (20 + x // 8, 24 + y // 8, 48))
+        return png(240, 120, lambda x, y: (90 + x // 3, 50 + y, 150 - x // 4))
+    if "/bg-" in path:  # a page background: soft diagonal bands
+        return png(320, 180, lambda x, y: (30, 40 + ((x + y) // 20 % 2) * 20, 60))
     seed = sum(path.encode()) % 3
     ground = [(70, 110, 200), (200, 120, 60), (90, 160, 90)][seed]
     return png(64, 64, lambda x, y: (240, 230, 210) if (x - 32) ** 2 + (y - 26) ** 2 < 196
@@ -363,8 +367,8 @@ def profile_response(username):
         "header_text": None,
         "card_image_url": u.get("card_image_url"),
         "card_image_file_id": 13 if u.get("card_image_url") else None,
-        "profile_bg_url": None,
-        "profile_bg_file_id": None,
+        "profile_bg_url": u.get("profile_bg_url"),
+        "profile_bg_file_id": 14 if u.get("profile_bg_url") else None,
         "email_verified": True,
         "notification_email_enabled": True,
         "login_2fa_email_enabled": u["login_2fa_email_enabled"],
