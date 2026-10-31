@@ -278,11 +278,12 @@ The client uses only an instance's public API:
   libcvc master). An older host gives it none; press Tab to reach it.
 - The spinner beside "Signing in...", "Refreshing..." and the like needs libcvc's `spinner`
   widget (transfix/libcvc#915, open). A host without it shows the text alone.
-- The profile's pictures are placeholders: the banner is the plain colour the web app shows
-  without a header image, and the avatar a frame with the initials. libcvc's `image` widget
-  shows only a picture the host publishes (`--image NAME=FILE`), not one from a URL. txwtf's
-  picture URLs (`/uploads/...`, `/static/...`) need no sign-in, so the profile will show them as
-  soon as an Ariadne host can fetch a picture.
+- The profile shows the account's avatar (round) and header image where the host can show a
+  picture from a URL: transfix/libcvc#931 (open) adds that, and the document asks for it as the
+  optional capability `image.url`, requested from that work. txwtf's picture URLs
+  (`/uploads/...`, `/static/...`) need no sign-in. Elsewhere they are placeholders: the banner is
+  the plain colour the web app shows without a header image, and the avatar a frame with the
+  initials. The profile card's own background picture waits for libcvc's `background:`.
 
 ## Layout
 

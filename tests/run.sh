@@ -185,6 +185,29 @@ seed_store "$store" ada https://example.invalid
 check "ari snapshot: a default port is left out of the host" "$out/snap-handle-port.txt" \
   "Can't reach example.invalid: "
 
+# Pictures, where the host shows them from a URL (image.url, transfix/libcvc#931): the avatar
+# and the banner are drawn (half-blocks in a snapshot) where the placeholders were, and fetched
+# without the session token (txwtf's /uploads needs none, and the document never asks the host
+# to send one there).
+if "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement image.url"; then
+  skip "ari snapshot: pictures by URL (this ari has no image.url; transfix/libcvc#931)"
+else
+  seed_store "$store" ada
+  snap snap-pictures-profile ftxui "$store"
+  check_not "ari snapshot: the avatar and banner are pictures, not placeholders" \
+    "$out/snap-pictures-profile.txt" "╭──────╮" "│  AL  │" "████████"
+  check "ari snapshot: ... drawn in half-blocks" "$out/snap-pictures-profile.txt" "▀" \
+    "@ada@$hostport  Ada Lovelace"
+  for pic in /uploads/u1/avatar-3f9c.png /uploads/u1/header-77a1.png; do
+    if grep -F "\"path\": \"$pic\"" "$out/stub.log" | grep -qF '"authorization": "none"' &&
+      ! grep -F "\"path\": \"$pic\"" "$out/stub.log" | grep -qvF '"authorization": "none"'; then
+      pass "the picture $pic was fetched, without the session token"
+    else
+      fail "the picture $pic was not fetched, or was sent a token" "$out/stub.log"
+    fi
+  done
+fi
+
 # The spinner, while a request is out: slowpoke's profile takes the stub 12 s, longer than
 # `ari snapshot` waits for requests (10 s), so the frame shows the start-up line still turning.
 if "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement spinner"; then

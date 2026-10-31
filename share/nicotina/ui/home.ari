@@ -7,44 +7,67 @@
 # menu bar, fixed for the tvision host (see the top of signin.ari). ImGui draws the same window
 # and adds the Details window beside it.
 #
-# The banner and the avatar are slots. Until the host can show a picture from a URL, each shows
-# a placeholder: the banner the plain colour the web app shows without a header image, and the
-# avatar a frame with the account's initials. main.ari keeps the pictures' URLs (me.avatar_url,
-# me.header_url, me.card_url) for the host that can.
+# The banner and the avatar are the account's own pictures (txwtf's header_image_url and
+# avatar_url, resolved against the instance; no sign-in needed), where the host can show a
+# picture from a URL (image.url: transfix/libcvc#931). Elsewhere, and for an account without a
+# header image, each slot shows a placeholder: the banner the plain colour the web app shows
+# without one, and the avatar a frame with the account's initials. The card's background
+# (me.card_url) waits for libcvc's background: on groups.
 
 units:
-  # The banner: two rows of colour, as the web app's banner without a header image. A window
-  # outside a terminal has no block glyphs to spare, so it shows a rule there.
+  # The banner: the header image, cropped to the window's width and two rows (592 x 32 px), as
+  # the web app crops it to its banner. Without one, two rows of colour, as the web app's
+  # banner without a header image; a window outside a terminal has no block glyphs to spare, so
+  # it shows a rule there.
   banner_slot:
     type: group
     children:
-      - text: ""
-        bind: ui.banner_row
-        color: [0.27, 0.33, 0.45]
-        visible_when: (has? "term")
-      - text: ""
-        bind: ui.banner_row
-        color: [0.27, 0.33, 0.45]
-        visible_when: (has? "term")
-      - separator: ""
-        visible_when: (not (has? "term"))
+      - image: header image
+        bind: me.header_url
+        size: [592, 32]
+        fit: cover
+        visible_when: (and (has? "image.url") (!= (state-get "me.header_url") ""))
+      - type: group
+        visible_when: (not (and (has? "image.url") (!= (state-get "me.header_url") "")))
+        children:
+          - text: ""
+            bind: ui.banner_row
+            color: [0.27, 0.33, 0.45]
+            visible_when: (has? "term")
+          - text: ""
+            bind: ui.banner_row
+            color: [0.27, 0.33, 0.45]
+            visible_when: (has? "term")
+          - separator: ""
+            visible_when: (not (has? "term"))
 
-  # The avatar: an 8 x 4 frame (64 px square at 8 x 16 px cells) with the initials in it.
+  # The avatar: a round picture 64 px square, 8 x 4 cells in a terminal. Without one, an 8 x 4
+  # frame with the initials in it. (txwtf always has an avatar URL: its default when the account
+  # has none of its own.)
   avatar_slot:
     type: group
     children:
-      - text: ""
-        bind: me.avatar_box.0
-        color: [0.55, 0.6, 0.7]
-      - text: ""
-        bind: me.avatar_box.1
-        color: [0.55, 0.6, 0.7]
-      - text: ""
-        bind: me.avatar_box.2
-        color: [0.55, 0.6, 0.7]
-      - text: ""
-        bind: me.avatar_box.3
-        color: [0.55, 0.6, 0.7]
+      - image: avatar
+        bind: me.avatar_url
+        size: [64, 64]
+        fit: cover
+        shape: circle
+        visible_when: (and (has? "image.url") (!= (state-get "me.avatar_url") ""))
+      - type: group
+        visible_when: (not (and (has? "image.url") (!= (state-get "me.avatar_url") "")))
+        children:
+          - text: ""
+            bind: me.avatar_box.0
+            color: [0.55, 0.6, 0.7]
+          - text: ""
+            bind: me.avatar_box.1
+            color: [0.55, 0.6, 0.7]
+          - text: ""
+            bind: me.avatar_box.2
+            color: [0.55, 0.6, 0.7]
+          - text: ""
+            bind: me.avatar_box.3
+            color: [0.55, 0.6, 0.7]
 
   home_window:
     window: Profile
@@ -59,6 +82,7 @@ units:
         layout: {kind: horizontal}
         children:
           - include: avatar_slot
+          - text: " "
           - type: group
             children:
               # The full handle, @user@instance, then the display name, cut to fit.

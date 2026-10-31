@@ -36,6 +36,7 @@ requires:
   - net.auth
   - {name: net.auth.persist, optional: true}
   - {name: spinner, optional: true}    # turns while a request is out; without it, the text alone
+  - {name: image.url, optional: true}  # the account's pictures; without it, placeholders
   - json-parse
   - state-set-tree
 
@@ -240,9 +241,9 @@ on_tick: |
                             (string.substring (nth words (- (length words) 1)) 0 1)))))))
       (defun avatar-box (ini)
         (if (has? "term")
-          (list "╭──────╮ " "│      │ " (str-concat "│" (pad (str-concat "  " ini) 6) "│ ")
-                "╰──────╯ ")
-          (list " " (str-concat "(" ini ")  ") " " " ")))
+          (list "╭──────╮" "│      │" (str-concat "│" (pad (str-concat "  " ini) 6) "│")
+                "╰──────╯")
+          (list " " (str-concat "(" ini ")") " " " ")))
       (defun show-profile (p)
         (let ((user (text (opt p "username" "")))
               (name (text (opt p "name" ""))))
