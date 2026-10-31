@@ -31,7 +31,7 @@ on TX.WTF is tracked as T-items in the TX.WTF repository.
 | L8 | A generic arigl wasm shell that loads `?src=<same-origin .ari URL>` | M0 (browser) |
 | L9 | `open-url`: the system browser natively, `window.open` in wasm | M3 |
 | L10 | An `arigl` cvcpkg package (today only `ari` has one) and the wasm shell as a package | M0 |
-| L11 | A masked `input_text` for passwords, in ImGui **and both terminal backends** | M0 |
+| L11 | A masked `input_text` for passwords, in ImGui **and both terminal backends** (`password: true`, transfix/libcvc#906, merged); still wanted: a host-held secret field that keeps it out of state | M0 |
 
 ## Milestones
 
