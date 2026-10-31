@@ -10,10 +10,17 @@ name: deploy-cyberpcangel
 # catx-00 maps the fixed action `deploy-nicotina` to /root/nicotina-deploy.sh in the cyberpcangel
 # instance; the client never names a path. No pull_request trigger: a pull request must not reach
 # the runner that holds the key.
+#
+# It deploys what CI has tested: after the `ci` workflow succeeds on a push to this repository's
+# main, it publishes that commit's documents. Only a push qualifies, and only from this repository
+# (a fork's pull request can run CI on a branch that is also called main). It still stops when
+# nothing has moved since the live build (.built-from). It can also be run by hand, with a ref.
 
 on:
-  schedule:
-    - cron: '30 9 * * *'   # 09:30 UTC, after cyberpcangel-cvcgl's 08:00 nightly on the same runner
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       ref:
@@ -23,7 +30,7 @@ on:
       libcvc_prs:
         description: 'transfix/libcvc pull requests to merge onto master while they are open'
         type: string
-        default: '883 885 887'
+        default: ''
       force:
         description: 'Rebuild and publish even if nothing moved since the live build'
         type: boolean
@@ -38,6 +45,12 @@ permissions:
 
 jobs:
   deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: [self-hosted, Linux, X64, cvcpkg-prod]
     timeout-minutes: 240
     env:
@@ -46,15 +59,19 @@ jobs:
       # deps-wasm-pthread is threaded, and Emscripten won't link the two kinds together.
       CVC_DEPS_PREFIX: /home/github-runner/cvc-wasm/deps-wasm
       DEPLOY_KEY: /home/github-runner/.ssh/id_ed25519_cyberpcangel_deploy
-      DOCS_REF: ${{ inputs.ref || 'main' }}
-      # The libcvc pull requests nicotina needs, merged onto master while they are open (a merged
-      # one is skipped). Empty this once they have all merged.
-      LIBCVC_PRS: ${{ inputs.libcvc_prs || '883 885 887' }}
+      # After CI: exactly the commit CI tested. By hand: the ref given.
+      DOCS_REF: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.ref || 'main' }}
+      # Open libcvc pull requests to merge onto master first (a merged one is skipped). None now:
+      # #883, #885, #887 and #888 have merged. Keep it in step with ci.yml's.
+      LIBCVC_PRS: ${{ inputs.libcvc_prs || '' }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout the deploy scripts
         uses: actions/checkout@v4
         with:
+          # After CI, the commit CI tested (a workflow_run's default ref is main's head, which may
+          # have moved on); by hand, the workflow's own commit.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           path: nicotina
 
       - name: Checkout the documents (${{ env.DOCS_REF }})

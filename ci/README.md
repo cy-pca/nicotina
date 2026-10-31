@@ -33,7 +33,7 @@ The dependencies are published cvcpkg packages. libcvc needs history for the mer
 
 ```bash
 git clone --filter=blob:none https://github.com/transfix/libcvc /tmp/libcvc
-LIBCVC_PRS="883 887" ci/libcvc-prs.sh /tmp/libcvc
+LIBCVC_PRS="" ci/libcvc-prs.sh /tmp/libcvc                 # any open libcvc PRs to merge first
 ci/build-hosts.sh /tmp/libcvc ~/nicotina-ci                # ari, arigl: ~/nicotina-ci/build/bin
 
 # txwtf, either published (with a token that can read atxcf) or from a txwtf checkout:
@@ -56,5 +56,9 @@ passed 54/54.
   when the merged libcvc tree or `ci/build-hosts.sh` changes.
 - **txwtf prefix:** about 700 MB, installed fresh on each run.
 
-When `LIBCVC_PRS` have all merged, empty it in both workflows (here and in
-`deploy-cyberpcangel.yml`); a merged one is skipped anyway.
+`LIBCVC_PRS` is empty in both workflows (here and in `deploy-cyberpcangel.yml`) since M0's libcvc
+pull requests merged. To test against one still open, list it in both. It must merge cleanly
+onto master: `ci/libcvc-prs.sh` stops on a conflict.
+
+A push to `main` whose `ci` run passes also publishes the browser pages
+([deploy/cyberpcangel](../deploy/cyberpcangel/README.md)).
