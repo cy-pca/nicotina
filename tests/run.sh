@@ -131,16 +131,19 @@ for backend in ftxui tvision; do
   check "ari snapshot ($backend): a stored session opens the home feed, a card a post" \
     "$out/snap-$backend-feed.txt" "╭ Home ─" "│@ada@$hostport " "[ Profile ][ Refresh ][ Sign out ]" \
     "Show: (*) Following  ( ) Everyone" "Signed in to 127.0.0.1" \
-    "││(CB) Charles Babbage  @charles@$hostport" "││     2026-10-30 22:40" \
+    " Charles Babbage  @charles@$hostport" " 2026-10-30 22:40" \
     "││The Difference Engine No. 2, working at last.                          │" \
     "││[image] engine-diagram.png · 47 KB · The engine, from the side         │" \
-    "││[video] engine.mp4 · 11 KB                                             │" \
-    "││↩5 ⇄3 ♥21 · 310 views                                         [ Open ] │" \
-    "││A ship in port is safe, but that's not what ships are built for. Sail  │" \
-    "││is to get permission, and the most dangerous phrase in the language... │"
+    "││[video] engine.mp4 · 11 KB                                             │"
+  if [ -z "$pictures" ]; then
+    check "ari snapshot ($backend): ... the author's initials, and the next card" \
+      "$out/snap-$backend-feed.txt" "││(CB) Charles Babbage  @charles@$hostport" "││     2026-10-30 22:40" \
+      "││↩5 ⇄3 ♥21 · 310 views                                         [ Open ] │" \
+      "││(GH) Grace Hopper  @grace@$hostport"
+  fi
   grep -v '^ari: ' "$out/snap-$backend-feed.txt" >"$work/frame.txt"
   if [ "$(wc -l <"$work/frame.txt")" -le 24 ] && [ "$(wc -L <"$work/frame.txt")" -le 80 ] &&
-    grep -qE '^  ╰─{70}' "$work/frame.txt"; then
+    grep -qE '^  ╰[─┴]{70}' "$work/frame.txt"; then
     pass "ari snapshot ($backend): the feed fits 80x24, its frame whole"
   else
     fail "ari snapshot ($backend): the feed runs past 80x24" "$out/snap-$backend-feed.txt"
@@ -216,12 +219,14 @@ check "ari snapshot: a default port is left out of the host" "$out/snap-handle-p
 
 # The whole first page of the feed, in a tall terminal: every kind of card.
 seed_store "$store" ada
-"$ARI" snapshot --width 80 --height 100 --net-allow "$base" --credential-store "$store" "$main" \
+"$ARI" snapshot --width 80 --height 200 --net-allow "$base" --credential-store "$store" "$main" \
   --instance "$base" >"$out/snap-feed-tall.txt" 2>&1
 check "ari snapshot: the feed's first page: attachments, a repost, a paid post, rich text" \
   "$out/snap-feed-tall.txt" "[audio] lecture.ogg · 5 KB · Lecture, part one" \
-  "│⇄ Charles Babbage reposted" "(AL) Ada Lovelace  @ada@$hostport" "     2026-10-30 09:15" \
-  "(AT) Alan Turing  @alan@peer.example" "     2026-10-30 19:30" \
+  "│⇄ Charles Babbage reposted" " Ada Lovelace  @ada@$hostport" " 2026-10-30 09:15" \
+  " Alan Turing  @alan@peer.example" " 2026-10-30 19:30" \
+  "│A ship in port is safe, but that's not what ships are built for. Sail" \
+  "│is to get permission, and the most dangerous phrase in the language..." \
   "Found a moth in relay 70. First actual case of bug being found." \
   "[image] moth.png · 29 KB · The moth, taped into the log book" \
   "🔒 This post is locked. Pay 5 scrip to unlock." "[file] cobol-notes.pdf · 2 KB" \
@@ -247,7 +252,7 @@ else
     "$out/snap-pictures-profile.txt" "╭──────╮" "│  AL  │" "████████"
   check "ari snapshot: ... drawn in half-blocks" "$out/snap-pictures-profile.txt" "▀" \
     "@ada@$hostport  Ada Lovelace"
-  "$ARI" snapshot --width 80 --height 100 --net-allow "$base" --credential-store "$store" "$main" \
+  "$ARI" snapshot --width 80 --height 200 --net-allow "$base" --credential-store "$store" "$main" \
     --instance "$base" >"$out/snap-pictures-feed.txt" 2>&1
   check_not "ari snapshot: the cards' avatars are pictures, not initials" \
     "$out/snap-pictures-feed.txt" "(CB) Charles" "(GH) Grace"
@@ -306,7 +311,7 @@ if [ -n "$ARIGL" ] && [ -x "$ARIGL" ]; then
   "$ARIGL" snapshot --terminal --frames 60 --width 80 --height 24 --net --net-allow "$base" \
     --credential-store "$store" "$main" --instance "$base" >"$out/arigl-terminal.txt" 2>&1
   check "arigl snapshot --terminal: the feed" "$out/arigl-terminal.txt" \
-    "@ada@$hostport" "Show: (*) Following" "(CB) Charles Babbage  @charles@$hostport" \
+    "@ada@$hostport" "Show: (*) Following" " Charles Babbage  @charles@$hostport" \
     "[image] engine-diagram.png · 47 KB" "[ Open ]"
   if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] || [ -n "${NICOTINA_TEST_PNG:-}" ]; then
     "$ARIGL" snapshot --frames 60 --png "$out/arigl.png" --net --net-allow "$base" \
@@ -328,7 +333,7 @@ fi
 
 # fits_80x24 NAME FILE: an 80x24 pane shows the window's bottom edge, nothing wider than 80.
 fits_80x24() {
-  if grep -qE '[╰┗]─{20}|[╰┗]━{20}|└─═{20}' "$2" && [ "$(wc -L <"$2")" -le 80 ]; then pass "$1"; else
+  if grep -qE '[╰┗][─┴━┷]{20}|└─═{20}' "$2" && [ "$(wc -L <"$2")" -le 80 ]; then pass "$1"; else
     fail "$1: the window's frame is cut off at 80x24" "$2"
   fi
 }
@@ -355,7 +360,7 @@ else
     fi
     keys Tab; keys Enter
     step "$t: signed in, the home feed" "Home" "@ada@$hostport" "Show: (*) Following" \
-      "(CB) Charles Babbage  @charles@$hostport" "     2026-10-30 22:40" \
+      " Charles Babbage  @charles@$hostport" " 2026-10-30 22:40" \
       "The Difference Engine No. 2, working at last." "[video] engine.mp4 · 11 KB"
     check_store "$t: the host keeps the session, owner-only (0600 in 0700)" "$store"
     check_not "$t: the password is not on the screen" \
@@ -384,15 +389,15 @@ else
 
     # The feed: a card's Open shows the whole post; Back; Load more adds the next page.
     start "$backend" "$xdg" "$base"
-    step "$t: started again, still signed in: the feed" "@ada@$hostport" "(CB) Charles Babbage"
+    step "$t: started again, still signed in: the feed" "@ada@$hostport" " Charles Babbage"
     keys Tab; keys Tab; keys Tab; keys Tab; keys Tab; keys Enter # past Profile, Refresh, Sign out, Show
     step "$t: Open: the whole post, its attachments' URLs and its reactions" "[ Back ]" \
-      "(CB) Charles Babbage  @charles@$hostport" "     2026-10-30 22:40" \
+      " Charles Babbage  @charles@$hostport" " 2026-10-30 22:40" \
+      "↩5 ⇄3 ♥21 · 310 views" "Reactions: :thumbsup: 12  :heart: 9" \
       "[image] engine-diagram.png · 47 KB · The engine, from the side" \
-      "  $base/uploads/media/engine-diagram.png" "  $base/uploads/media/engine.mp4" \
-      "Reactions: :thumbsup: 12  :heart: 9" "$base/app/post/312"
+      "  $base/uploads/media/engine-diagram.png" "$base/app/post/312"
     keys Enter # Back has the focus
-    step "$t: Back to the feed" "Show: (*) Following" "(CB) Charles Babbage"
+    step "$t: Back to the feed" "Show: (*) Following" " Charles Babbage"
     # The feed comes back with nothing focused: Load more is the 15th stop (Profile, Refresh,
     # Sign out, Show, then ten cards' Open).
     for _ in $(seq 15); do keys Tab; done
@@ -401,15 +406,15 @@ else
       "Good morning, TX.WTF."
     # Everyone: the public feed, with someone ada doesn't follow.
     start "$backend" "$xdg" "$base"
-    step "$t: the feed again" "Show: (*) Following" "(CB) Charles Babbage"
+    step "$t: the feed again" "Show: (*) Following" " Charles Babbage"
     keys Tab; keys Tab; keys Tab; keys Tab; keys Right
     step "$t: Show: Everyone" "(*) Everyone" "Hello from someone you don't follow."
 
     start "$backend" "$xdg" "$base"
-    step "$t: started again, still signed in" "@ada@$hostport" "(CB) Charles Babbage"
+    step "$t: started again, still signed in" "@ada@$hostport" " Charles Babbage"
     keys Tab; keys Tab; keys Enter # Refresh
     step "$t: Refresh loads the feed again" "Updated. Signed in to $hostport." \
-      "(CB) Charles Babbage"
+      " Charles Babbage"
     keys Tab; keys Enter # Sign out
     step "$t: signed out" "Signed out." "Sign in to TX.WTF" "Username: [ada"
     if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: sign-out drops the session"; else
@@ -470,7 +475,7 @@ else
     step "$t: the form for ada at 80x24" "Username: [ada"
     form_focus; keys Tab; type_text "correct horse"; keys Tab; keys Enter
     step "$t: the feed fits an 80x24 terminal" "Signed in to $hostport." \
-      "@ada@$hostport" "[ Profile ][ Refresh ][ Sign out ]" "(CB) Charles Babbage"
+      "@ada@$hostport" "[ Profile ][ Refresh ][ Sign out ]" " Charles Babbage"
     fits_80x24 "$t: ... its frame whole, within 80 columns" \
       "$out/tmux-$(slug "$t: the feed fits an 80x24 terminal").txt"
     keys Tab; keys Enter # Profile

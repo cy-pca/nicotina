@@ -191,25 +191,25 @@ units:
         children:
           - text: ""
             bind: post.lines.{i}
-      # Each attachment: a picture shown (384 x 216 px, 48 x 13 cells) where the host can, then
-      # its row and its URL.
-      - type: group
-        repeat: (state-get "post.media")
-        children:
-          - image: ""
-            bind: post.media.{i}.url
-            size: [384, 216]
-            fit: contain
-            visible_when: (and (has? "image.url") (= (state-get "post.media.{i}.kind") "image"))
-          - text: ""
-            bind: post.media.{i}.row
-            color: [0.45, 0.75, 0.85]
-          - text: ""
-            bind: post.media.{i}.where
-            color: [0.6, 0.6, 0.6]
       - text: ""
         bind: post.counts
         color: [0.6, 0.6, 0.6]
       - text: ""
         bind: post.reactions
         visible_when: (!= (state-get "post.reactions") "")
+      # Each attachment: its row and its URL, then the picture (384 x 216 px, 48 x 13 cells)
+      # where the host can show one.
+      - type: group
+        repeat: (state-get "post.media")
+        children:
+          - text: ""
+            bind: post.media.{i}.row
+            color: [0.45, 0.75, 0.85]
+          - text: ""
+            bind: post.media.{i}.where
+            color: [0.6, 0.6, 0.6]
+          - image: ""
+            bind: post.media.{i}.url
+            size: [384, 216]
+            fit: contain
+            visible_when: (and (has? "image.url") (= (state-get "post.media.{i}.kind") "image"))
