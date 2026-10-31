@@ -134,8 +134,9 @@ for backend in ftxui tvision; do
   # The owner found the SCRIP runway (days left at the current burn) confusing: it is gone.
   check_not "ari snapshot ($backend): ... no Runway, no replies on the Posts tab" \
     "$out/snap-$backend-resume.txt" "Runway" "Thank you, Mr. Babbage." "Testing, testing."
-  if [ "$(wc -l <"$out/snap-$backend-resume.txt")" -le 24 ] &&
-    [ "$(wc -L <"$out/snap-$backend-resume.txt")" -le 80 ]; then
+  # The frame alone: a host's warnings (an older ari's about the spinner) go to the same file.
+  grep -v '^ari: ' "$out/snap-$backend-resume.txt" >"$work/frame.txt"
+  if [ "$(wc -l <"$work/frame.txt")" -le 24 ] && [ "$(wc -L <"$work/frame.txt")" -le 80 ]; then
     pass "ari snapshot ($backend): the profile fits 80x24"
   else
     fail "ari snapshot ($backend): the profile runs past 80x24" "$out/snap-$backend-resume.txt"
