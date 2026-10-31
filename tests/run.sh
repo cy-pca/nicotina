@@ -126,7 +126,7 @@ for backend in ftxui tvision; do
   check "ari snapshot ($backend): a stored session opens the home feed, a card a post" \
     "$out/snap-$backend-feed.txt" "╭ Home ─" "│@ada@$hostport " "[ Profile ][ Refresh ][ Sign out ]" \
     "Show: (*) Following  ( ) Everyone" "Signed in to 127.0.0.1" \
-    "││(CB) Charles Babbage  @charles@$hostport · 2026-10-30 22:40      │" \
+    "││(CB) Charles Babbage  @charles@$hostport" "││     2026-10-30 22:40" \
     "││The Difference Engine No. 2, working at last.                          │" \
     "││[image] engine-diagram.png · 47 KB · The engine, from the side         │" \
     "││[video] engine.mp4 · 11 KB                                             │" \
@@ -210,8 +210,8 @@ seed_store "$store" ada
   --instance "$base" >"$out/snap-feed-tall.txt" 2>&1
 check "ari snapshot: the feed's first page: attachments, a repost, a paid post, rich text" \
   "$out/snap-feed-tall.txt" "[audio] lecture.ogg · 5 KB · Lecture, part one" \
-  "│⇄ Charles Babbage reposted" "(AL) Ada Lovelace  @ada@$hostport · 2026-10-30 09:15" \
-  "(AT) Alan Turing  @alan@peer.example · 2026-10-30 19:30" \
+  "│⇄ Charles Babbage reposted" "(AL) Ada Lovelace  @ada@$hostport" "     2026-10-30 09:15" \
+  "(AT) Alan Turing  @alan@peer.example" "     2026-10-30 19:30" \
   "Found a moth in relay 70. First actual case of bug being found." \
   "[image] moth.png · 29 KB · The moth, taped into the log book" \
   "🔒 This post is locked. Pay 5 scrip to unlock." "[file] cobol-notes.pdf · 2 KB" \
@@ -223,6 +223,36 @@ seed_store "$store" grace
 snap snap-feed-empty ftxui "$store"
 check "ari snapshot: following no one: the feed says so" "$out/snap-feed-empty.txt" \
   "Your feed is empty. Follow people, or Show: Everyone."
+
+# Pictures, where the host shows them from a URL (image.url, transfix/libcvc#931): the profile's
+# avatar and banner and the cards' avatars and pictures are drawn (half-blocks in a snapshot)
+# where the placeholders were, and fetched without the session token (txwtf's /uploads needs
+# none, and the document never asks the host to send one there).
+if "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement image.url"; then
+  skip "ari snapshot: pictures by URL (this ari has no image.url; transfix/libcvc#931)"
+else
+  seed_store "$store" ada
+  snap snap-pictures-profile ftxui "$store" --start profile
+  check_not "ari snapshot: the profile's avatar and banner are pictures, not placeholders" \
+    "$out/snap-pictures-profile.txt" "╭──────╮" "│  AL  │" "████████"
+  check "ari snapshot: ... drawn in half-blocks" "$out/snap-pictures-profile.txt" "▀" \
+    "@ada@$hostport  Ada Lovelace"
+  "$ARI" snapshot --width 80 --height 100 --net-allow "$base" --credential-store "$store" "$main" \
+    --instance "$base" >"$out/snap-pictures-feed.txt" 2>&1
+  check_not "ari snapshot: the cards' avatars are pictures, not initials" \
+    "$out/snap-pictures-feed.txt" "(CB) Charles" "(GH) Grace"
+  check "ari snapshot: ... and the cards' text is all there" "$out/snap-pictures-feed.txt" \
+    "Charles Babbage  @charles@$hostport" "[image] moth.png · 29 KB" "▀"
+  for pic in /uploads/u1/avatar-3f9c.png /uploads/u1/header-77a1.png \
+    /uploads/u7/avatar-c4b1.png /static/img/atxcf_logo_small.jpg /uploads/media/moth.png; do
+    if grep -F "\"path\": \"$pic\"" "$out/stub.log" | grep -qF '"authorization": "none"' &&
+      ! grep -F "\"path\": \"$pic\"" "$out/stub.log" | grep -qvF '"authorization": "none"'; then
+      pass "the picture $pic was fetched, without the session token"
+    else
+      fail "the picture $pic was not fetched, or was sent a token" "$out/stub.log"
+    fi
+  done
+fi
 
 # The spinner, while a request is out: slowpoke's profile takes the stub 12 s, longer than
 # `ari snapshot` waits for requests (10 s), so the frame shows the start-up line still turning.
@@ -306,7 +336,7 @@ else
     fi
     keys Tab; keys Enter
     step "$t: signed in, the home feed" "Home" "@ada@$hostport" "Show: (*) Following" \
-      "(CB) Charles Babbage  @charles@$hostport · 2026-10-30 22:40" \
+      "(CB) Charles Babbage  @charles@$hostport" "     2026-10-30 22:40" \
       "The Difference Engine No. 2, working at last." "[video] engine.mp4 · 11 KB"
     check_store "$t: the host keeps the session, owner-only (0600 in 0700)" "$store"
     check_not "$t: the password is not on the screen" \
@@ -338,7 +368,7 @@ else
     step "$t: started again, still signed in: the feed" "@ada@$hostport" "(CB) Charles Babbage"
     keys Tab; keys Tab; keys Tab; keys Tab; keys Tab; keys Enter # past Profile, Refresh, Sign out, Show
     step "$t: Open: the whole post, its attachments' URLs and its reactions" "[ Back ]" \
-      "Charles Babbage  @charles@$hostport · 2026-10-30 22:40" \
+      "(CB) Charles Babbage  @charles@$hostport" "     2026-10-30 22:40" \
       "[image] engine-diagram.png · 47 KB · The engine, from the side" \
       "  $base/uploads/media/engine-diagram.png" "  $base/uploads/media/engine.mp4" \
       "Reactions: :thumbsup: 12  :heart: 9" "$base/app/post/312"

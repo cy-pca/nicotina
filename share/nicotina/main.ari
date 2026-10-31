@@ -478,15 +478,21 @@ on_tick: |
                                (clip (str-concat (nth lines 2) " " (nth lines 3)) CARDW))))
             (set media (opt p "attachments" (list)))
             (if (= (type-of media) "nil") (set media (list)))
-            (set ini (str-concat "(" (initials (author-name a)) ") "))
+            (set ini (str-concat "(" (initials (author-name a)) ")"))
             (dict "id" (opt q "id" 0)
                   "web" (web-of q)
                   "note" (repost-note q)
                   "avatar" ini
                   "avatar_url" (picture-url (opt a "avatar_url" nil))
-                  "head" (clip (str-concat (author-name a) "  " (handle (text (opt a "username" "?")))
-                                           " · " (posted-at (opt p "created_at" "")))
-                               (- CARDW (string.length ini)))
+                  ;; beside the avatar (4 columns) and a space
+                  "head" (clip (str-concat (author-name a) "  " (handle (text (opt a "username" "?"))))
+                               (- CARDW 5))
+                  "at" (posted-at (opt p "created_at" ""))
+                  ;; the first picture, shown inline where the host can
+                  "pic" (let ((pics (collections.filter media
+                                      (lambda (m) (and (= (kind (text (opt m "mime_type" ""))) "image")
+                                                       (!= (opt m "url" "") ""))))))
+                          (if (= (length pics) 0) "" (picture-url (opt (nth pics 0) "url" nil))))
                   "l0" (nth-or lines 0)
                   "l1" (nth-or lines 1)
                   "l2" (nth-or lines 2)
@@ -559,11 +565,12 @@ on_tick: |
                     "web" (web-of q)
                     "web_note" (if (has? "open-url") "" (clip (str-concat "  " (web-of q)) (- WIDE 9)))
                     "note" (repost-note q)
-                    "avatar" (str-concat "(" (initials (author-name (opt p "author" (dict)))) ") ")
+                    "avatar" (str-concat "(" (initials (author-name (opt p "author" (dict)))) ")")
+                    "avatar_url" (picture-url (opt (opt p "author" (dict)) "avatar_url" nil))
                     "head" (clip (str-concat (author-name (opt p "author" (dict))) "  "
-                                             (handle (text (opt (opt p "author" (dict)) "username" "?")))
-                                             " · " (posted-at (opt p "created_at" "")))
+                                             (handle (text (opt (opt p "author" (dict)) "username" "?"))))
                                  (- WIDE 6))
+                    "at" (posted-at (opt p "created_at" ""))
                     "lines" (if (= (length lines) 0) (list "(no text)") lines)
                     "media" (collections.map media
                               (lambda (m) (dict "row" (clip (media-row m) WIDE)

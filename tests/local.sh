@@ -132,7 +132,7 @@ for backend in ftxui tvision; do
     "Your feed is empty. Follow people, or Show: Everyone." "Signed in to 127.0.0.1"
   keys Tab; keys Tab; keys Tab; keys Tab; keys Right # past Profile, Refresh, Sign out: Everyone
   step "$t: Everyone: the public timeline, a card a post" "(*) Everyone" \
-    "(AL) Ada Lovelace  @ada@127.0.0.1:$port · " "│Bernoulli numbers, step by step." \
+    "(AL) Ada Lovelace  @ada@127.0.0.1:$port" "│Bernoulli numbers, step by step." \
     "│Hello from the analytical engine." "[ Open ]"
   keys BTab; keys BTab; keys BTab; keys Enter # back past Sign out and Refresh to Profile
   step "$t: her profile" "@ada@127.0.0.1:$port  Ada Lovelace" \

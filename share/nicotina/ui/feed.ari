@@ -12,9 +12,10 @@
 # header scrolls away with the cards.) Load more, at the end, fetches the next page and adds it
 # below.
 #
-# Pictures, video and audio are slots with placeholders: a row naming each attachment (its
-# kind, file name, size and alt text). The document keeps each attachment's URL (txwtf's
-# /uploads/..., resolved against the instance; no sign-in needed) for a host that can show it.
+# Avatars and pictures show where the host can fetch a picture from a URL (image.url:
+# transfix/libcvc#931); txwtf's /uploads/... and /static/... need no sign-in. Elsewhere an avatar
+# is the author's initials. Every attachment also has a row naming it (its kind, file name, size
+# and alt text). Video and audio are rows until libcvc's video: and audio: widgets land.
 # A host with open-url (transfix/libcvc#916) also gets an "In browser" button that opens the post
 # in the web app.
 
@@ -28,15 +29,28 @@ units:
         bind: feed.items.{i}.note
         color: [0.6, 0.6, 0.6]
         visible_when: (!= (state-get "feed.items.{i}.note") "")
-      # The avatar slot (initials until a host can fetch a picture), then who and when.
+      # The author's avatar, round, 32 px (4 x 2 cells), or the initials; then who, and when.
       - type: group
         layout: {kind: horizontal}
         children:
+          - image: ""
+            bind: feed.items.{i}.avatar_url
+            size: [32, 32]
+            fit: cover
+            shape: circle
+            visible_when: (and (has? "image.url") (!= (state-get "feed.items.{i}.avatar_url") ""))
           - text: ""
             bind: feed.items.{i}.avatar
             color: [0.55, 0.6, 0.7]
-          - text: ""
-            bind: feed.items.{i}.head
+            visible_when: (not (and (has? "image.url") (!= (state-get "feed.items.{i}.avatar_url") "")))
+          - text: " "
+          - type: group
+            children:
+              - text: ""
+                bind: feed.items.{i}.head
+              - text: ""
+                bind: feed.items.{i}.at
+                color: [0.6, 0.6, 0.6]
       - text: ""
         bind: feed.items.{i}.l0
         visible_when: (!= (state-get "feed.items.{i}.l0") "")
@@ -46,6 +60,12 @@ units:
       - text: ""
         bind: feed.items.{i}.l2
         visible_when: (!= (state-get "feed.items.{i}.l2") "")
+      # The first picture, inline (224 x 128 px, 28 x 8 cells), where the host can show one.
+      - image: ""
+        bind: feed.items.{i}.pic
+        size: [224, 128]
+        fit: contain
+        visible_when: (and (has? "image.url") (!= (state-get "feed.items.{i}.pic") ""))
       # The attachments: two rows at most, and how many more there are.
       - text: ""
         bind: feed.items.{i}.m0
@@ -148,19 +168,39 @@ units:
       - type: group
         layout: {kind: horizontal}
         children:
+          - image: ""
+            bind: post.avatar_url
+            size: [32, 32]
+            fit: cover
+            shape: circle
+            visible_when: (and (has? "image.url") (!= (state-get "post.avatar_url") ""))
           - text: ""
             bind: post.avatar
             color: [0.55, 0.6, 0.7]
-          - text: ""
-            bind: post.head
+            visible_when: (not (and (has? "image.url") (!= (state-get "post.avatar_url") "")))
+          - text: " "
+          - type: group
+            children:
+              - text: ""
+                bind: post.head
+              - text: ""
+                bind: post.at
+                color: [0.6, 0.6, 0.6]
       - type: group
         repeat: (state-get "post.lines")
         children:
           - text: ""
             bind: post.lines.{i}
+      # Each attachment: a picture shown (384 x 216 px, 48 x 13 cells) where the host can, then
+      # its row and its URL.
       - type: group
         repeat: (state-get "post.media")
         children:
+          - image: ""
+            bind: post.media.{i}.url
+            size: [384, 216]
+            fit: contain
+            visible_when: (and (has? "image.url") (= (state-get "post.media.{i}.kind") "image"))
           - text: ""
             bind: post.media.{i}.row
             color: [0.45, 0.75, 0.85]
