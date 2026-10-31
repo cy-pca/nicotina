@@ -48,12 +48,14 @@ units:
       - text: "Instance"
         bind: app.base
       - separator
-      # Typed text shows as it is: Ariadne's input_text has no password mode yet (a libcvc gap).
-      # The controller clears login.password as soon as it sends it, whatever the outcome.
       - input_text: Username
         bind: login.username
+      # Masked (a bullet per character in a terminal, ImGui's password field in a window). The
+      # value still sits in login.password while it is typed; the controller clears it as soon
+      # as it sends it, whatever the outcome.
       - input_text: Password
         bind: login.password
+        password: true
       - button: Sign in
         on: (state-set "ui.cmd" "login")
         enabled_when: (!= (state-get "ui.busy") "1")

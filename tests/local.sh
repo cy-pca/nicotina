@@ -91,7 +91,22 @@ stop_backend() {
 start_backend 0 txwtf-backend.txt
 echo "txwtf $("$txwtf" version 2>/dev/null | tail -n 1) at $base; outputs in $out"
 
-sign_in() { keys Tab; keys Tab; type_secret "$1"; keys Tab; keys Enter; } # from the form
+# Sign in from the form: Tab to the password, type it, Tab to Sign in, Enter. Where this ari
+# masks password fields (transfix/libcvc#906), the screen is captured with the password typed:
+# it must show bullets, and the scan at the end makes sure it never shows the password.
+sign_in() {
+  keys Tab; keys Tab; type_secret "$1"
+  if [ -n "$masked" ]; then
+    sign_ins=$((sign_ins + 1))
+    step "${t:-sign-in}: the password is masked as it is typed ($sign_ins)" "Password: [•"
+  fi
+  keys Tab; keys Enter
+}
+sign_ins=0
+masked=
+if masks_passwords; then masked=1; else
+  skip "the password masked as it is typed (this ari has no password fields; transfix/libcvc#906)"
+fi
 tokens_from() { awk '!/^#/ && NF == 3 { print $3 }' "$1" >>"$work/secrets"; }
 
 # --- the client --------------------------------------------------------------------------------

@@ -221,6 +221,10 @@ fi
 
 # --- 5. bin/nicotina in tmux ------------------------------------------------------------------
 
+masked=
+if masks_passwords; then masked=1; else
+  skip "the password masked as it is typed (this ari has no password fields; transfix/libcvc#906)"
+fi
 if ! command -v tmux >/dev/null; then
   skip "bin/nicotina in tmux: no tmux"
 else
@@ -231,7 +235,13 @@ else
 
     start "$backend" "$xdg" "$base"
     step "$t: the sign-in form" "Sign in to TX.WTF" "Instance: $base"
-    keys Tab; type_text ada; keys Tab; type_text "correct horse"; keys Tab; keys Enter
+    keys Tab; type_text ada; keys Tab; type_text "correct horse"
+    if [ -n "$masked" ]; then # a bullet per character, never the text
+      step "$t: the password is masked as it is typed" "Password: [•••••••••••••"
+      check_not "$t: ... and not shown" "$out/tmux-$(slug "$t: the password is masked as it is typed").txt" \
+        "correct horse"
+    fi
+    keys Tab; keys Enter
     step "$t: signed in, the profile and balance" "@ada@$hostport  Ada Lovelace" "ada@example.org" \
       "SCRIP    1234.56789" "\$1234.57" "41 days" "kept on this device"
     check_store "$t: the host keeps the session, owner-only (0600 in 0700)" "$store"
