@@ -1,0 +1,312 @@
+#!/usr/bin/env bash
+# tests/run.sh: nicotina's M0 tests, against a stub TX.WTF instance (tests/stub_txwtf.py).
+#
+#   tests/run.sh                                   # ari and arigl from PATH
+#   ARI=/path/to/ari ARIGL=/path/to/arigl tests/run.sh
+#
+#  1. bin/nicotina --dry-run: the host, flags and credential store it picks.
+#  2. ari check: without the network flags the document refuses to load, and says why.
+#  3. ari snapshot, FTXUI and tvision: the sign-in form; a stored session, resumed (the profile
+#     and the balance); a stored session the server no longer knows (back to the form, and the
+#     host forgets it).
+#  4. arigl snapshot, if arigl is here: the resumed session as text (--terminal) and in a window
+#     (a PNG; checked only for being drawn, since nothing here reads pixels).
+#  5. bin/nicotina --terminal in a tmux pane, FTXUI and tvision, typed at the way a person types:
+#     sign in, see the profile and balance, start again still signed in, sign out; a wrong
+#     password; the emailed code, wrong and then right; an account that must change its password.
+#
+# `ari snapshot` lays a frame out with FTXUI whatever --backend says, so 5 is what checks the
+# tvision desktop itself. 5 needs tmux; without it those cases are skipped.
+#
+# Every output (frames, panes, the hosts' stderr, the stub's log) is kept in $NICOTINA_TEST_OUT
+# (a fresh temp dir by default) and searched for the stub's session tokens at the end: none may
+# appear anywhere. Exits non-zero if any check failed.
+set -uo pipefail
+
+# shellcheck source=tests/lib.sh
+. "$(dirname "$0")/lib.sh"
+stub_pid=
+stop_stub() { [ -z "$stub_pid" ] || kill "$stub_pid" 2>/dev/null; }
+on_exit stop_stub
+
+# --- the stub ---------------------------------------------------------------------------------
+
+python3 -I -B -c "
+import sys; sys.path.insert(0, sys.argv[1]); import stub_txwtf as s
+for name, token in list(s.TOKENS.items()) + [('stale', s.STALE_TOKEN)]: print(name, token)" \
+  "$here" >"$work/token-names"
+awk '{ print $2 }' "$work/token-names" >"$work/tokens" # for the scan at the end
+token() { awk -v n="$1" '$1 == n { print $2 }' "$work/token-names"; } # never echoed
+
+python3 -I -B "$here/stub_txwtf.py" --port 0 --port-file "$work/port" --log "$out/stub.log" \
+  --signed-in ada --signed-in mary --signed-in bob@peer.example --signed-in slowpoke \
+  2>"$out/stub.stderr" &
+stub_pid=$!
+for _ in $(seq 100); do [ -s "$work/port" ] && break; sleep 0.05; done
+[ -s "$work/port" ] || { echo "tests: the stub did not start" >&2; cat "$out/stub.stderr" >&2; exit 2; }
+base="http://127.0.0.1:$(cat "$work/port")"
+hostport=${base#http://} # the instance as a handle names it
+echo "stub TX.WTF at $base; outputs in $out"
+
+# A credential store holding one session, as the host writes one: owner-only.
+seed_store() { # seed_store PATH TOKEN-NAME [ORIGIN]
+  mkdir -p "$(dirname "$1")" && chmod 700 "$(dirname "$1")"
+  (umask 077 && printf 'txwtf %s %s\n' "${3:-$base}" "$(token "$2")" >"$1")
+}
+
+# --- 1. the launcher --------------------------------------------------------------------------
+
+launch() { # launch NAME ENV... -- ARGS...: bin/nicotina --dry-run, its output in $out/NAME.txt
+  local name=$1
+  shift
+  local envs=()
+  while [ "$1" != -- ]; do envs+=("$1"); shift; done
+  shift
+  env -u DISPLAY -u WAYLAND_DISPLAY -u SSH_CONNECTION -u SSH_CLIENT -u SSH_TTY -u XDG_CONFIG_HOME \
+    NICOTINA_ARI="$ARI" NICOTINA_ARIGL=/bin/true HOME="$work/home" \
+    "${envs[@]}" /bin/sh "$root/bin/nicotina" --dry-run "$@" >"$out/$name.txt" 2>&1
+}
+launch launcher-desktop DISPLAY=:0 -- --instance "$base/"
+check "launcher: a display gets arigl, the instance's origin and a credential store" \
+  "$out/launcher-desktop.txt" "/bin/true 'run' '--net' '--net-allow' '$base'" \
+  "'--credential-store' '$work/home/.config/nicotina/credentials'" "'--instance' '$base'"
+launch launcher-nodisplay -- --instance "$base"
+check "launcher: no display gets ari" "$out/launcher-nodisplay.txt" "$ARI 'run' '--net'"
+launch launcher-ssh DISPLAY= SSH_CONNECTION="10.0.0.2 5000 10.0.0.1 22" -- --instance "$base"
+check "launcher: SSH without X forwarding gets ari" "$out/launcher-ssh.txt" "$ARI 'run'"
+launch launcher-tvision DISPLAY=:0 XDG_CONFIG_HOME="$work/xdg" -- --backend tvision --fps 30 \
+  -- --user ada
+check "launcher: --backend tvision, host flags before the document, document args after" \
+  "$out/launcher-tvision.txt" "$ARI 'run' '--backend' 'tvision' '--net'" \
+  "'$work/xdg/nicotina/credentials' '--fps' '30' '$main' '--instance' 'https://tx.wtf' '--user' 'ada'"
+launch launcher-bad -- --instance ftp://example.org
+check "launcher: refuses an instance that is not http(s)" "$out/launcher-bad.txt" \
+  "--instance must be an http:// or https:// URL"
+if PATH=/usr/bin:/bin command -v ari >/dev/null; then
+  skip "launcher: without ari (ari is in /usr/bin here)"
+else
+  launch launcher-nohost NICOTINA_ARI= NICOTINA_ARIGL= PATH=/usr/bin:/bin -- --terminal
+  check "launcher: says so when neither host is installed" "$out/launcher-nohost.txt" \
+    "neither ari nor arigl is installed"
+  launch launcher-arigl-terminal NICOTINA_ARI= PATH=/usr/bin:/bin -- --terminal
+  check "launcher: a terminal without ari gets arigl --terminal" \
+    "$out/launcher-arigl-terminal.txt" "/bin/true 'run' '--terminal' '--net'"
+fi
+
+# --- 2. ari check -----------------------------------------------------------------------------
+
+"$ARI" check "$main" >"$out/check-no-net.txt" 2>&1
+echo "exit $?" >>"$out/check-no-net.txt"
+check "ari check without --net: the document says it needs the network" \
+  "$out/check-no-net.txt" "does not provide what the document requires: net" "exit 1"
+"$ARI" check --net-allow "$base" "$main" >"$out/check-net.txt" 2>&1
+echo "exit $?" >>"$out/check-net.txt"
+check "ari check with --net-allow: it loads" "$out/check-net.txt" "exit 0"
+
+# --- 3. ari snapshot --------------------------------------------------------------------------
+
+snap() { # snap NAME BACKEND STORE [doc args...]
+  local name=$1 backend=$2 store=$3
+  shift 3
+  local flags=(--backend "$backend" --width 80 --height 24 --net --net-allow "$base")
+  [ -n "$store" ] && flags+=(--credential-store "$store")
+  "$ARI" snapshot "${flags[@]}" "$main" --instance "$base" "$@" >"$out/$name.txt" 2>&1
+}
+
+for backend in ftxui tvision; do
+  snap "snap-$backend-signin" "$backend" "" --user ada
+  check "ari snapshot ($backend): the sign-in form" "$out/snap-$backend-signin.txt" \
+    "Sign in to TX.WTF" "Instance: $base" "Username: [ada]" "Password: []" "[ Sign in ]"
+
+  store=$work/snap-$backend/credentials
+  seed_store "$store" ada
+  snap "snap-$backend-resume" "$backend" "$store"
+  check "ari snapshot ($backend): a stored session shows the profile and balance" \
+    "$out/snap-$backend-resume.txt" "@ada@$hostport  Ada Lovelace" "Email    ada@example.org" \
+    "Joined   2025-03-01" "Posts    42" "SCRIP    1234.56789" "Value    \$1234.57" \
+    "Runway   41 days" "Session  kept on this device" "[ Refresh ][ Sign out ]" \
+    "Signed in to 127.0.0.1"
+
+  seed_store "$store" stale
+  snap "snap-$backend-expired" "$backend" "$store"
+  check "ari snapshot ($backend): an expired session goes back to the sign-in form" \
+    "$out/snap-$backend-expired.txt" "Sign in to TX.WTF" "Your session has expired. Sign in again."
+  if [ "$(sessions_in "$store")" = 0 ]; then
+    pass "ari snapshot ($backend): the host forgot the expired session"
+  else
+    fail "ari snapshot ($backend): the expired session is still in the store"
+  fi
+done
+
+# The header: the full handle, @user@instance, then the display name cut to fit 60 columns.
+store=$work/snap-handles/credentials
+seed_store "$store" mary
+snap snap-handle-long ftxui "$store"
+long_name="Mary Kenneth Keller of the University of Wisconsin-Madison"
+handle="@mary@$hostport"
+room=$((60 - ${#handle} - 2))
+check "ari snapshot: a long display name is cut to fit beside the full handle" \
+  "$out/snap-handle-long.txt" "$handle  ${long_name:0:room-3}..."
+check_not "ari snapshot: ... and not drawn whole" "$out/snap-handle-long.txt" "$long_name"
+# A brokered account keeps its home instance: txwtf names it bob@peer.example.
+seed_store "$store" bob@peer.example
+snap snap-handle-brokered ftxui "$store"
+check "ari snapshot: a brokered account shows its home instance, not this one" \
+  "$out/snap-handle-brokered.txt" "@bob@peer.example  Bob"
+check_not "ari snapshot: ... with nothing added, and no placeholder email" \
+  "$out/snap-handle-brokered.txt" "@bob@peer.example@" "fedauth-"
+# The instance below a path: the handle and messages name the host alone.
+seed_store "$store" ada
+"$ARI" snapshot --width 80 --height 24 --net-allow "$base" --credential-store "$store" "$main" \
+  --instance "$base/txwtf/" >"$out/snap-handle-path.txt" 2>&1
+check "ari snapshot: an instance URL with a path: the handle names the host" \
+  "$out/snap-handle-path.txt" "@ada@$hostport  Ada Lovelace" "Signed in to $hostport."
+# A default port is not part of the host: https://example.invalid:443 is example.invalid.
+seed_store "$store" ada https://example.invalid
+"$ARI" snapshot --width 80 --height 24 --net-allow https://example.invalid \
+  --credential-store "$store" "$main" --instance https://example.invalid:443/ \
+  >"$out/snap-handle-port.txt" 2>&1
+check "ari snapshot: a default port is left out of the host" "$out/snap-handle-port.txt" \
+  "Can't reach example.invalid: "
+
+# The spinner, while a request is out: slowpoke's profile takes the stub 12 s, longer than
+# `ari snapshot` waits for requests (10 s), so the frame shows the start-up line still turning.
+if "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement spinner"; then
+  skip "ari snapshot: the spinner (this ari has no spinner widget; transfix/libcvc#915)"
+  have_spinner=
+else
+  have_spinner=1
+  seed_store "$store" slowpoke
+  snap snap-spinner ftxui "$store"
+  if [ -n "$(spinner_glyph "$out/snap-spinner.txt" "Connecting to $hostport ...")" ]; then
+    pass "ari snapshot: a spinner turns beside 'Connecting to ...' while the request is out"
+  else
+    fail "ari snapshot: no spinner beside 'Connecting to ...'" "$out/snap-spinner.txt"
+  fi
+fi
+
+# An instance that doesn't answer (port 9, discard, is closed here): back to the form, saying so.
+seed_store "$work/snap-down/credentials" ada http://127.0.0.1:9
+"$ARI" snapshot --width 80 --height 24 --net-allow http://127.0.0.1:9 \
+  --credential-store "$work/snap-down/credentials" "$main" --instance http://127.0.0.1:9 \
+  >"$out/snap-unreachable.txt" 2>&1
+check "ari snapshot: an instance that doesn't answer" "$out/snap-unreachable.txt" \
+  "Sign in to TX.WTF" "Can't reach 127.0.0.1:9"
+
+# --- 4. arigl snapshot ------------------------------------------------------------------------
+
+if [ -n "$ARIGL" ] && [ -x "$ARIGL" ]; then
+  # arigl snapshot does not wait for requests as ari's does; 60 frames at 20 fps give them 3 s.
+  store=$work/arigl/credentials
+  seed_store "$store" ada
+  "$ARIGL" snapshot --terminal --frames 60 --width 80 --height 24 --net --net-allow "$base" \
+    --credential-store "$store" "$main" --instance "$base" >"$out/arigl-terminal.txt" 2>&1
+  check "arigl snapshot --terminal: the profile and balance" "$out/arigl-terminal.txt" \
+    "@ada@$hostport  Ada Lovelace" "SCRIP    1234.56789" "Value    \$1234.57"
+  if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] || [ -n "${NICOTINA_TEST_PNG:-}" ]; then
+    "$ARIGL" snapshot --frames 60 --png "$out/arigl.png" --net --net-allow "$base" \
+      --credential-store "$store" "$main" --instance "$base" >"$out/arigl-window.txt" 2>&1
+    echo "exit $?" >>"$out/arigl-window.txt"
+    if [ -s "$out/arigl.png" ] && grep -q "exit 0" "$out/arigl-window.txt"; then
+      pass "arigl snapshot --png: drew the window ($out/arigl.png)"
+    else
+      fail "arigl snapshot --png: no picture" "$out/arigl-window.txt"
+    fi
+  else
+    skip "arigl snapshot --png: no display (NICOTINA_TEST_PNG=1 tries offscreen anyway)"
+  fi
+else
+  skip "arigl snapshot: no arigl (put it on PATH, or set ARIGL=/path/to/arigl)"
+fi
+
+# --- 5. bin/nicotina in tmux ------------------------------------------------------------------
+
+if ! command -v tmux >/dev/null; then
+  skip "bin/nicotina in tmux: no tmux"
+else
+  for backend in ftxui tvision; do
+    xdg=$work/xdg-$backend
+    store=$xdg/nicotina/credentials
+    t="nicotina --terminal --backend $backend"
+
+    start "$backend" "$xdg" "$base"
+    step "$t: the sign-in form" "Sign in to TX.WTF" "Instance: $base"
+    keys Tab; type_text ada; keys Tab; type_text "correct horse"; keys Tab; keys Enter
+    step "$t: signed in, the profile and balance" "@ada@$hostport  Ada Lovelace" "ada@example.org" \
+      "SCRIP    1234.56789" "\$1234.57" "41 days" "kept on this device"
+    check_store "$t: the host keeps the session, owner-only (0600 in 0700)" "$store"
+    check_not "$t: the password is not on the screen" \
+      "$out/tmux-$(slug "$t: signed in, the profile and balance").txt" "correct horse"
+
+    start "$backend" "$xdg" "$base"
+    step "$t: started again, still signed in" "@ada@$hostport  Ada Lovelace" "1234.56789"
+    keys Tab; keys Enter # Refresh
+    step "$t: Refresh loads the profile and balance again" "Updated. Signed in to $hostport." \
+      "SCRIP    1234.56789"
+    keys Tab; keys Enter # Sign out
+    step "$t: signed out" "Signed out." "Sign in to TX.WTF" "Username: [ada]"
+    if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: sign-out drops the session"; else
+      fail "$t: the session is still in the store after signing out"
+    fi
+
+    keys Tab; keys Tab; type_text "not the password"; keys Tab; keys Enter
+    step "$t: a wrong password" "Wrong username or password." "Sign in to TX.WTF"
+
+    start "$backend" "$xdg" "$base" -- --user grace
+    step "$t: --user fills in the form" "Username: [grace]"
+    keys Tab; keys Tab; type_text "correct horse"; keys Tab; keys Enter
+    step "$t: the emailed code is asked for" "Two-step verification" "Signing in as grace" \
+      "We emailed you a code. It expires in 5 minutes."
+    keys Tab; type_text 000000; keys Tab; keys Enter
+    step "$t: a wrong code" "That code didn't work. Try again, or go Back." "Code: []"
+    keys BTab; type_text 123456; keys Tab; keys Enter
+    step "$t: the right code signs in" "@grace@$hostport  Grace Hopper" "SCRIP    25" "Runway   -"
+    keys Tab; keys Tab; keys Enter
+    step "$t: grace signs out" "Signed out."
+
+    # mary's profile takes the stub 3 s: the spinner turns beside "Signing in..." meanwhile,
+    # by the host's clock, while the client waits on the request.
+    if [ -n "$have_spinner" ]; then
+      start "$backend" "$xdg" "$base" -- --user mary
+      step "$t: the form for mary" "Username: [mary]"
+      keys Tab; keys Tab; type_text "correct horse"; keys Tab; keys Enter
+      if wait_for "$t: the spinner" "Signing in..." 5; then
+        g1=$(spinner_glyph "$out/tmux-$(slug "$t: the spinner").txt" "Signing in...")
+        sleep 0.5
+        pane >"$out/tmux-$(slug "$t: the spinner, later").txt"
+        g2=$(spinner_glyph "$out/tmux-$(slug "$t: the spinner, later").txt" "Signing in...")
+        if [ -n "$g1" ] && [ -n "$g2" ] && [ "$g1" != "$g2" ]; then
+          pass "$t: a spinner turns beside 'Signing in...' while the request is out ($g1 then $g2)"
+        else
+          fail "$t: no turning spinner beside 'Signing in...' ('$g1' then '$g2')" \
+            "$out/tmux-$(slug "$t: the spinner, later").txt"
+        fi
+      else
+        fail "$t: no 'Signing in...' while mary's profile loads" \
+          "$out/tmux-$(slug "$t: the spinner").txt"
+      fi
+      step "$t: and then mary's profile" "@mary@$hostport" "SCRIP    3.5"
+      check_not "$t: no spinner once the requests are back" \
+        "$out/tmux-$(slug "$t: and then mary's profile").txt" "Signing in..."
+      keys Tab; keys Tab; keys Enter
+      step "$t: mary signs out" "Signed out."
+    fi
+
+    start "$backend" "$xdg" "$base" -- --user linus
+    step "$t: the form for linus" "Username: [linus]"
+    keys Tab; keys Tab; type_text "correct horse"; keys Tab; keys Enter
+    step "$t: a password that must change first" "Change your password at 127.0.0.1" \
+      "Sign in to TX.WTF"
+    if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: and no session is kept"; else
+      fail "$t: a session was kept for an account that must change its password"
+    fi
+    stop
+  done
+fi
+
+# --- the tokens -------------------------------------------------------------------------------
+
+no_secrets_in_output "$work/tokens"
+check "the stub refused the expired token and took the valid ones" "$out/stub.log" \
+  '"authorization": "rejected"' '"authorization": "valid"'
+finish
