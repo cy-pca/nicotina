@@ -131,6 +131,14 @@ step() { # step NAME TEXT CHECK-TEXT...: wait for TEXT, then check the screen
   fi
 }
 
+# masks_passwords: whether this ari draws an input_text with password: true masked
+# (transfix/libcvc#906). An older ari ignores the key and shows the text.
+masks_passwords() {
+  printf '%s\n' 'init: (state-set "p" "probe-text")' 'windows:' '  - window: P' '    children:' \
+    '      - input_text: P' '        bind: p' '        password: true' >"$work/password-probe.ari"
+  "$ARI" snapshot --width 40 --height 6 "$work/password-probe.ari" 2>/dev/null | grep -qF '••••'
+}
+
 # spinner_glyph FILE LABEL: the spinner glyph drawn just before LABEL in FILE, if there is one
 # (libcvc's spinner: braille dots, or | / - \ on a terminal without them).
 spinner_glyph() {

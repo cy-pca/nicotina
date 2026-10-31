@@ -51,8 +51,22 @@ echo "live: $instance as $user; outputs in $out"
 command -v tmux >/dev/null || { echo "tests: live.sh needs tmux" >&2; exit 2; }
 STEP_SECONDS=20 # a live instance answers more slowly than the stub
 
-# Sign in from the form: Tab to the password, type it, Tab to Sign in, Enter.
-sign_in() { keys Tab; keys Tab; type_secret "$1"; keys Tab; keys Enter; }
+# Sign in from the form: Tab to the password, type it, Tab to Sign in, Enter. Where this ari
+# masks password fields (transfix/libcvc#906), the screen is captured with the password typed:
+# it must show bullets, and the scan at the end makes sure it never shows the password.
+sign_in() {
+  keys Tab; keys Tab; type_secret "$1"
+  if [ -n "$masked" ]; then
+    sign_ins=$((sign_ins + 1))
+    step "${t:-sign-in}: the password is masked as it is typed ($sign_ins)" "Password: [•"
+  fi
+  keys Tab; keys Enter
+}
+sign_ins=0
+masked=
+if masks_passwords; then masked=1; else
+  skip "the password masked as it is typed (this ari has no password fields; transfix/libcvc#906)"
+fi
 
 for backend in ftxui tvision; do
   xdg=$work/xdg-$backend
