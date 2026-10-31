@@ -51,11 +51,12 @@ echo "live: $instance as $user; outputs in $out"
 command -v tmux >/dev/null || { echo "tests: live.sh needs tmux" >&2; exit 2; }
 STEP_SECONDS=20 # a live instance answers more slowly than the stub
 
-# Sign in from the form: Tab to the password, type it, Tab to Sign in, Enter. Where this ari
-# masks password fields (transfix/libcvc#906), the screen is captured with the password typed:
-# it must show bullets, and the scan at the end makes sure it never shows the password.
+# Sign in from the form: Username has the focus (form_focus), Tab to the password, type it, Tab
+# to Sign in, Enter. Where this ari masks password fields (transfix/libcvc#906), the screen is
+# captured with the password typed: it must show bullets, and the scan at the end makes sure it
+# never shows the password.
 sign_in() {
-  keys Tab; keys Tab; type_secret "$1"
+  form_focus; keys Tab; type_secret "$1"
   if [ -n "$masked" ]; then
     sign_ins=$((sign_ins + 1))
     step "${t:-sign-in}: the password is masked as it is typed ($sign_ins)" "Password: [•"
@@ -74,12 +75,12 @@ for backend in ftxui tvision; do
   t="live $host ($backend)"
 
   start "$backend" "$xdg" "$instance" -- --user "$user"
-  step "$t: the sign-in form" "Username: [$user]" "Instance: $instance"
+  step "$t: the sign-in form" "Username: [$user" "Instance: $instance"
   sign_in "$work/wrong"
   step "$t: a wrong password" "Wrong username or password."
 
   start "$backend" "$xdg" "$instance" -- --user "$user"
-  step "$t: the form again" "Username: [$user]"
+  step "$t: the form again" "Username: [$user"
   sign_in "$work/password"
   step "$t: signed in, the profile and balance" "@$user@$host" "SCRIP    " "Value    \$" "Runway   " \
     "Session  kept on this device" "Signed in to $host."
@@ -101,7 +102,7 @@ for backend in ftxui tvision; do
   start "$backend" "$xdg" "$instance"
   step "$t: started again, still signed in" "@$user@$host" "SCRIP    "
   keys Tab; keys Tab; keys Enter # Refresh, Sign out
-  step "$t: signed out" "Signed out." "Username: [$user]"
+  step "$t: signed out" "Signed out." "Username: [$user"
   if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: sign-out drops the session"; else
     fail "$t: the session is still in the store after signing out"
   fi

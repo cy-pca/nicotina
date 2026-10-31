@@ -91,11 +91,12 @@ stop_backend() {
 start_backend 0 txwtf-backend.txt
 echo "txwtf $("$txwtf" version 2>/dev/null | tail -n 1) at $base; outputs in $out"
 
-# Sign in from the form: Tab to the password, type it, Tab to Sign in, Enter. Where this ari
-# masks password fields (transfix/libcvc#906), the screen is captured with the password typed:
-# it must show bullets, and the scan at the end makes sure it never shows the password.
+# Sign in from the form: Username has the focus (form_focus), Tab to the password, type it, Tab
+# to Sign in, Enter. Where this ari masks password fields (transfix/libcvc#906), the screen is
+# captured with the password typed: it must show bullets, and the scan at the end makes sure it
+# never shows the password.
 sign_in() {
-  keys Tab; keys Tab; type_secret "$1"
+  form_focus; keys Tab; type_secret "$1"
   if [ -n "$masked" ]; then
     sign_ins=$((sign_ins + 1))
     step "${t:-sign-in}: the password is masked as it is typed ($sign_ins)" "Password: [•"
@@ -117,11 +118,11 @@ for backend in ftxui tvision; do
   t="txwtf ($backend)"
 
   start "$backend" "$xdg" "$base" -- --user ada
-  step "$t: the sign-in form" "Username: [ada]" "Instance: $base"
+  step "$t: the sign-in form" "Username: [ada" "Instance: $base"
   sign_in "$work/wrong"
   step "$t: a wrong password" "Wrong username or password."
   start "$backend" "$xdg" "$base" -- --user ada
-  step "$t: the form again" "Username: [ada]"
+  step "$t: the form again" "Username: [ada"
   sign_in "$work/password"
   step "$t: ada signs in: the profile and balance" "@ada@127.0.0.1:$port  Ada Lovelace" "Email    ada@example.org" \
     "Posts    0" "About    Writes notes on the analytical engine. Pr..." "SCRIP    1234.56789" \
@@ -146,7 +147,7 @@ for backend in ftxui tvision; do
   start "$backend" "$xdg" "$base"
   step "$t: started again, still signed in" "@ada@127.0.0.1:$port  Ada Lovelace"
   keys Tab; keys Tab; keys Enter # Refresh, Sign out
-  step "$t: ada signs out" "Signed out." "Username: [ada]"
+  step "$t: ada signs out" "Signed out." "Username: [ada"
   if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: sign-out drops the session"; else
     fail "$t: the session is still in the store after signing out"
   fi
@@ -159,11 +160,11 @@ for backend in ftxui tvision; do
     "Your session has expired. Sign in again."
 
   start "$backend" "$xdg" "$base" -- --user grace
-  step "$t: the form for grace" "Username: [grace]"
+  step "$t: the form for grace" "Username: [grace"
   sign_in "$work/password"
   step "$t: grace is asked for the emailed code" "Two-step verification" "Signing in as grace" \
     "We emailed you a code. It expires in 5 minutes."
-  keys Tab; type_text 000000; keys Tab; keys Enter
+  form_focus; type_text 000000; keys Tab; keys Enter
   step "$t: a wrong code" "That code didn't work. Try again, or go Back." "Code: []"
   if python3 -I -B "$here/smtp_sink.py" --dir "$work/mail" --code-for grace@example.org |
     tr -d '\n' >"$work/code" && [ -s "$work/code" ]; then
@@ -178,7 +179,7 @@ for backend in ftxui tvision; do
   step "$t: grace signs out" "Signed out."
 
   start "$backend" "$xdg" "$base" -- --user linus
-  step "$t: the form for linus" "Username: [linus]"
+  step "$t: the form for linus" "Username: [linus"
   sign_in "$work/password"
   step "$t: linus must change his password first" "Change your password at 127.0.0.1" \
     "Sign in to TX.WTF"
@@ -198,7 +199,7 @@ for _ in $(seq 10); do
     -d '{"username": "ada", "password": "wrong"}' "$base/user/login"
 done
 start ftxui "$work/xdg-limit" "$base" -- --user ada
-step "txwtf: the form, once the sign-ins are used up" "Username: [ada]"
+step "txwtf: the form, once the sign-ins are used up" "Username: [ada"
 sign_in "$work/password"
 step "txwtf: the client says to wait when txwtf answers 429" \
   "Too many attempts. Wait a minute, then try again."
