@@ -47,8 +47,8 @@ cvcdbg, the imperial lexicon):
 
 ```
 catx-03 runner (label cvcpkg-prod: the cy-pca org runner catx-03-cy-pca, user github-runner)
-  build-hosts.sh   libcvc master + the open PRs nicotina needs -> arigl-web (wasm, single-threaded, lean)
-  stage.sh         + share/nicotina + ariadne.config.json     -> payload/{nicotina,nicotina-term}
+  cvcpkg install   arigl-web (wasm, single-threaded) from cvcpkg.org -> share/arigl-web
+  stage.sh         + share/nicotina + ariadne.config.json            -> payload/{nicotina,nicotina-term}
   tar czf - | ssh -i ~/.ssh/id_ed25519_cyberpcangel_deploy tfx@catx-00.tx.wtf deploy-nicotina
 catx-00 forced command (~tfx/bin/txwtf-deploy-cyberpcangel)
   deploy-nicotina -> lxc exec cyberpcangel --project catx -- /root/nicotina-deploy.sh
@@ -58,22 +58,22 @@ cyberpcangel instance
 verify.py          every staged file served byte for byte, the CSP, the redirects
 ```
 
-- **Single-threaded**, so the pages need no COOP/COEP headers. **Lean**
-  (`CVC_ARIGL_WEB_LEAN=1`: no ImageMagick, assimp, mesher, SDF or libigl), since nicotina is
-  widgets. Measured on the first deploy (raw / gzip, as Apache sends it): arigl.wasm 34.9 MB /
-  9.4 MB (the full build: 49 MB / 13.8 MB), ari.wasm and ari_tvision.wasm 8.9 MB / 3.1 MB each.
-- **The libcvc pull requests.** `LIBCVC_PRS` lists open libcvc pull requests to merge onto master
-  before the build (`ci/libcvc-prs.sh`, as CI's hosts get). A merged one is skipped, and a closed or
-  conflicting one fails the run. It is empty since M0's (#883, #885, #887, #888) merged; a run by
-  hand can name one (`libcvc_prs`).
+- **The stock page.** The pages are the `arigl-web` package as cvcpkg.org publishes it, the
+  stock browser host, not a build of libcvc: nicotina targets packaged hosts. A libcvc feature
+  reaches the site when a libcvc release publishes it.
+- **Single-threaded**, so the pages need no COOP/COEP headers. The package is the full build, with
+  the image and mesh I/O a widget client doesn't use. arigl-web 3.7.8 (raw / gzip):
+  - arigl.wasm: 51.3 MB / 14.6 MB;
+  - ari.wasm and ari_tvision.wasm: 23.7 MB / 7.7 MB each;
+  - the lean build this workflow made before (`CVC_ARIGL_WEB_LEAN=1`): arigl.wasm 34.9 MB /
+    9.4 MB, and ari.wasm 8.9 MB / 3.1 MB.
 - **Only when something moved.** Each site has a `.built-from` whose first word fingerprints:
-  - libcvc master and the pull requests' heads;
+  - the arigl-web bundle (its version and hash, from the install's lockfile);
   - the documents;
-  - the files that shape the payload: `ariadne.config.json`, `build-hosts.sh`, `stage.sh`,
-    `ci/libcvc-prs.sh` and the workflow.
+  - the files that shape the payload: `ariadne.config.json`, `stage.sh` and the workflow.
 
-  A change to this README, `verify.py` or `nicotina-deploy.sh` doesn't rebuild. A run compares the
-  fingerprint with the live one and stops when they match; `force` rebuilds anyway. Until
+  A change to this README, `verify.py` or `nicotina-deploy.sh` doesn't republish. A run compares
+  the fingerprint with the live one and stops when they match; `force` publishes anyway. Until
   nicotina's `main` has `share/nicotina/main.ari`, a run from `main` finds nothing to publish.
 - **Only what CI passed.** A failing `ci` run, a pull request's run, and a run from a fork (whose
   branch may also be called `main`) don't trigger it.
@@ -89,14 +89,16 @@ verify.py          every staged file served byte for byte, the CSP, the redirect
 
 ## By hand
 
-Build, stage and check locally (the emsdk and a single-threaded wasm deps prefix as in
-`build-hosts.sh`):
+Install, stage and check locally:
 
 ```bash
-CVC_EMSDK_DIR=~/emsdk CVC_DEPS_PREFIX=~/cvc-wasm/deps-wasm \
-  deploy/cyberpcangel/build-hosts.sh ~/src/libcvc-web /tmp/build-web /tmp/hosts
-deploy/cyberpcangel/stage.sh /tmp/hosts/share/arigl-web share/nicotina /tmp/payload
+cvcpkg install arigl-web --platform wasm --arch wasm32 --prefix /tmp/web \
+  --config release --link static
+deploy/cyberpcangel/stage.sh /tmp/web/share/arigl-web share/nicotina /tmp/payload
 ```
+
+The install also lays down the static wasm libraries the package was linked from (its bundle
+lists them as deps, about 680 MB), which the pages don't use.
 
 Publish with the house access instead of the deploy key (`tfx` on catx-00):
 
@@ -113,5 +115,5 @@ python3 deploy/cyberpcangel/verify.py /tmp/payload
 2. The `deploy-nicotina` action in catx-00's `~tfx/bin/txwtf-deploy-cyberpcangel`, the forced
    command of the runner's deploy key (`github-runner-cyberpcangel@catx-03`). The full script is
    recorded in atx-crypto-club/vm-provisioning (`docs/CYBERPCANGEL-DEPLOYS.md`).
-3. The runner: nothing new. The workflow installs its own wasm deps prefix,
+3. The runner: nothing new. The workflow installs arigl-web into its own prefix,
    `/home/github-runner/cvc-wasm/deps-wasm`, on its first run.

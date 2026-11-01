@@ -3,7 +3,7 @@
 #
 #   ci/test-env.sh ROOT
 #
-# ROOT is ci/build-hosts.sh's. Installs tmux (the tests type at the client in a tmux pane) into
+# ROOT is ci/install-hosts.sh's. Installs tmux (the tests type at the client in a tmux pane) into
 # ROOT/tools, and Xvfb with Mesa's software GL into ROOT/deps, beside vtk's libglvnd, which finds
 # Mesa through its $ORIGIN RUNPATH (as libcvc's CI does for cvcGL's render tests). Starts Xvfb on
 # :99, so arigl can open a window for tests/run.sh's PNG snapshot. Then writes PATH and the
