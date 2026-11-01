@@ -1,12 +1,15 @@
 name: deploy-cyberpcangel
 
-# Builds nicotina's browser pages and publishes them, public and not login-gated:
+# Publishes nicotina's browser pages, public and not login-gated:
 #   https://cyberpcangel.com/nicotina/       the ImGui client (libcvc arigl-web's index.html)
 #   https://cyberpcangel.com/nicotina-term/  the terminal client (arigl-web's ari.html)
 # deploy/cyberpcangel/README.md has the whole chain and the one-time setup.
 #
+# The pages are the single-threaded arigl-web package from cvcpkg.org, as a site installs it: the
+# stock, packaged host, never a libcvc build.
+#
 # It runs on catx-03 (label cvcpkg-prod: the cy-pca org runner, catx-03-cy-pca, one job at a time),
-# which holds the emsdk and the cyberpcangel deploy key. The key's forced command on
+# which holds the cyberpcangel deploy key. The key's forced command on
 # catx-00 maps the fixed action `deploy-nicotina` to /root/nicotina-deploy.sh in the cyberpcangel
 # instance; the client never names a path. No pull_request trigger: a pull request must not reach
 # the runner that holds the key.
@@ -27,12 +30,8 @@ on:
         description: 'The nicotina branch, tag or commit whose documents to publish'
         type: string
         default: 'main'
-      libcvc_prs:
-        description: 'transfix/libcvc pull requests to merge onto master while they are open'
-        type: string
-        default: ''
       force:
-        description: 'Rebuild and publish even if nothing moved since the live build'
+        description: 'Publish even if nothing moved since the live build'
         type: boolean
         default: false
 
@@ -52,19 +51,15 @@ jobs:
        github.event.workflow_run.head_branch == 'main' &&
        github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: [self-hosted, Linux, X64, cvcpkg-prod]
-    timeout-minutes: 240
+    timeout-minutes: 30
     env:
-      CVC_EMSDK_DIR: /opt/cvc-wasm/emsdk
-      # The single-threaded wasm dep closure, installed below. Its own prefix: the cvcgl nightly's
-      # deps-wasm-pthread is threaded, and Emscripten won't link the two kinds together.
-      CVC_DEPS_PREFIX: /home/github-runner/cvc-wasm/deps-wasm
+      # Where arigl-web goes. cvcpkg also lays down the static wasm libraries the package was
+      # linked from (the bundle lists them as its deps), which the pages don't use; this prefix
+      # already has them, from when this workflow built the pages itself.
+      WEB_PREFIX: /home/github-runner/cvc-wasm/deps-wasm
       DEPLOY_KEY: /home/github-runner/.ssh/id_ed25519_cyberpcangel_deploy
       # After CI: exactly the commit CI tested. By hand: the ref given.
       DOCS_REF: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.ref || 'main' }}
-      # Open libcvc pull requests to merge onto master first (a merged one is skipped). None now:
-      # #883, #885, #887 and #888 have merged. Keep it in step with ci.yml's.
-      LIBCVC_PRS: ${{ inputs.libcvc_prs || '' }}
-      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout the deploy scripts
         uses: actions/checkout@v4
@@ -80,15 +75,15 @@ jobs:
           ref: ${{ env.DOCS_REF }}
           path: docs-src
 
-      - name: Checkout libcvc master
-        uses: actions/checkout@v4
-        with:
-          repository: transfix/libcvc
-          ref: master
-          path: libcvc
-          # The merges need history; blobless keeps the clone small on the runner's ramdisk.
-          fetch-depth: 0
-          filter: blob:none
+      # The newest arigl-web; one already in the prefix is a no-op. Before the check, which
+      # fingerprints the bundle it resolved to.
+      - name: Install arigl-web (cvcpkg)
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          echo "cvcpkg: $(command -v cvcpkg) $(cvcpkg --version)"
+          mkdir -p "$WEB_PREFIX"
+          cvcpkg install arigl-web --platform wasm --arch wasm32 --prefix "$WEB_PREFIX" \
+            --config release --link static --no-fallback-to-source 2>&1 | tail -3
 
       - name: Has anything moved?
         id: check
@@ -97,19 +92,20 @@ jobs:
             echo "::notice::$DOCS_REF has no share/nicotina/main.ari yet; nothing to publish."
             echo "run=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          # What a build depends on: libcvc master and the open pull requests' heads, the documents,
-          # and the deploy scripts and page config.
-          heads=""
-          for n in $LIBCVC_PRS; do
-            heads="$heads $n:$(git -C libcvc ls-remote origin "refs/pull/$n/head" | cut -f1)"
-          done
-          # The deploy side counts only the files that shape the payload: the page config, the build
-          # and staging scripts, the PR merges, and this workflow (the deps list). Not the README,
-          # verify.py, or nicotina-deploy.sh (installed in the instance by hand, not in the payload).
+          # What a payload depends on: the arigl-web bundle (its version and hash, from the
+          # install's lockfile), the documents, and the deploy scripts and page config.
+          web=$(awk '/^- name: / {n = $3}
+                     n == "arigl-web" && $1 == "version:" {v = $2}
+                     n == "arigl-web" && $1 == "sha256:" {h = substr($2, 1, 16)}
+                     END {if (v && h) print v "@" h}' "$WEB_PREFIX/share/libcvc-deps/lockfile.yaml")
+          [ -n "$web" ] || { echo "::error::no arigl-web in $WEB_PREFIX's lockfile"; exit 1; }
+          # The deploy side counts only the files that shape the payload: the page config, the
+          # staging script and this workflow. Not the README, verify.py, or nicotina-deploy.sh
+          # (installed in the instance by hand, not in the payload).
           shaping=$(git -C nicotina ls-tree HEAD -- deploy/cyberpcangel/ariadne.config.json \
-                      deploy/cyberpcangel/build-hosts.sh deploy/cyberpcangel/stage.sh \
-                      ci/libcvc-prs.sh .github/workflows/deploy-cyberpcangel.yml | sha256sum | cut -c1-16)
-          inputs="libcvc=$(git -C libcvc rev-parse HEAD) prs=[${heads# }] docs=$(git -C docs-src rev-parse HEAD:share/nicotina) deploy=$shaping"
+                      deploy/cyberpcangel/stage.sh .github/workflows/deploy-cyberpcangel.yml \
+                      | sha256sum | cut -c1-16)
+          inputs="arigl-web=$web docs=$(git -C docs-src rev-parse HEAD:share/nicotina) deploy=$shaping"
           fp=$(printf '%s' "$inputs" | sha256sum | cut -c1-16)
           echo "built_from=$fp $inputs nicotina=$(git -C docs-src rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           live=$(python3 -I -c 'import urllib.request as u
@@ -123,36 +119,11 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install the wasm deps
-        if: steps.check.outputs.run == 'true'
-        run: |
-          export PATH="$HOME/.local/bin:/opt/cvc-wasm/cmake-cvcpkg/bin:$PATH"
-          echo "cvcpkg: $(command -v cvcpkg) $(cvcpkg --version)"
-          mkdir -p "$CVC_DEPS_PREFIX"
-          # arigl-web's recipe's build deps (cvcpkg lays bundles down flat, so the closure is
-          # listed), static, single-threaded. Already-installed ones are no-ops.
-          for p in zlib bzip2 xz zstd boost pegtl yaml-cpp vtk imgui sdl3 libjpeg-turbo eigen libigl \
-                   ftxui tvision imagemagick tiff libpng libwebp lerc libxml2 assimp freetype; do
-            echo "=== $p ==="
-            cvcpkg install "$p" --prefix "$CVC_DEPS_PREFIX" --platform wasm --arch wasm32 \
-              --config release --link static 2>&1 | tail -3
-          done
-          # xterm.js and its addons, which the terminal pages serve (noarch; the recipe notes why
-          # they are not in its list).
-          cvcpkg install xterm-js xterm-js-addon-fit xterm-js-addon-webgl --platform any \
-            --prefix "$CVC_DEPS_PREFIX" 2>&1 | tail -3
-
-      - name: Build the browser hosts (arigl-web, single-threaded, lean)
-        if: steps.check.outputs.run == 'true'
-        run: |
-          export PATH="/opt/cvc-wasm/cmake-cvcpkg/bin:$PATH"
-          bash nicotina/deploy/cyberpcangel/build-hosts.sh "$PWD/libcvc" "$PWD/build-web" "$PWD/hosts"
-
       - name: Stage
         if: steps.check.outputs.run == 'true'
         run: |
           rm -rf payload
-          bash nicotina/deploy/cyberpcangel/stage.sh hosts/share/arigl-web docs-src/share/nicotina \
+          bash nicotina/deploy/cyberpcangel/stage.sh "$WEB_PREFIX/share/arigl-web" docs-src/share/nicotina \
             payload "${{ steps.check.outputs.built_from }}"
 
       - name: Publish to cyberpcangel.com

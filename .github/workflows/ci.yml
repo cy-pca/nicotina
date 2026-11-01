@@ -12,9 +12,8 @@ name: ci
 #                access to atxcf. Only the install step sees it, never the tests. A pull request
 #                from a fork gets no secrets and skips this job.
 #
-# Both run ari and arigl built from libcvc master plus the libcvc pull requests nicotina needs
-# while they are open (LIBCVC_PRS; ci/libcvc-prs.sh, ci/build-hosts.sh). The build is cached by
-# the resulting libcvc tree, so it runs again only when libcvc or those pull requests move.
+# Both run the ari and arigl packages from cvcpkg.org (ci/install-hosts.sh), as a person installs
+# them: nicotina targets the stock, packaged hosts, never a libcvc build.
 #
 # GitHub-hosted runners only: this repository is public, and a pull request's workflows must
 # never reach the self-hosted runners on catx-03.
@@ -24,11 +23,6 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
-    inputs:
-      libcvc_prs:
-        description: 'transfix/libcvc pull requests to merge onto master while they are open'
-        type: string
-        default: ''
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -38,9 +32,6 @@ permissions:
   contents: read
 
 env:
-  # Open libcvc pull requests to merge onto master first (a merged one is skipped). None now:
-  # #883 and #887 have merged. Keep it in step with deploy-cyberpcangel.yml's.
-  LIBCVC_PRS: ${{ inputs.libcvc_prs || '' }}
   # The txwtf server the integration tests run: the newest published (txwtf publishes on v* tags;
   # tx.wtf runs 0.4.0). Pin one with ==VERSION.
   TXWTF_COMPONENT: atxcf/txwtf-cp312
@@ -63,71 +54,22 @@ jobs:
             echo "tests=false" >> "$GITHUB_OUTPUT"
           fi
 
-  hosts:
+  unit:
     needs: plan
     if: needs.plan.outputs.tests == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 180
-    outputs:
-      key: ${{ steps.key.outputs.key }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Checkout libcvc master
-        uses: actions/checkout@v4
-        with:
-          repository: transfix/libcvc
-          ref: master
-          path: libcvc
-          # The merges need history; blobless keeps the clone small.
-          fetch-depth: 0
-          filter: blob:none
-      - name: Merge the open libcvc pull requests
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash ci/libcvc-prs.sh libcvc
-      - name: Cache key
-        id: key
-        run: |
-          tree=$(git -C libcvc rev-parse 'HEAD^{tree}')
-          echo "key=hosts-${{ runner.os }}-$tree-${{ hashFiles('ci/build-hosts.sh') }}" >> "$GITHUB_OUTPUT"
-      - name: Restore the hosts
-        id: cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/nicotina-ci
-          key: ${{ steps.key.outputs.key }}
-      - name: Set up cvcpkg
-        if: steps.cache.outputs.cache-hit != 'true'
-        uses: ./.github/actions/setup-cvcpkg
-      - name: Build ari and arigl
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: bash ci/build-hosts.sh libcvc ~/nicotina-ci
-      - name: Save the hosts
-        if: steps.cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/nicotina-ci
-          key: ${{ steps.key.outputs.key }}
-
-  unit:
-    needs: hosts
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Restore the hosts
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/nicotina-ci
-          key: ${{ needs.hosts.outputs.key }}
-          fail-on-cache-miss: true
       - uses: ./.github/actions/setup-cvcpkg
+      - name: Install ari and arigl (cvcpkg)
+        run: bash ci/install-hosts.sh ~/nicotina-ci
       - name: tmux, Xvfb and Mesa
         run: bash ci/test-env.sh ~/nicotina-ci
       - name: tests/run.sh
         env:
           NICOTINA_TEST_OUT: ${{ runner.temp }}/out
-        run: ARI=~/nicotina-ci/build/bin/ari ARIGL=~/nicotina-ci/build/bin/arigl bash tests/run.sh
+        run: ARI=~/nicotina-ci/deps/bin/ari ARIGL=~/nicotina-ci/deps/bin/arigl bash tests/run.sh
       # The tests search every output for the session tokens and fail if one is there, so what
       # is uploaded holds none.
       - name: Keep the outputs
@@ -139,7 +81,8 @@ jobs:
           retention-days: 7
 
   integration:
-    needs: hosts
+    needs: plan
+    if: needs.plan.outputs.tests == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -159,15 +102,11 @@ jobs:
           fi
       - uses: actions/checkout@v4
         if: steps.token.outputs.have == 'true'
-      - name: Restore the hosts
-        if: steps.token.outputs.have == 'true'
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/nicotina-ci
-          key: ${{ needs.hosts.outputs.key }}
-          fail-on-cache-miss: true
       - uses: ./.github/actions/setup-cvcpkg
         if: steps.token.outputs.have == 'true'
+      - name: Install ari and arigl (cvcpkg)
+        if: steps.token.outputs.have == 'true'
+        run: bash ci/install-hosts.sh ~/nicotina-ci
       - name: tmux, Xvfb and Mesa
         if: steps.token.outputs.have == 'true'
         run: bash ci/test-env.sh ~/nicotina-ci
@@ -187,7 +126,7 @@ jobs:
         env:
           NICOTINA_TEST_OUT: ${{ runner.temp }}/out
         run: |
-          TXWTF_PREFIX=~/nicotina-txwtf ARI=~/nicotina-ci/build/bin/ari ARIGL=~/nicotina-ci/build/bin/arigl \
+          TXWTF_PREFIX=~/nicotina-txwtf ARI=~/nicotina-ci/deps/bin/ari ARIGL=~/nicotina-ci/deps/bin/arigl \
             bash tests/local.sh
       - name: Keep the outputs
         if: failure() && steps.token.outputs.have == 'true'

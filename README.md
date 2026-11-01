@@ -92,45 +92,15 @@ refuses to load it and says what is missing.
 
 ## Running M0 today
 
-M0 needs four open libcvc pull requests:
-
-- [transfix/libcvc#888](https://github.com/transfix/libcvc/pull/888): the network policy flags
-  and host-owned credentials;
-- [transfix/libcvc#883](https://github.com/transfix/libcvc/pull/883): `json-parse`,
-  `json-encode` and `state-set-tree`;
-- [transfix/libcvc#885](https://github.com/transfix/libcvc/pull/885): `state-set` keeps a float's
-  digits;
-- [transfix/libcvc#887](https://github.com/transfix/libcvc/pull/887): URL-loaded documents, and
-  the `arigl` and `arigl-web` packages.
-
-Build `ari` (and `arigl`, which needs cvcGL) from a local branch that merges them. libcvc's
-README lists the dependencies; tvision needs `CVC_ARIADNE_TVISION=ON` with tvision and
-ncursesw found.
+M0 runs in the stock hosts: the `ari` and `arigl` packages from cvcpkg.org, 3.7.8 or newer
+(the first libcvc release that publishes `arigl`). Everything M0 needs from libcvc has merged
+and is released. Install them into a prefix, and run the client from this checkout with the
+launcher pointed at them:
 
 ```bash
-cd ~/src/libcvc
-git worktree add -b local/nicotina-m0 ../libcvc-nicotina origin/master
-cd ../libcvc-nicotina
-for n in 888 883 885 887; do git fetch origin "pull/$n/head" && git merge --no-edit FETCH_HEAD; done
-```
-
-Two of the merges conflict, only where two pull requests add lines at the same place: #883
-and #887 each add a test block to `src/ari/CMakeLists.txt` where #888 adds one (keep every
-block), and #887 adds `ariadne/doc_fetch.cpp ariadne/web_document.cpp` to the source list in
-`src/cvc/CMakeLists.txt` where #888 adds `ariadne/net_host.cpp` (keep all three). Then:
-
-```bash
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=<your deps> \
-  -DCVC_BUILD_ARI=ON -DCVC_BUILD_ARIGL=ON -DCVC_BUILD_CVCGL=ON -DCVC_ARIADNE_TVISION=ON \
-  -DCVC_BUILD_TESTS=OFF
-ninja -C build ari arigl
-```
-
-Run the client from this checkout, pointing the launcher at that build:
-
-```bash
-export NICOTINA_ARI=~/src/libcvc-nicotina/build/bin/ari
-export NICOTINA_ARIGL=~/src/libcvc-nicotina/build/bin/arigl
+cvcpkg install ari arigl --prefix ~/nicotina-hosts --config release --link shared
+export NICOTINA_ARI=~/nicotina-hosts/bin/ari
+export NICOTINA_ARIGL=~/nicotina-hosts/bin/arigl
 bin/nicotina --instance https://dev.tx.wtf                      # a window
 bin/nicotina --terminal --instance https://dev.tx.wtf           # FTXUI
 bin/nicotina --backend tvision --instance https://dev.tx.wtf    # tvision
@@ -178,9 +148,9 @@ themselves run on cyberpcangel.com:
 | https://cyberpcangel.com/nicotina-term/ari_tvision.html | the terminal (tvision) |
 
 They are public, use https://tx.wtf, and come from the same documents. The
-`deploy-cyberpcangel` workflow builds and publishes them nightly when something has moved, and
-on demand. It builds arigl-web (single-threaded, so no COOP/COEP headers) from libcvc master
-plus the pull requests above that are still open. [deploy/cyberpcangel/](deploy/cyberpcangel/README.md)
+`deploy-cyberpcangel` workflow publishes them after each tested push to `main` when something
+has moved, and on demand. The pages are the `arigl-web` package from cvcpkg.org (single-threaded,
+so no COOP/COEP headers). [deploy/cyberpcangel/](deploy/cyberpcangel/README.md)
 describes the chain and how to run it by hand.
 
 cyberpcangel.com is not a TX.WTF instance, so the API is cross-origin:
@@ -257,9 +227,8 @@ NICOTINA_LIVE_ENV=~/.config/nicotina/dev.tx.wtf-test-account.env tests/live.sh
 **CI.** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `tests/run.sh` (`unit`)
 and `tests/local.sh` (`integration`, with txwtf from cvcpkg) on GitHub-hosted runners, for every
 pull request and every push to `main`. [ci/README.md](ci/README.md) has the details and the same
-steps to run locally. It builds `ari` and `arigl` from libcvc master plus the pull requests
-nicotina still needs. Until transfix/libcvc#915 merges, that build has no spinner widget, so the
-spinner checks skip there. `tests/live.sh` runs only by hand, since it needs a test account.
+steps to run locally. Both jobs install the `ari` and `arigl` packages from cvcpkg.org, as a
+person does. `tests/live.sh` runs only by hand, since it needs a test account.
 
 ## What it talks to
 
@@ -278,12 +247,12 @@ The client uses only an instance's public API:
 
 ## Known gaps
 
-- The password field is masked (`password: true`, transfix/libcvc#906, in libcvc master), but
+- The password field is masked (`password: true`, transfix/libcvc#906), but
   what you type still passes through the document's state until it is sent; the document
   clears it then. A host-held secret field, which would keep it out of state altogether, is
   still to come in libcvc. An older host ignores `password:` and shows the text.
-- A form's first field has the focus when it opens (`autofocus: true`, transfix/libcvc#906, in
-  libcvc master). An older host gives it none; press Tab to reach it.
+- A form's first field has the focus when it opens (`autofocus: true`, transfix/libcvc#906).
+  An older host gives it none; press Tab to reach it.
 - The spinner beside "Signing in...", "Refreshing..." and the like needs libcvc's `spinner`
   widget (transfix/libcvc#915, open). A host without it shows the text alone.
 - Pictures show where the host can show a picture from a URL: transfix/libcvc#931 (open) adds

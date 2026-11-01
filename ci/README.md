@@ -5,9 +5,13 @@
 
 | Job | What |
 |---|---|
-| `hosts` | `ari` and `arigl` from libcvc master plus the libcvc pull requests nicotina still needs (`LIBCVC_PRS`), cached by the merged libcvc tree |
 | `unit` | `tests/run.sh`: the client against the stub instance (`tests/stub_txwtf.py`) |
 | `integration` | `tests/local.sh`: the client against a real txwtf server on a fresh SQLite database. `atxcf/txwtf-cp312` is installed from cvcpkg.org |
+
+Both run the `ari` and `arigl` packages from cvcpkg.org (`ci/install-hosts.sh`), as a person
+installs them. nicotina targets the stock, packaged hosts, so CI never builds libcvc: a feature
+only libcvc master has needs a libcvc release first. The script checks the `ari` it got has the
+`.ari` loader, both terminal backends and HTTP, and that neither host misses a library.
 
 [`.github/workflows/llm-gate.yml`](../.github/workflows/llm-gate.yml) fails commits that carry AI
 attribution, as in the other cy-pca repositories.
@@ -16,7 +20,7 @@ Both run on GitHub-hosted runners only. The repository is public, and a pull req
 must never reach the self-hosted runners on catx-03. Everything comes from cvcpkg; nothing comes
 from apt:
 
-- the hosts' libraries, cmake and ninja;
+- the hosts and their libraries;
 - txwtf;
 - tmux, Xvfb and Mesa.
 
@@ -29,12 +33,10 @@ from apt:
 
 ## The same, locally
 
-The dependencies are published cvcpkg packages. libcvc needs history for the merges.
+Everything is a published cvcpkg package.
 
 ```bash
-git clone --filter=blob:none https://github.com/transfix/libcvc /tmp/libcvc
-LIBCVC_PRS="" ci/libcvc-prs.sh /tmp/libcvc                 # any open libcvc PRs to merge first
-ci/build-hosts.sh /tmp/libcvc ~/nicotina-ci                # ari, arigl: ~/nicotina-ci/build/bin
+ci/install-hosts.sh ~/nicotina-ci                            # ari, arigl: ~/nicotina-ci/deps/bin
 
 # txwtf, either published (with a token that can read atxcf) or from a txwtf checkout:
 CVCPKG_TOKEN=... cvcpkg install atxcf/txwtf-cp312 --prefix ~/nicotina-txwtf --config release --link shared
@@ -42,23 +44,14 @@ ci/build-txwtf.sh ~/src/txwtf ~/nicotina-txwtf             # same prefix, built 
 
 eval "$(ci/test-env.sh ~/nicotina-ci)"                      # tmux; Xvfb on :99 with Mesa
 export PATH=~/nicotina-txwtf/bin:$PATH                      # txwtf's scripts run `env python3.12`
-ARI=~/nicotina-ci/build/bin/ari ARIGL=~/nicotina-ci/build/bin/arigl tests/run.sh
-TXWTF_PREFIX=~/nicotina-txwtf ARI=~/nicotina-ci/build/bin/ari ARIGL=~/nicotina-ci/build/bin/arigl tests/local.sh
+ARI=~/nicotina-ci/deps/bin/ari ARIGL=~/nicotina-ci/deps/bin/arigl tests/run.sh
+TXWTF_PREFIX=~/nicotina-txwtf ARI=~/nicotina-ci/deps/bin/ari ARIGL=~/nicotina-ci/deps/bin/arigl tests/local.sh
 ```
 
-On 2026-10-30 this took libcvc 5d0a62f8 plus #883 and #887, and txwtf v0.4.0 built with
-`ci/build-txwtf.sh`. `tests/run.sh` passed 54 checks and `tests/local.sh` 43, with no skips.
-
-On GitHub (a check run of #1's tests), the `hosts` job built cold in 8.5 minutes, and `unit`
-passed 54/54.
-
-- **Hosts cache:** about 900 MB (`deps` 763 MB, `tools` 130 MB, `build` 29 MB). It is rebuilt only
-  when the merged libcvc tree or `ci/build-hosts.sh` changes.
+- **Hosts prefix:** the packages are the full libcvc build, so the install brings its whole
+  runtime closure: 97 packages, about 240 MB to download and 1.9 GB on disk (ari and arigl
+  3.7.8, 2026-11-01). Each job installs it fresh.
 - **txwtf prefix:** about 700 MB, installed fresh on each run.
-
-`LIBCVC_PRS` is empty in both workflows (here and in `deploy-cyberpcangel.yml`) since M0's libcvc
-pull requests merged. To test against one still open, list it in both. It must merge cleanly
-onto master: `ci/libcvc-prs.sh` stops on a conflict.
 
 A push to `main` whose `ci` run passes also publishes the browser pages
 ([deploy/cyberpcangel](../deploy/cyberpcangel/README.md)).
