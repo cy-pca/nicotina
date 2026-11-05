@@ -263,8 +263,10 @@ The client uses only an instance's public API:
   initials, and a card's avatar is the initials.
 - Video and audio play in a card (its first one) and in a post opened whole, with their
   controls (Play/Pause, seek, Mute), where the host has a player (the optional capability
-  `media.player`): `arigl` and `ari-media` from libcvc 3.7.9, though ari-media isn't on cvcpkg.org
-  yet; the plain `ari` has none. Elsewhere each is a row
+  `media.player`): `arigl` and `ari-media` built with FFmpeg (libcvc 3.7.9 and later). The
+  packages on cvcpkg.org have no player yet (arigl was built without FFmpeg, and ari-media isn't
+  published); transfix/libcvc#1023 fixes both for the next release. The plain `ari` has none.
+  Elsewhere each is a row
   naming it (its kind, file name, size and alt text), and a post opened whole shows its URL. A
   video avatar or banner (the web app plays `.mp4`, `.webm`, `.mov` and `.m4v` ones as muted
   loops) keeps its placeholder, since `video:` always has its controls, and an animated GIF or
