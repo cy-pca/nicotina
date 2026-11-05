@@ -178,8 +178,8 @@ for backend in ftxui tvision; do
   snap "snap-$backend-resume" "$backend" "$store" --start profile
   check "ari snapshot ($backend): --start profile: the profile, as the web app lays it out" \
     "$out/snap-$backend-resume.txt" "╭ Profile ─" " @ada@$hostport  Ada Lovelace" \
-    " Writes notes on the analytical engine. Prefers punched cards t..." \
-    " admin · Verified · online" " GB · Joined 2025-03-01 · 42 posts · 1234 views" \
+    "Writes notes on the analytical engine. Prefers punched cards t..." \
+    "admin · Verified · online" "GB · Joined 2025-03-01 · 42 posts · 1234 views" \
     "│Groups: users, analysts" "[ Feed ][ Refresh ][ Sign out ]│" \
     "Show: (*) Posts  ( ) Replies  ( ) Balances" \
     "2026-10-30  Finished the notes on Menabrea's paper. Note G is th...  ↩2 ♥5" \
@@ -189,6 +189,12 @@ for backend in ftxui tvision; do
     check "ari snapshot ($backend): ... the banner and avatar placeholders" \
       "$out/snap-$backend-resume.txt" "│████████" "│╭──────╮ @ada@$hostport  Ada Lovelace" \
       "││  AL  │ Writes notes" "││      │ admin · Verified" "│╰──────╯ GB · Joined"
+  else
+    # The card's picture (card_image_url) is half-blocks behind its text, as the web app dims it
+    # behind the card.
+    check "ari snapshot ($backend): ... the card's picture behind its text" \
+      "$out/snap-$backend-resume.txt" "▀Writes notes" "▀admin · Verified" "▀GB · Joined" \
+      "views▀▀▀"
   fi
   # The owner found the SCRIP runway (days left at the current burn) confusing: it is gone.
   check_not "ari snapshot ($backend): ... no Runway, no replies on the Posts tab" \

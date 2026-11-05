@@ -83,10 +83,10 @@ units:
     children:
       - include: banner_slot
       # The card, over the account's card picture (card_image_url), dimmed as the web app dims it
-      # (a host with background:, transfix/libcvc#932; others ignore the key). Not in a terminal
-      # yet: #932's half-blocks behind text take a coloured text's colour to the row's end.
+      # (a host with background:, libcvc 3.7.9 and later; others ignore the key). In a terminal
+      # it is half-blocks behind the card's text.
       - type: group
-        background: {bind: me.card_pic, fit: cover, opacity: 0.3, terminal: none}
+        background: {bind: me.card_pic, fit: cover, opacity: 0.3, terminal: behind}
         children:
           # The card: the avatar beside who it is.
           - type: group

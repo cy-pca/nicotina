@@ -112,6 +112,12 @@ if masks_passwords; then masked=1; else
   skip "the password masked as it is typed (this ari has no password fields; transfix/libcvc#906)"
 fi
 tokens_from() { awk '!/^#/ && NF == 3 { print $3 }' "$1" >>"$work/secrets"; }
+# Whether this ari shows pictures from a URL (image.url, libcvc 3.7.9 and later), as run.sh asks:
+# then a card's avatar is a picture, not the author's initials.
+pictures=
+"$ARI" check --net "$main" 2>&1 | grep -q "optional requirement image.url" || pictures=1
+ada_card="(AL) Ada Lovelace"
+[ -n "$pictures" ] && ada_card=" Ada Lovelace"
 
 # --- the client --------------------------------------------------------------------------------
 
@@ -132,7 +138,7 @@ for backend in ftxui tvision; do
     "Your feed is empty. Follow people, or Show: Everyone." "Signed in to 127.0.0.1"
   keys Tab; keys Tab; keys Tab; keys Tab; keys Right # past Profile, Refresh, Sign out: Everyone
   step "$t: Everyone: the public timeline, a card a post" "(*) Everyone" \
-    "(AL) Ada Lovelace  @ada@127.0.0.1:$port" "│Bernoulli numbers, step by step." \
+    "$ada_card  @ada@127.0.0.1:$port" "│Bernoulli numbers, step by step." \
     "│Hello from the analytical engine." "[ Open ]"
   keys BTab; keys BTab; keys BTab; keys Enter # back past Sign out and Refresh to Profile
   step "$t: her profile" "@ada@127.0.0.1:$port  Ada Lovelace" \
