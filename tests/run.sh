@@ -316,7 +316,7 @@ fi
 # recording have their controls, and the recordings were fetched without the session token. (In
 # tmux, below, Play runs the video to its end: its 2 s.)
 if [ -z "$media" ]; then
-  skip "ari snapshot: video and audio players (this ari has no media.player; ari-media, transfix/libcvc#935)"
+  skip "ari snapshot: video and audio players (this ari has no media.player; ari-media has, ARI=ari-media)"
 else
   seed_store "$store" ada
   "$ARI" snapshot --width 80 --height 200 --net-allow "$base" --credential-store "$store" "$main" \

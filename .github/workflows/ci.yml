@@ -4,7 +4,9 @@ name: ci
 #
 #   unit         tests/run.sh: the client against a stub TX.WTF instance (tests/stub_txwtf.py).
 #                The launcher, ari check, ari snapshot in both terminal backends, arigl snapshot
-#                (text, and a PNG under Xvfb), and bin/nicotina typed at in tmux.
+#                (text, and a PNG under Xvfb), and bin/nicotina typed at in tmux. Once with the
+#                plain ari and once with ari-media, the ari with a player, which is the one that
+#                runs the cards' video and audio checks.
 #   integration  tests/local.sh: the client against a real txwtf server it starts on a fresh
 #                SQLite database. txwtf-cp312 is installed from cvcpkg.org, where txwtf publishes
 #                it to the private atxcf organization (txwtf's repository is private too). That
@@ -12,8 +14,8 @@ name: ci
 #                access to atxcf. Only the install step sees it, never the tests. A pull request
 #                from a fork gets no secrets and skips this job.
 #
-# Both run the ari and arigl packages from cvcpkg.org (ci/install-hosts.sh), as a person installs
-# them: nicotina targets the stock, packaged hosts, never a libcvc build.
+# Both run the ari, ari-media and arigl packages from cvcpkg.org (ci/install-hosts.sh), as a person
+# installs them: nicotina targets the stock, packaged hosts, never a libcvc build.
 #
 # GitHub-hosted runners only: this repository is public, and a pull request's workflows must
 # never reach the self-hosted runners on catx-03.
@@ -59,24 +61,33 @@ jobs:
     if: needs.plan.outputs.tests == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # The terminal's ari: the plain one, and ari-media (the same ari with a player), with
+        # which tests/run.sh's video and audio checks run instead of skipping.
+        ari: [ari, ari-media]
+    name: unit (${{ matrix.ari }})
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-cvcpkg
-      - name: Install ari and arigl (cvcpkg)
+      - name: Install ari, ari-media and arigl (cvcpkg)
         run: bash ci/install-hosts.sh ~/nicotina-ci
       - name: tmux, Xvfb and Mesa
         run: bash ci/test-env.sh ~/nicotina-ci
       - name: tests/run.sh
         env:
           NICOTINA_TEST_OUT: ${{ runner.temp }}/out
-        run: ARI=~/nicotina-ci/deps/bin/ari ARIGL=~/nicotina-ci/deps/bin/arigl bash tests/run.sh
+          # SDL's dummy sound: a runner has no sound device, and the checks need none.
+          SDL_AUDIO_DRIVER: dummy
+        run: ARI=~/nicotina-ci/deps/bin/${{ matrix.ari }} ARIGL=~/nicotina-ci/deps/bin/arigl bash tests/run.sh
       # The tests search every output for the session tokens and fail if one is there, so what
       # is uploaded holds none.
       - name: Keep the outputs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: unit-outputs
+          name: unit-outputs-${{ matrix.ari }}
           path: ${{ runner.temp }}/out
           retention-days: 7
 
@@ -104,7 +115,7 @@ jobs:
         if: steps.token.outputs.have == 'true'
       - uses: ./.github/actions/setup-cvcpkg
         if: steps.token.outputs.have == 'true'
-      - name: Install ari and arigl (cvcpkg)
+      - name: Install ari, ari-media and arigl (cvcpkg)
         if: steps.token.outputs.have == 'true'
         run: bash ci/install-hosts.sh ~/nicotina-ci
       - name: tmux, Xvfb and Mesa
