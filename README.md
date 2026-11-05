@@ -254,28 +254,28 @@ The client uses only an instance's public API:
 - A form's first field has the focus when it opens (`autofocus: true`, transfix/libcvc#906).
   An older host gives it none; press Tab to reach it.
 - The spinner beside "Signing in...", "Refreshing..." and the like needs libcvc's `spinner`
-  widget (transfix/libcvc#915, open). A host without it shows the text alone.
-- Pictures show where the host can show a picture from a URL: transfix/libcvc#931 (open) adds
-  that, and the document asks for it as the optional capability `image.url`, requested from that
-  work. They are the profile's avatar (round) and header image, the cards' author avatars and
+  widget (libcvc 3.7.6 and later). A host without it shows the text alone.
+- Pictures show where the host can show a picture from a URL (libcvc 3.7.9 and later, the optional
+  capability `image.url`). They are the profile's avatar (round) and header image, the cards' author avatars and
   first picture, and each picture of a post opened whole. txwtf's media URLs (`/uploads/...`,
   `/static/...`) need no sign-in. Elsewhere they are placeholders: the profile's banner is the
   plain colour the web app shows without a header image and its avatar a frame with the
   initials, and a card's avatar is the initials.
 - Video and audio play in a card (its first one) and in a post opened whole, with their
-  controls (Play/Pause, seek, Mute), where the host has a player: `ari-media` and `arigl` with
-  transfix/libcvc#935 (open; the optional capability `media.player`). Elsewhere each is a row
+  controls (Play/Pause, seek, Mute), where the host has a player (the optional capability
+  `media.player`): `arigl` and `ari-media` from libcvc 3.7.9, though ari-media isn't on cvcpkg.org
+  yet; the plain `ari` has none. Elsewhere each is a row
   naming it (its kind, file name, size and alt text), and a post opened whole shows its URL. A
   video avatar or banner (the web app plays `.mp4`, `.webm`, `.mov` and `.m4v` ones as muted
   loops) keeps its placeholder, since `video:` always has its controls, and an animated GIF or
   WebP shows its first frame.
-- Where the host has `background:` (transfix/libcvc#932, open), the profile card and window have
-  the account's card and page pictures behind them, dimmed as the web app dims them, in a window
-  (ImGui) only for now: #932's half-blocks behind coloured text bleed that colour.
+- Where the host has `background:` (libcvc 3.7.9 and later), the profile card and window have
+  the account's card and page pictures behind them, dimmed as the web app dims them. In a
+  terminal the card's is half-blocks behind its text; the window's shows in a window (ImGui) only.
 - The feed's header scrolls away with its cards: Ariadne has no scrolling region inside a window
   yet, so the whole window scrolls.
-- "In browser" (open a post in the web app) needs libcvc's `open-url` (transfix/libcvc#916,
-  open). Without it, the post's URL is shown instead.
+- "In browser" (open a post in the web app) needs libcvc's `open-url` (libcvc 3.7.6 and later).
+  Without it, the post's URL is shown instead.
 
 ## Layout
 
