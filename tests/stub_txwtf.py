@@ -21,8 +21,11 @@ and with the errors tx.wtf answers that the schema doesn't list:
                              follows (ada follows three authors; grace no one), or everyone's,
                              newest first, paged by before_id. Their attachments are pictures,
                              a video, a recording and a PDF; one post is a repost, one is paid
-                             for and withheld
+                             for and withheld, one has a custom and a standard emoji (its
+                             content_html renders them as txwtf does)
   GET  /social/posts/{id}    Bearer -> PostResponse, with its reactions_summary
+  GET  /social/emojis/12/image
+                             no auth: the custom emoji :gear:'s picture
   GET  /uploads/..., /static/img/...
                              no auth (as txwtf's /uploads mount): a small PNG drawn here, the
                              same picture for the same path, or a recording from
@@ -261,13 +264,25 @@ def brief(username):
 
 
 def post(author, pid, created, content, reply_to=None, counts=(0, 0, 0, 0), attachments=(),
-         repost=None, price=None):
+         repost=None, price=None, content_html=None):
     """A post: counts are replies, reposts, reactions and views. Content is what txwtf stores:
     plain text, or the rich editor's HTML. repost is the reposted post; price makes it a paid
-    post this viewer hasn't unlocked, which txwtf withholds."""
+    post this viewer hasn't unlocked, which txwtf withholds. content_html is what txwtf renders
+    when the content has emoji shortcodes (render_content_html)."""
     return {"author": author, "id": pid, "created": created, "content": content,
             "reply_to": reply_to, "counts": counts, "attachments": list(attachments),
-            "repost": repost, "price": price}
+            "repost": repost, "price": price, "content_html": content_html}
+
+
+# txwtf's rendered emoji (social.py render_emoji_html): an image-backed custom emoji is served by
+# GET /social/emojis/{id}/image, public; a standard one is its unicode character.
+def custom_emoji_html(name, emoji_id):
+    return (f'<img class="custom-emoji" src="/social/emojis/{emoji_id}/image" alt=":{name}:" '
+            f'title=":{name}:" draggable="false">')
+
+
+def unicode_emoji_html(name, char):
+    return f'<span class="emoji" title=":{name}:">{char}</span>'
 
 
 # Each account's posts, newest first.
@@ -322,7 +337,12 @@ FEED = [
          [attachment(905, "/uploads/media/cobol-notes.pdf", 2048),
           attachment(906, "/uploads/media/relay-70.png", 31000),
           attachment(907, "/uploads/media/log-book.png", 29000)]),
-    post("charles", 304, "2026-10-29T10:00:00", "Notes on the mill.", None, (0, 0, 1, 9)),
+    # Emoji: a custom one (a picture) and a standard one (a character), as txwtf renders them,
+    # beside a time whose :50: is no shortcode.
+    post("charles", 304, "2026-10-29T10:00:00", "Notes on the mill :gear: :100: at 14:50:47.",
+         None, (0, 0, 1, 9),
+         content_html="<p>Notes on the mill " + custom_emoji_html("gear", 12) + " "
+         + unicode_emoji_html("100", "💯") + " at 14:50:47.</p>"),
     post("grace", 303, "2026-10-28T09:00:00", "Nanoseconds, in wire.", None, (0, 0, 2, 14)),
     post("alan@peer.example", 302, "2026-10-27T11:00:00", "On morphogenesis.", None, (0, 0, 3, 22)),
     post("charles", 301, "2026-10-26T08:30:00", "The engine needs more brass.", None, (0, 0, 0, 5)),
@@ -348,7 +368,7 @@ def post_response(p):
         # txwtf withholds a locked post's content and attachments (_redact_locked_post)
         "content": f"\U0001f512 This post is locked. Pay {p['price']} scrip to unlock." if locked
         else p["content"],
-        "content_html": None,
+        "content_html": None if locked else p["content_html"],
         "visibility": "public",
         "reply_to_id": p["reply_to"],
         "repost_id": r["id"] if r else None,
@@ -603,6 +623,14 @@ def make_handler(state):
                 return self.login(), None
             if method == "POST" and path == "/user/login/2fa":
                 return self.login_2fa(), None
+            if (method == "GET" and path.startswith("/social/emojis/")
+                    and path.endswith("/image")):
+                # an image-backed custom emoji, public as txwtf's (a gear: a ring on a square)
+                if path != "/social/emojis/12/image":
+                    return self.reply(404, {"detail": "Not Found"}), None
+                gear = png(32, 32, lambda x, y: (120, 120, 130) if 64 <= (x - 16) ** 2 + (y - 16) ** 2
+                           <= 196 else (250, 200, 60))
+                return self.reply_bytes(200, gear, "image/png"), None
             if method == "GET" and (path.startswith("/uploads/") or path.startswith("/static/")):
                 # no auth, as txwtf serves them
                 mime, source = FILES.get(path, ("image/png", None))

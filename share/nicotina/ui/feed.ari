@@ -21,14 +21,20 @@
 # controls) where the host has a player; elsewhere they are rows too. A video starts by itself,
 # muted, as the web app's feed does (a browser plays sound only after a click on the page, and ten
 # cards' sound at once would be noise); its Mute box turns the sound on.
+# Where the host measures the line (image.fill: ImGui, transfix/libcvc#1052) a picture or a video
+# is as wide as the card at its own shape, and a video plays while it is in view; a terminal keeps
+# the small fixed sizes. A post's emoji (text.emoji, the same PR) come from its content_html: a
+# custom one is drawn as its picture in the line (a terminal keeps its :name:), a standard one's
+# shortcode becomes its character.
 # A host with open-url (transfix/libcvc#916) also gets an "In browser" button that opens the post
 # in the web app.
 
 units:
-  # A card: feed.items.{i} holds what main.ari's feed-card made of a post.
+  # A card: feed.items.{i} holds what main.ari's feed-card made of a post. Its one column is as
+  # wide as the window ("100%"), so a picture or a video filling it is as wide as the card.
   post_card:
     type: group
-    layout: {kind: grid, col_widths: [auto], borders: {show: outer}}
+    layout: {kind: grid, col_widths: ["100%"], borders: {show: outer}}
     children:
       - text: ""
         bind: feed.items.{i}.note
@@ -58,22 +64,44 @@ units:
                 color: [0.6, 0.6, 0.6]
       - text: ""
         bind: feed.items.{i}.l0
+        emoji: feed.items.{i}.emoji
         visible_when: (!= (state-get "feed.items.{i}.l0") "")
       - text: ""
         bind: feed.items.{i}.l1
+        emoji: feed.items.{i}.emoji
         visible_when: (!= (state-get "feed.items.{i}.l1") "")
       - text: ""
         bind: feed.items.{i}.l2
+        emoji: feed.items.{i}.emoji
         visible_when: (!= (state-get "feed.items.{i}.l2") "")
-      # The first picture, inline (192 x 112 px, 24 x 7 cells), where the host can show one.
+      # The first picture, inline, where the host can show one: as wide as the card at its own
+      # shape (at most 480 px tall) where the host measures the line (image.fill: ImGui), else
+      # 192 x 112 px (24 x 7 cells in a terminal).
+      - image: ""
+        bind: feed.items.{i}.pic
+        size: "100%"
+        max_height: 480
+        visible_when: (and (has? "image.url") (has? "image.fill") (not (has? "term"))
+                           (!= (state-get "feed.items.{i}.pic") ""))
       - image: ""
         bind: feed.items.{i}.pic
         size: [192, 112]
         fit: contain
-        visible_when: (and (has? "image.url") (!= (state-get "feed.items.{i}.pic") ""))
+        visible_when: (and (has? "image.url") (or (not (has? "image.fill")) (has? "term"))
+                           (!= (state-get "feed.items.{i}.pic") ""))
       # The first video or recording, with its controls (play/pause, seek, mute), where the host
       # has a player (media.player: ari-media and arigl; transfix/libcvc#935). The lean ari, and
-      # a host without the widgets, show the rows below; "In browser" opens the post.
+      # a host without the widgets, show the rows below; "In browser" opens the post. A video is
+      # sized as the picture is (at most 400 px tall), and plays while it is in view.
+      - video: video
+        src: (state-get "feed.items.{i}.av_url")
+        size: "100%"
+        max_height: 400
+        autoplay: true
+        muted: true
+        bind: feed.items.{i}.player
+        visible_when: (and (has? "media.player") (has? "image.fill") (not (has? "term"))
+                           (= (state-get "feed.items.{i}.av_kind") "video"))
       - video: video
         src: (state-get "feed.items.{i}.av_url")
         size: [192, 108]
@@ -81,7 +109,8 @@ units:
         autoplay: true
         muted: true
         bind: feed.items.{i}.player
-        visible_when: (and (has? "media.player") (= (state-get "feed.items.{i}.av_kind") "video"))
+        visible_when: (and (has? "media.player") (or (not (has? "image.fill")) (has? "term"))
+                           (= (state-get "feed.items.{i}.av_kind") "video"))
       - audio: recording
         src: (state-get "feed.items.{i}.av_url")
         bind: feed.items.{i}.player
@@ -211,6 +240,7 @@ units:
         children:
           - text: ""
             bind: post.lines.{i}
+            emoji: post.emoji
       - text: ""
         bind: post.counts
         color: [0.6, 0.6, 0.6]
@@ -230,9 +260,25 @@ units:
             color: [0.6, 0.6, 0.6]
           - image: ""
             bind: post.media.{i}.url
+            size: "100%"
+            max_height: 640
+            visible_when: (and (has? "image.url") (has? "image.fill") (not (has? "term"))
+                               (= (state-get "post.media.{i}.kind") "image"))
+          - image: ""
+            bind: post.media.{i}.url
             size: [384, 216]
             fit: contain
-            visible_when: (and (has? "image.url") (= (state-get "post.media.{i}.kind") "image"))
+            visible_when: (and (has? "image.url") (or (not (has? "image.fill")) (has? "term"))
+                               (= (state-get "post.media.{i}.kind") "image"))
+          - video: video
+            src: (state-get "post.media.{i}.url")
+            size: "100%"
+            max_height: 540
+            autoplay: true
+            muted: true
+            bind: post.media.{i}.player
+            visible_when: (and (has? "media.player") (has? "image.fill") (not (has? "term"))
+                               (= (state-get "post.media.{i}.kind") "video"))
           - video: video
             src: (state-get "post.media.{i}.url")
             size: [384, 216]
@@ -240,7 +286,8 @@ units:
             autoplay: true
             muted: true
             bind: post.media.{i}.player
-            visible_when: (and (has? "media.player") (= (state-get "post.media.{i}.kind") "video"))
+            visible_when: (and (has? "media.player") (or (not (has? "image.fill")) (has? "term"))
+                               (= (state-get "post.media.{i}.kind") "video"))
           - audio: recording
             src: (state-get "post.media.{i}.url")
             bind: post.media.{i}.player
