@@ -137,10 +137,10 @@ player_stops=0
 # of its URL.
 open_url=
 "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement open-url" || open_url=1
-open_row="││↩5 ⇄3 ♥21 · 310 views                                         [ Open ] │"
+open_row="││↩5 ⇄3 ♥21 · 310 views                                         [ Open ]   │"
 browser_stops=0
 if [ -n "$open_url" ]; then
-  open_row="││↩5 ⇄3 ♥21 · 310 views                           [ Open ][ In browser ] │"
+  open_row="││↩5 ⇄3 ♥21 · 310 views                           [ Open ][ In browser ]   │"
   browser_stops=10
 fi
 
@@ -156,11 +156,11 @@ for backend in ftxui tvision; do
     "$out/snap-$backend-feed.txt" "╭ Home ─" "│@ada@$hostport " "[ Profile ][ Refresh ][ Sign out ]" \
     "Show: (*) Following  ( ) Everyone" "Signed in to 127.0.0.1" \
     " Charles Babbage  @charles@$hostport" " 2026-10-30 22:40" \
-    "││The Difference Engine No. 2, working at last.                          │"
+    "││The Difference Engine No. 2, working at last.                            │"
   if [ -z "$pictures$media" ]; then
     check "ari snapshot ($backend): ... its attachments, a row each" "$out/snap-$backend-feed.txt" \
-      "││[image] engine-diagram.png · 47 KB · The engine, from the side         │" \
-      "││[video] engine.mp4 · 11 KB                                             │"
+      "││[image] engine-diagram.png · 47 KB · The engine, from the side           │" \
+      "││[video] engine.mp4 · 11 KB                                               │"
   fi
   if [ -z "$pictures" ]; then
     check "ari snapshot ($backend): ... the author's initials, and the next card" \
@@ -469,13 +469,15 @@ else
     keys Enter
     step "$t: Load more: the next page, below the first" "13 posts; no more" \
       "Good morning, TX.WTF."
-    # Play the first card's video, where the host has a player: it runs to its end.
+    # Where the host has a player, the first card's video plays by itself, muted, to its end
+    # (two seconds); Play plays it again.
     if [ -n "$media" ]; then
       PANE=100x40 start "$backend" "$xdg" "$base" --media-play always
-      step "$t: the feed, with a player" "0:00 / 0:02" "[ Play ]"
+      step "$t: the feed, with a player: its video plays by itself, muted, to its end" \
+        "0:02 / 0:02" "[x] Mute" "[ Play ]"
       for _ in $(seq 5); do keys Tab; done
       keys Enter # Play
-      step "$t: Play: the video plays to its end" "0:02 / 0:02"
+      step "$t: Play: the video plays again" "[ Pause ]"
     fi
     # Everyone: the public feed, with someone ada doesn't follow.
     start "$backend" "$xdg" "$base"

@@ -5,10 +5,12 @@
 # (the author's avatar, name, handle and time), the text (three lines at most), the
 # attachments, and the counts with an Open button. Open shows the whole post (post_window).
 #
-# Terminal first: the window is 76 columns wide and 86% of the screen tall (21 rows in an 80x24
-# terminal; more in a bigger one, or a window). Its cards don't fit at once, so the window
-# scrolls: a terminal keeps the focused widget in view, and each card's Open button is one, so
-# Tab walks the feed card by card. (Ariadne has no scrolling region inside a window yet, so the
+# Terminal first: the window is as wide as its cards (74 columns in a terminal, the cards' text 70)
+# and at most 86% of the screen tall (21 rows in an 80x24 terminal; more in a bigger one, or a
+# window). It sizes itself to what it shows, so a wider line, picture or row of buttons never
+# needs the user to widen it. Its cards don't fit at once, so the window scrolls: a terminal
+# keeps the focused widget in view, and each card's Open button is one, so Tab walks the feed
+# card by card. (Ariadne has no scrolling region inside a window yet, so the
 # header scrolls away with the cards.) Load more, at the end, fetches the next page and adds it
 # below.
 #
@@ -16,7 +18,9 @@
 # transfix/libcvc#931); txwtf's /uploads/... and /static/... need no sign-in. Elsewhere an avatar
 # is the author's initials. Every attachment also has a row naming it (its kind, file name, size
 # and alt text). Video and audio play in the card and the post (video: and audio:, with their
-# controls) where the host has a player; elsewhere they are rows too.
+# controls) where the host has a player; elsewhere they are rows too. A video starts by itself,
+# muted, as the web app's feed does (a browser plays sound only after a click on the page, and ten
+# cards' sound at once would be noise); its Mute box turns the sound on.
 # A host with open-url (transfix/libcvc#916) also gets an "In browser" button that opens the post
 # in the web app.
 
@@ -74,6 +78,8 @@ units:
         src: (state-get "feed.items.{i}.av_url")
         size: [192, 108]
         fit: contain
+        autoplay: true
+        muted: true
         bind: feed.items.{i}.player
         visible_when: (and (has? "media.player") (= (state-get "feed.items.{i}.av_kind") "video"))
       - audio: recording
@@ -111,7 +117,7 @@ units:
     window: Home
     id: feed
     pos: [16, 32]
-    size: [608, "86%"]
+    size: [auto, "86%"]    # as wide as what it shows, 86% tall: what does not fit scrolls
     visible_when: (= (state-get "ui.screen") "feed")
     children:
       - type: group
@@ -158,7 +164,7 @@ units:
     window: Post
     id: post
     pos: [16, 32]
-    size: [608, "86%"]
+    size: [auto, "86%"]    # as wide as what it shows, 86% tall: what does not fit scrolls
     visible_when: (= (state-get "ui.screen") "post")
     children:
       - type: group
@@ -231,6 +237,8 @@ units:
             src: (state-get "post.media.{i}.url")
             size: [384, 216]
             fit: contain
+            autoplay: true
+            muted: true
             bind: post.media.{i}.player
             visible_when: (and (has? "media.player") (= (state-get "post.media.{i}.kind") "video"))
           - audio: recording
