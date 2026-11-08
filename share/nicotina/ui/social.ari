@@ -47,7 +47,7 @@ units:
             bind: alerts.rows.{i}.at
             color: [0.6, 0.6, 0.6]
 
-  # Posts and people (GET /search/search?q=). Enter in the field, or Search, asks.
+  # Posts, people and hashtags (GET /search/search?q=). Enter in the field, or Search, asks.
   search_view:
     type: group
     children:
@@ -69,7 +69,7 @@ units:
               - text: ""
                 bind: search.rows.{i}.line
               - button: Open
-                on: (begin (state-set "hit.kind" (state-get "search.rows.{i}.kind")) (state-set "hit.id" (state-get "search.rows.{i}.id")) (state-set "ui.cmd" "hit-open"))
+                on: (begin (state-set "hit.kind" (state-get "search.rows.{i}.kind")) (state-set "hit.id" (state-get "search.rows.{i}.id")) (state-set "hit.tag" (state-get "search.rows.{i}.tag")) (state-set "ui.cmd" "hit-open"))
           - text: ""
             bind: search.rows.{i}.snippet
             color: [0.6, 0.6, 0.6]

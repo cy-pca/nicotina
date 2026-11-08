@@ -511,21 +511,28 @@ def replies_of(pid, query, viewer):
 
 
 def search(q, viewer):
-    """GET /search/search?q=: posts and people whose text or name has q (the web app's fields)."""
+    """GET /search/search?q=: posts, people and hashtags whose text or name has q, grouped as
+    txwtf groups them (results.<category> = {items, total}; an item's author is a brief)."""
     q = q.lower()
-    results = []
+    users, posts, tags = [], [], []
     for n, u in list(USERS.items()) + list(AUTHORS.items()):
         if q in n.lower() or q in u["name"].lower():
-            results.append({"type": "user", "id": u["id"], "title": u["name"],
-                            "snippet": "@" + n, "avatar_url": u.get("avatar_url", DEFAULT_AVATAR),
-                            "url": f"/app/profile/{u['id']}", "author": n, "instance": None})
+            users.append({"type": "user", "id": u["id"], "title": u["name"], "snippet": "@" + n,
+                          "avatar_url": u.get("avatar_url", DEFAULT_AVATAR),
+                          "url": f"/app/profile/{u['id']}", "author": None})
     for p in sorted(all_posts(), key=lambda p: p["id"], reverse=True):
         if p["price"] is None and q in p["content"].lower():
-            results.append({"type": "post", "id": p["id"], "title": brief(p["author"])["name"],
-                            "snippet": p["content"][:140], "avatar_url": None,
-                            "url": f"/app/post/{p['id']}", "author": p["author"],
-                            "instance": None})
-    return {"query": q, "results": results[:10], "federated": []}
+            posts.append({"type": "post", "id": p["id"], "title": None,
+                          "snippet": p["content"][:140], "url": f"/app/post/{p['id']}",
+                          "author": {"username": p["author"], "name": brief(p["author"])["name"]}})
+    for t in tag_list({})["tags"]:
+        if q in t["name"]:
+            tags.append({"type": "hashtag", "id": t["id"], "title": "#" + t["name"],
+                         "snippet": f"{t['post_count']} posts", "url": f"/app/tag/{t['name']}"})
+    def bucket(items):
+        return {"items": items[:10], "total": len(items)}
+    return {"query": q, "results": {"posts": bucket(posts), "users": bucket(users),
+                                    "hashtags": bucket(tags)}, "federated": {"items": []}}
 
 
 def feed(username, which, query):

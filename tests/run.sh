@@ -146,7 +146,7 @@ bar="[ Back ][ Home ][ Tags ][ Search ][ Alerts ][ Profile ][ Post ]"
 # The first card's counts and buttons, and View on its first attachment's row (it has a picture
 # and a video).
 open_row="││↩5 ⇄3 ♥21 · 310 views              [ Open ][ Reply ][ Like ][ Repost ]"
-view_row="││[image] engine-diagram.png · 47 KB · The engine, from the s... [ View ]"
+view_row="││[image] engine-diagram.png · 47 KB · The engine, from the ... [ View ]"
 
 for backend in ftxui tvision; do
   snap "snap-$backend-signin" "$backend" "" --user ada
@@ -239,8 +239,8 @@ check "ari snapshot: a post: its text, hashtags, counts, reactions, buttons and 
   "The Difference Engine No. 2, working at last. #engines #brass" \
   "Tags: (*) #engines  ( ) #brass  [ Open tag ]" "↩5 ⇄3 ♥21 · 310 views" \
   "Reactions: :thumbsup: 12  :heart: 9" "[ Like ][ Repost ][ Author ]" \
-  "Link: $base/app/post/312" \
-  "[image] engine-diagram.png · 47 KB · The engine, from the side      [ View ]"
+  "Link: $base/app/post/312" "[image] engine-diagram.png · 47 KB · The engine, from the side" \
+  "[ View ]"
 check "ari snapshot: ... its replies, oldest first, and the reply box" "$out/snap-view-post.txt" \
   "2 replies" "Grace Hopper  @grace@$hostport  2026-10-30 22:50  ↩1" "Splendid. How many digits?" \
   "Alan Turing  @alan@peer.example  2026-10-30 23:10" "A fine machine. #engines" \
@@ -272,6 +272,11 @@ check_not "ari snapshot: ... none new now" "$out/snap-view-alerts-read.txt" "●
 view search search
 check "ari snapshot: search" "$out/snap-view-search.txt" "Find: [" "[ Search ]" \
   "Find posts and people."
+view search-hits search:engine
+check "ari snapshot: search: posts, people and hashtags, as txwtf groups them" \
+  "$out/snap-view-search-hits.txt" "Find: [engine]" "8 found for \"engine\"" \
+  "[post] Charles Babbage · @charles@$hostport" "The Difference Engine No. 2, working at last." \
+  "[tag] #engines" "  3 posts"
 view compose compose
 check "ari snapshot: a new post: who sees it, and the text" "$out/snap-view-compose.txt" \
   "Who sees it: (*) Public  ( ) Followers  ( ) Private" "Post: [What's happening? (Enter posts it)"
@@ -326,7 +331,7 @@ seed_store "$store" ada
   --instance "$base" >"$out/snap-feed-tall.txt" 2>&1
 check "ari snapshot: the feed's first page: attachments, a repost, a paid post, rich text" \
   "$out/snap-feed-tall.txt" "[audio] lecture.ogg · 5 KB · Lecture, part one" \
-  "[image] engine-diagram.png · 47 KB · The engine, from the side" "[video] engine.mp4 · 11 KB" \
+  "[image] engine-diagram.png · 47 KB · The engine, from the ..." "[video] engine.mp4 · 11 KB" \
   "│⇄ Charles Babbage reposted" " Ada Lovelace  @ada@$hostport" " 2026-10-30 09:15" \
   " Alan Turing  @alan@peer.example" " 2026-10-30 19:30" \
   "│A ship in port is safe, but that's not what ships are built for. Sail" \
@@ -336,7 +341,7 @@ check "ari snapshot: the feed's first page: attachments, a repost, a paid post, 
   "🔒 This post is locked. Pay 5 scrip to unlock." "[file] cobol-notes.pdf · 2 KB" \
   "[image] relay-70.png · 30 KB" "+1 more (Open shows them all)" "[ Load more ]  10 posts" \
   "│↩12 ⇄8 ♥64 · 900 views             [ Open ][ Reply ][ Like ][ Repost ]" \
-  "[image] moth.png · 29 KB · The moth, taped into the log book [ View ]"
+  "[image] moth.png · 29 KB · The moth, taped into the log book" "[ View ]"
 if [ -n "$emoji" ]; then
   check "ari snapshot: ... a post's emoji: a standard one's character, a custom one's :name:" \
     "$out/snap-feed-tall.txt" "Notes on the mill :gear: 💯 at 14:50:47."
@@ -500,20 +505,22 @@ else
     fi
     keys Tab; keys Enter
     # The focus, in the TX.WTF window: the bar's seven buttons are the first seven stops (Back,
-    # Home, Tags, Search, Alerts, Profile, Post) in every view, and stay where they are.
+    # Home, Tags, Search, Alerts, Profile, Post) in every view, and each new view starts with the
+    # focus on Back: Tab k times reaches stop k + 1.
     step "$t: signed in, the home feed" "Home" "$bar" "Show: (*) Following" \
       " Charles Babbage  @charles@$hostport" " 2026-10-30 22:40" \
       "The Difference Engine No. 2, working at last."
     check_store "$t: the host keeps the session, owner-only (0600 in 0700)" "$store"
     check_not "$t: the password is not on the screen" \
       "$out/tmux-$(slug "$t: signed in, the home feed").txt" "correct horse"
-    for _ in $(seq 6); do keys Tab; done
+    for _ in $(seq 5); do keys Tab; done
     keys Enter # Profile
     step "$t: Profile: the profile" "@ada@$hostport  Ada Lovelace" "admin · Verified · online" \
       "GB · Joined 2025-03-01 · 42 posts · 1234 views" "Groups: users, analysts" \
       "(*) Posts" "Finished the notes on Menabrea's paper." "Page 1"
-    # The tabs: Tab past Post, Refresh and Sign out to them, then Right picks the next one.
-    keys Tab; keys Tab; keys Tab; keys Tab; keys Right
+    # The tabs: Tab past the bar, Refresh and Sign out to them, then Right picks the next one.
+    for _ in $(seq 9); do keys Tab; done
+    keys Right
     step "$t: the Replies tab" "(*) Replies" "2026-10-29  Agreed: the engine might compose music" \
       "2026-10-25  Thank you, Mr. Babbage."
     check_not "$t: ... and no posts that aren't replies" \
@@ -537,15 +544,14 @@ else
     step "$t: started again, still signed in: the feed" "$bar" " Charles Babbage"
     # past the bar and Show (and, with a player, the first card's video, then View) to the first
     # card's Open
-    for _ in $(seq $((10 + player_stops))); do keys Tab; done
+    for _ in $(seq $((9 + player_stops))); do keys Tab; done
     keys Enter
     step "$t: Open: the whole post, its hashtags, reactions, attachments and replies" \
       "Reactions: :thumbsup: 12  :heart: 9" " Charles Babbage  @charles@$hostport" \
       " 2026-10-30 22:40" "↩5 ⇄3 ♥21 · 310 views" "Tags: (*) #engines  ( ) #brass" \
       "[image] engine-diagram.png · 47 KB · The engine, from the side" \
       "Link: $base/app/post/312" "Splendid. How many digits?"
-    # Nothing has the focus in a view just opened: the first Tab is Back.
-    keys Tab; keys Enter # Back
+    keys Enter # Back: a view just opened has the focus there
     step "$t: Back to the feed" "Show: (*) Following" " Charles Babbage"
     # Back keeps the focus. Load more is stop 53: the bar and Show (8), then ten cards' buttons
     # (Open, Reply, Like, Repost, and View on the four with something to view: 44), and two
@@ -558,7 +564,7 @@ else
     # Like: the first card's Like (View, Open, Reply, Like), its count and mark; again, taken back.
     start "$backend" "$xdg" "$base"
     step "$t: the feed, to like a post" "$bar" " Charles Babbage"
-    for _ in $(seq $((12 + player_stops))); do keys Tab; done
+    for _ in $(seq $((11 + player_stops))); do keys Tab; done
     keys Enter
     step "$t: Like: liked, the count one up" "Liked." "↩5 ⇄3 ♥22 · 310 views · liked"
     keys Enter
@@ -569,7 +575,7 @@ else
     # radio's choice there), then Open tag. Back, and Back again.
     keys BTab; keys BTab; keys Enter # Open, two stops before Like
     step "$t: the post again" "Tags: (*) #engines  ( ) #brass  [ Open tag ]"
-    for _ in $(seq 8); do keys Tab; done
+    for _ in $(seq 7); do keys Tab; done
     keys Right
     step "$t: Tags: #brass picked" "( ) #engines  (*) #brass"
     keys Tab; keys Enter # Open tag
@@ -577,7 +583,7 @@ else
       "The Difference Engine No. 2, working at last. #engines #brass"
     check_not "$t: ... and no others" "$out/tmux-$(slug "$t: Open tag: the hashtag's posts").txt" \
       "A ship in port"
-    keys Tab; keys Enter # Back
+    keys Enter # Back
     step "$t: Back: the post" "Reactions: :thumbsup: 12  :heart: 9"
     keys Enter # Back again: it keeps the focus
     step "$t: Back again: the feed" "Show: (*) Following" " Charles Babbage"
@@ -585,20 +591,20 @@ else
     # A new post: Post, type, Enter. It opens, yours; Delete takes it away again, back to the feed.
     for _ in $(seq 6); do keys Tab; done
     keys Enter # Post
-    step "$t: Post: the new post's view" "Who sees it: (*) Public" "What's happening?"
+    step "$t: Post: the new post's view" "Who sees it: (*) Public" "Post: ["
     type_text "Posted from $backend, by hand."
     keys Enter
     step "$t: posted: the new post, yours" "Posted." "Posted from $backend, by hand." \
       "[ Like ][ Repost ][ Author ][ Delete ]" "No replies yet."
-    for _ in $(seq 11); do keys Tab; done
-    keys Enter # Delete: the bar, Like, Repost, Author, Delete
+    for _ in $(seq 10); do keys Tab; done
+    keys Enter # Delete: past the bar, Like, Repost and Author
     step "$t: Delete: gone, back to the feed" "Deleted." "Show: (*) Following" " Charles Babbage"
     check_not "$t: ... and not in the feed" "$out/tmux-$(slug "$t: Delete: gone, back to the feed").txt" \
       "Posted from $backend"
 
     # A reply: the second card's Reply opens the post with the reply box focused.
-    for _ in $(seq $((15 + player_stops))); do keys Tab; done
-    keys Enter # the bar, Show, the first card's five (and its video), then Open, Reply
+    for _ in $(seq $((14 + player_stops))); do keys Tab; done
+    keys Enter # past the bar, Show, the first card's five (and its video), and Open: Reply
     step "$t: Reply: the post, and the reply box" "A ship in port is safe" "Reply: ["
     type_text "Aye, from $backend."
     keys Enter
@@ -606,12 +612,13 @@ else
       "Ada Lovelace  @ada@$hostport"
 
     # Author, then Unfollow and Follow: ada follows grace.
-    for _ in $(seq 10); do keys Tab; done
-    keys Enter # Author: the bar, Like, Repost, Author
+    for _ in $(seq 9); do keys Tab; done
+    keys Enter # Author: past the bar, Like and Repost
     step "$t: Author: her profile, followed" "@grace@$hostport  Grace Hopper" "[ Unfollow ]"
-    for _ in $(seq 8); do keys Tab; done
+    for _ in $(seq 7); do keys Tab; done
     keys Enter
     step "$t: Unfollow" "Stopped following @grace@$hostport." "[ Follow ]"
+    # Unfollow is gone, so nothing has the focus: Tab starts at Back.
     for _ in $(seq 8); do keys Tab; done
     keys Enter
     step "$t: Follow again" "Following @grace@$hostport." "[ Unfollow ]"
@@ -622,26 +629,27 @@ else
       PANE=100x40 start "$backend" "$xdg" "$base" --media-play always
       step "$t: the feed, with a player: its video plays by itself, muted, to its end" \
         "0:02 / 0:02" "[x] Mute" "[ Play ]"
-      for _ in $(seq 9); do keys Tab; done
+      for _ in $(seq 8); do keys Tab; done
       keys Enter # Play: past the bar and Show
       step "$t: Play: the video plays again" "[ Pause ]"
     fi
     # Everyone: the public feed, with someone ada doesn't follow.
     start "$backend" "$xdg" "$base"
     step "$t: the feed again" "Show: (*) Following" " Charles Babbage"
-    for _ in $(seq 8); do keys Tab; done
+    for _ in $(seq 7); do keys Tab; done
     keys Right
     step "$t: Show: Everyone" "(*) Everyone" "Hello from someone you don't follow."
 
     start "$backend" "$xdg" "$base"
     step "$t: started again, still signed in" "$bar" " Charles Babbage"
-    keys Tab; keys Tab; keys Enter # Home, on the feed: it again
+    keys Tab; keys Enter # Home, on the feed: it again
     step "$t: Home loads the feed again" "Updated. Signed in to $hostport." \
       " Charles Babbage"
-    for _ in $(seq 4); do keys Tab; done
+    for _ in $(seq 5); do keys Tab; done
     keys Enter # Profile
     step "$t: Profile, to sign out" "@ada@$hostport  Ada Lovelace" "[ Sign out ]"
-    keys Tab; keys Tab; keys Tab; keys Enter # past Post and Refresh to Sign out
+    for _ in $(seq 8); do keys Tab; done
+    keys Enter # past the bar and Refresh to Sign out
     step "$t: signed out" "Signed out." "Sign in to TX.WTF" "Username: [ada"
     if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: sign-out drops the session"; else
       fail "$t: the session is still in the store after signing out"
@@ -660,10 +668,11 @@ else
     keys BTab; type_text 123456; keys Tab; keys Enter
     step "$t: the right code signs in: her feed, empty" "$bar" \
       "Your feed is empty. Follow people, or Show: Everyone."
-    for _ in $(seq 6); do keys Tab; done
+    for _ in $(seq 5); do keys Tab; done
     keys Enter # Profile
     step "$t: grace's profile" "@grace@$hostport  Grace Hopper" "No posts yet."
-    keys Tab; keys Tab; keys Tab; keys Tab; keys Right; keys Right # the tabs: Balances
+    for _ in $(seq 9); do keys Tab; done
+    keys Right; keys Right # the tabs: Balances
     step "$t: grace's balance" "(*) Balances" "SCRIP    25" "Value    \$25.00"
     keys BTab; keys Enter # back from the tabs to Sign out
     step "$t: grace signs out" "Signed out."
@@ -692,10 +701,11 @@ else
       step "$t: and then mary's feed" "$bar" "Your feed is empty."
       check_not "$t: no spinner once the requests are back" \
         "$out/tmux-$(slug "$t: and then mary's feed").txt" "Signing in..."
-      for _ in $(seq 6); do keys Tab; done
+      for _ in $(seq 5); do keys Tab; done
       keys Enter # Profile (it takes the stub 3 s)
       step "$t: mary's profile" "@mary@$hostport" "[ Sign out ]"
-      keys Tab; keys Tab; keys Tab; keys Enter # past Post and Refresh to Sign out
+      for _ in $(seq 8); do keys Tab; done
+      keys Enter # past the bar and Refresh to Sign out
       step "$t: mary signs out" "Signed out."
     fi
 
@@ -707,13 +717,14 @@ else
     step "$t: the feed fits an 80x24 terminal" "Signed in to $hostport." "$bar" " Charles Babbage"
     fits_80x24 "$t: ... its frame whole, within 80 columns" \
       "$out/tmux-$(slug "$t: the feed fits an 80x24 terminal").txt"
-    for _ in $(seq 6); do keys Tab; done
+    for _ in $(seq 5); do keys Tab; done
     keys Enter # Profile
     step "$t: the profile fits an 80x24 terminal" "@ada@$hostport  Ada Lovelace" "Show: (*) Posts" \
       "[ Newer ][ Older ]  Page 1"
     fits_80x24 "$t: ... its frame whole, within 80 columns" \
       "$out/tmux-$(slug "$t: the profile fits an 80x24 terminal").txt"
-    keys Tab; keys Tab; keys Tab; keys Enter # past Post and Refresh to Sign out
+    for _ in $(seq 8); do keys Tab; done
+    keys Enter # past the bar and Refresh to Sign out
     step "$t: ada signs out at 80x24" "Signed out."
 
     start "$backend" "$xdg" "$base" -- --user linus

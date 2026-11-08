@@ -13,6 +13,14 @@
 # Going to a view remembers the one it came from, and Back returns to it (main.ari's "back").
 # Home starts over at the feed. The window is the feed's width (74 columns in a terminal) and 86%
 # of the screen tall; a view taller than that scrolls.
+#
+# Each new view starts with the focus on Back, so Enter, pressed again and again, walks back, and
+# Tab walks into the view from its top. (A terminal host names a widget by its label and repeat
+# index, so without this the focus could land on a same-named button of the new view.) The bar
+# is drawn twice, one copy at a time: main.ari flips ui.nav between "a" and "b" whenever the
+# view changes, and the copy that appears gives its Back the focus (autofocus:). A view's own
+# autofocus (the search field, a new post's text, the reply box) comes later in the window and
+# takes it from Back.
 
 units:
   # The bar: Back, then the parts of the client. A terminal draws a button as its label in
@@ -23,6 +31,7 @@ units:
     children:
       - button: Back
         on: (state-set "ui.cmd" "back")
+        autofocus: true
       - button: Home
         on: (state-set "ui.cmd" "home")
       - button: Tags
@@ -50,7 +59,14 @@ units:
     # web app puts it behind the page. A terminal shows none: the card's is enough there.
     background: {bind: prof.bg_pic_shown, fit: cover, opacity: 0.25, terminal: none}
     children:
-      - include: nav_bar
+      - type: group
+        visible_when: (!= (state-get "ui.nav") "b")
+        children:
+          - include: nav_bar
+      - type: group
+        visible_when: (= (state-get "ui.nav") "b")
+        children:
+          - include: nav_bar
       - include: status_line
       - separator
       - type: group

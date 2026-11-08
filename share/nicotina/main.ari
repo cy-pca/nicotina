@@ -32,7 +32,7 @@ args:
   instance: {type: string, default: "https://tx.wtf", help: "The TX.WTF instance (its base URL)"}
   user: {type: string, help: "Fill in this username on the sign-in form"}
   start: {type: string, default: feed,
-          help: "The first view once signed in: feed, profile, tags, alerts, search, compose, post:ID, tag:NAME, user:ID or view:ID[:N]"}
+          help: "The first view once signed in: feed, profile, tags, alerts, search, compose, post:ID, tag:NAME, user:ID, view:ID[:N] or search:TEXT"}
 
 # Without --net (or --net-allow) the host has no http-request and keeps no credentials, and the
 # load fails here, naming what is missing.
@@ -83,6 +83,7 @@ init: |
   ;; Where the window is (main.ari's "go"), and the views before it, for Back.
   (state-set "ui.here" "")
   (state-set "ui.back" "")
+  (state-set "ui.nav" "a") ;; which copy of the bar is drawn (ui/app.ari): flipped per view
   (state-set-tree "feed" (dict "items" (list) "mode" "Following" "source" "home" "tag" "" "title" ""
                                "more" "" "before" "" "offset" 0 "empty" "" "tail" ""))
   (state-set-tree "post" (dict "lines" (list) "media" (list) "replies" (list) "tags" ""
@@ -978,29 +979,42 @@ on_tick: |
                   (fail (str-concat "Couldn't load your notifications (HTTP " (str (status r)) ")."))))
               nil))))
 
-      ;; Posts and people (GET /search/search?q=): a row each, then Open (8 columns), and a line
+      ;; Posts, people and hashtags (GET /search/search?q=), as txwtf groups them: results.posts,
+      ;; .users and .hashtags, each {items, total}. A row each, then Open (8 columns), and a line
       ;; of what it says.
+      (defun bucket (results k)
+        (let ((items (opt (opt results k (dict)) "items" (list))))
+          (if (= (type-of items) "list") items (list))))
+      (defun hit-row (h)
+        (let ((kind (text (opt h "type" "")))
+              (who (opt h "author" nil)))
+          (dict "kind" kind
+                "id" (text (opt h "id" ""))
+                "tag" (string.replace (text (opt h "title" "")) "#" "")
+                ;; a post's title is often empty: its author's name then, and the full handle
+                "line" (pad (str-concat (if (= kind "user") "[person] "
+                                          (if (= kind "hashtag") "[tag] " "[post] "))
+                                        (let ((title (one-line (opt h "title" ""))))
+                                          (if (or (!= title "") (!= (type-of who) "dict")) title
+                                            (author-name who)))
+                                        (if (= (type-of who) "dict")
+                                          (str-concat " · " (handle (text (opt who "username" ""))))
+                                          ""))
+                            (- WIDE 8))
+                "snippet" (clip (str-concat "  " (one-line (opt h "snippet" ""))) WIDE))))
       (defun run-search ()
         (let ((q (string.trim (state-get "search.q"))))
           (if (< (string.length q) 2)
             (begin (state-set "search.note" "Type two letters or more.") true)
             (let ((r (get-query "/search/search" (dict "q" q "limit" "10"))))
               (if (ok? r)
-                (let ((hits (collections.filter (opt (reply-json r) "results" (list))
-                              (lambda (h) (or (= (text (opt h "type" "")) "post")
-                                              (= (text (opt h "type" "")) "user"))))))
+                (let ((results (opt (reply-json r) "results" (dict))))
                   (begin
-                    (state-set-tree "search.rows"
-                      (collections.map hits
-                        (lambda (h)
-                          (let ((user? (= (text (opt h "type" "")) "user")))
-                            (dict "kind" (if user? "user" "post")
-                                  "id" (text (opt h "id" ""))
-                                  "line" (pad (str-concat (if user? "[person] " "[post] ")
-                                                          (one-line (opt h "title" "")))
-                                              (- WIDE 8))
-                                  "snippet" (clip (str-concat "  " (one-line (opt h "snippet" "")))
-                                                  WIDE))))))
+                    (set hits (list))
+                    (if (= (type-of results) "dict")
+                      (for k (list "posts" "users" "hashtags")
+                        (for h (bucket results k) (set hits (append hits h)))))
+                    (state-set-tree "search.rows" (collections.map hits hit-row))
                     (state-set "search.note"
                       (if (= (length hits) 0) (str-concat "Nothing matches \"" q "\".")
                         (str-concat (text (length hits)) " found for \"" q "\"")))
@@ -1112,6 +1126,8 @@ on_tick: |
                   (show-screen (if (= view "tag") "feed" view))
                   (say "")))
               ok))))
+      ;; A new view: the other copy of the bar, whose Back takes the focus (ui/app.ari).
+      (defun new-view () (state-set "ui.nav" (if (= (state-get "ui.nav") "a") "b" "a")))
       ;; Go to an entry: load it, then remember where the window was, for Back.
       (defun go (entry)
         (let ((was (state-get "ui.here")))
@@ -1119,6 +1135,7 @@ on_tick: |
             (begin
               (if (and (!= was "") (!= was entry)) (push-back was))
               (state-set "ui.here" entry)
+              (new-view)
               true)
             nil)))
       (defun go-home ()
@@ -1129,7 +1146,7 @@ on_tick: |
 
       ;; After signing in: who it is, then the feed, the first view (as the web app's home), or
       ;; the first time, the view --start names (profile, tags, alerts, search, compose, post:ID,
-      ;; tag:NAME, user:ID, view:ID[:N]); a view that won't load leaves the feed.
+      ;; tag:NAME, user:ID, view:ID[:N], search:TEXT); a view that won't load leaves the feed.
       (defun load-home ()
         (if (load-me)
           (let ((start (state-get "ui.start")))
@@ -1143,13 +1160,20 @@ on_tick: |
                     (if (or (string.starts-with start "post:") (string.starts-with start "tag:")
                             (= start "tags") (= start "alerts") (= start "search") (= start "compose"))
                       (string.replace start ":" "|")
-                      ;; view:ID or view:ID:N, the viewer at a post's Nth attachment
+                      ;; view:ID or view:ID:N, the viewer at a post's Nth attachment; search:TEXT,
+                      ;; the search view, searching for TEXT
+                      (if (string.starts-with start "search:")
+                        (begin
+                          (state-set "search.q" (string.substring start 7 (string.length start)))
+                          "search")
                       (if (string.starts-with start "view:")
                         (let ((parts (string.split start ":")))
                           (str-concat "viewer|" (nth-or parts 1) "|"
                                       (if (= (nth-or parts 2) "") "0" (nth-or parts 2))))
-                        "feed")))))
-              (if (go entry) true (go "feed"))))
+                        "feed"))))))
+              (if (go entry)
+                (begin (if (!= (state-get "search.q") "") (run-search)) true)
+                (go "feed"))))
           nil))
 
       (defun signed-in-msg () (str-concat "Signed in to " (state-get "app.host") "."))
@@ -1266,7 +1290,7 @@ on_tick: |
               (let ((entry (pop-back)))
                 (if (= entry "")
                   (say "This is where you started.")
-                  (if (show-entry entry) (state-set "ui.here" entry))))))
+                  (if (show-entry entry) (begin (state-set "ui.here" entry) (new-view)))))))
           (if (= cmd "home") ;; on the feed already: it again, newest first
             (let ((again (and (= (state-get "ui.screen") "feed") (= (state-get "feed.source") "home"))))
               (if (go-home) (if again (say (str-concat "Updated. " (signed-in-msg)))))))
@@ -1342,7 +1366,7 @@ on_tick: |
                 (let ((entry (pop-back)))
                   (begin
                     (if (show-entry (if (= entry "") "feed" entry))
-                      (state-set "ui.here" (if (= entry "") "feed" entry)))
+                      (begin (state-set "ui.here" (if (= entry "") "feed" entry)) (new-view)))
                     (say "Deleted.")))
                 (act-failed r "delete it"))))
           (if (= cmd "reply")
@@ -1354,6 +1378,7 @@ on_tick: |
                       (state-set "post.reply_text" "")
                       (state-set "post.focus_reply" "")
                       (load-post (state-get "post.id"))
+                      (new-view) ;; the post again, its reply below: the focus back on Back
                       (say "Replied.")))))))
           (if (= cmd "post")
             (let ((txt (string.trim (text (state-get "compose.send")))))
@@ -1381,8 +1406,10 @@ on_tick: |
               (say "Searching...")
               (if (run-search) (say ""))))
           (if (= cmd "hit-open")
-            (go (str-concat (if (= (state-get "hit.kind") "user") "profile|" "post|")
-                            (text (state-get "hit.id")))))
+            (go (if (= (state-get "hit.kind") "hashtag")
+                  (str-concat "tag|" (string.lower (text (state-get "hit.tag"))))
+                  (str-concat (if (= (state-get "hit.kind") "user") "profile|" "post|")
+                              (text (state-get "hit.id"))))))
           (if (= cmd "alert-open")
             (go (str-concat (if (= (state-get "alert.kind") "user") "profile|" "post|")
                             (text (state-get "alert.target")))))

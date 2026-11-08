@@ -119,7 +119,6 @@ units:
               - button: Unfollow
                 on: (state-set "ui.cmd" "unfollow")
                 visible_when: (and (!= (state-get "prof.self") "1") (= (state-get "prof.following") "1"))
-      - separator
       # The tabs. Choosing one loads it (main.ari's "tab"). A terminal host draws a radio row's
       # label even when it is empty (a lone ":"), so it has one.
       - radio_row: Show
