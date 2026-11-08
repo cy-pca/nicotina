@@ -146,7 +146,7 @@ units:
     window: Home
     id: feed
     pos: [16, 32]
-    size: {max: [0, "86%"]}    # as wide as what it shows; at most 86% tall, then it scrolls
+    size: [auto, "86%"]    # as wide as what it shows, 86% tall: what does not fit scrolls
     visible_when: (= (state-get "ui.screen") "feed")
     children:
       - type: group
@@ -193,7 +193,7 @@ units:
     window: Post
     id: post
     pos: [16, 32]
-    size: {max: [0, "86%"]}    # as wide as what it shows; at most 86% tall, then it scrolls
+    size: [auto, "86%"]    # as wide as what it shows, 86% tall: what does not fit scrolls
     visible_when: (= (state-get "ui.screen") "post")
     children:
       - type: group
