@@ -40,6 +40,8 @@ requires:
   - {name: open-url, optional: true}   # "In browser" on a post; without it, the post's URL shown
   - {name: media.player, optional: true}  # video and audio play; without it, a row each
   - {name: image.url, optional: true}  # the account's pictures; without it, placeholders
+  - {name: image.fill, optional: true}  # pictures and video as wide as the card; else a fixed size
+  - {name: text.emoji, optional: true}  # a post's :emoji: drawn; without it, the shortcodes
   - json-parse
   - state-set-tree
 
@@ -235,9 +237,11 @@ on_tick: |
             (set s (string.replace s (car e) (car (cdr e)))))
           (set s (string.replace (string.replace (string.replace s "\r" " ") "\n" " ") "\t" " "))
           (while (string.contains s "  ") (set s (string.replace s "  " " ")))
-          ;; a tag between a word and its punctuation left a space before it
-          (for p (list "." "," ";" ":" "!" "?")
+          ;; a tag between a word and its punctuation left a space before it (a colon only where
+          ;; a space follows it: " :smile:" is an emoji's shortcode, kept apart from the word)
+          (for p (list "." "," ";" "!" "?")
             (set s (string.replace s (str-concat " " p) p)))
+          (set s (string.replace s " : " ": "))
           (string.trim s)))
       ;; A picture's URL as a request names it: txwtf gives /uploads/... and /static/... from
       ;; the instance's origin, or a whole URL; "" for none.
@@ -246,6 +250,33 @@ on_tick: |
           (set u (text (if (= (type-of u) "nil") "" u)))
           (if (or (string.starts-with u "https://") (string.starts-with u "http://")) u
             (if (string.starts-with u "/") (str-concat (state-get "app.origin") u) ""))))
+      ;; A post's emoji, from the content_html txwtf renders (render_emoji_html): a custom one is
+      ;;   <img class="custom-emoji" src="/social/emojis/12/image" alt=":gear:" ...>
+      ;; and a standard one <span class="emoji" title=":100:">💯</span>. A map of their names to
+      ;; the picture's URL or the character, for the text's emoji: (the host draws a picture in
+      ;; the line, or puts the character in place of the shortcode).
+      (defun attr (tag name) ;; the value of name="..." in a tag's text, or ""
+        (let ((parts (string.split tag (str-concat name "=\""))))
+          (if (> (length parts) 1) (car (string.split (nth parts 1) "\"")) "")))
+      (defun shortcode (s) ;; ":gear:" -> "gear", else ""
+        (if (and (> (string.length s) 2) (string.starts-with s ":") (string.ends-with s ":"))
+          (string.substring s 1 (- (string.length s) 2))
+          ""))
+      (defun emoji-of (html)
+        (let ((m (dict))
+              (h (text (if (= (type-of html) "nil") "" html))))
+          (begin
+            (for part (cdr (string.split h "<img class=\"custom-emoji\""))
+              (let ((name (shortcode (attr part "alt")))
+                    (src (picture-url (attr part "src"))))
+                (if (and (!= name "") (!= src "")) (set-attr m (string.lower name) src))))
+            (for part (cdr (string.split h "<span class=\"emoji\""))
+              (let ((name (shortcode (attr part "title")))
+                    (pieces (string.split part ">")))
+                (if (and (!= name "") (> (length pieces) 1))
+                  (let ((ch (car (string.split (nth pieces 1) "<"))))
+                    (if (!= ch "") (set-attr m (string.lower name) ch))))))
+            m)))
       ;; Whether a picture URL is a video, as txwtf's web app decides (isVideoMediaUrl): it plays
       ;; .mp4, .webm, .mov and .m4v avatars, banners and backgrounds as muted loops. Until the
       ;; host has a video widget, those keep their placeholder: image: can't draw them.
@@ -514,6 +545,9 @@ on_tick: |
                   "l0" (nth-or lines 0)
                   "l1" (nth-or lines 1)
                   "l2" (nth-or lines 2)
+                  ;; the emoji in its text (a repost's quote and the post it reposts)
+                  "emoji" (collections.dict-merge (emoji-of (opt q "content_html" nil))
+                                                  (emoji-of (opt p "content_html" nil)))
                   "m0" (if (> (length media) 0) (clip (media-row (nth media 0)) CARDW) "")
                   "m0_url" (if (> (length media) 0) (picture-url (opt (nth media 0) "url" nil)) "")
                   "m0_kind" (if (> (length media) 0) (kind (text (opt (nth media 0) "mime_type" ""))) "")
@@ -601,6 +635,8 @@ on_tick: |
                                  (- WIDE 6))
                     "at" (posted-at (opt p "created_at" ""))
                     "lines" (if (= (length lines) 0) (list "(no text)") lines)
+                    "emoji" (collections.dict-merge (emoji-of (opt q "content_html" nil))
+                                                    (emoji-of (opt p "content_html" nil)))
                     "media" (collections.map media
                               (lambda (m) (dict "row" (clip (media-row m) WIDE)
                                                 "url" (picture-url (opt m "url" nil))

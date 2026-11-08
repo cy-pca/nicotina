@@ -137,6 +137,11 @@ player_stops=0
 # of its URL.
 open_url=
 "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement open-url" || open_url=1
+# Whether this ari draws a post's :emoji: (text.emoji, transfix/libcvc#1052): a standard one's
+# shortcode becomes its character; a custom one stays its :name: in a terminal, which can't put
+# a picture in a line of text.
+emoji=
+"$ARI" check --net "$main" 2>&1 | grep -q "optional requirement text.emoji" || emoji=1
 open_row="││↩5 ⇄3 ♥21 · 310 views                                         [ Open ]   │"
 browser_stops=0
 if [ -n "$open_url" ]; then
@@ -265,6 +270,13 @@ check "ari snapshot: the feed's first page: attachments, a repost, a paid post, 
   "[image] moth.png · 29 KB · The moth, taped into the log book" \
   "🔒 This post is locked. Pay 5 scrip to unlock." "[file] cobol-notes.pdf · 2 KB" \
   "[image] relay-70.png · 30 KB" "+1 more (Open shows them all)" "[ Load more ]  10 posts"
+if [ -n "$emoji" ]; then
+  check "ari snapshot: ... a post's emoji: a standard one's character, a custom one's :name:" \
+    "$out/snap-feed-tall.txt" "Notes on the mill :gear: 💯 at 14:50:47."
+else
+  check "ari snapshot: ... a post's emoji as their shortcodes (this ari has no text.emoji)" \
+    "$out/snap-feed-tall.txt" "Notes on the mill :gear: :100: at 14:50:47."
+fi
 check_not "ari snapshot: ... not the next page, nor someone ada doesn't follow, nor HTML" \
   "$out/snap-feed-tall.txt" "Good morning, TX.WTF." "Hello from someone you don't follow." \
   "<p>" "<em>" "log-book.png"
