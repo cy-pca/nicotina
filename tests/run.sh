@@ -469,13 +469,15 @@ else
     keys Enter
     step "$t: Load more: the next page, below the first" "13 posts; no more" \
       "Good morning, TX.WTF."
-    # Play the first card's video, where the host has a player: it runs to its end.
+    # Where the host has a player, the first card's video plays by itself, muted, to its end
+    # (two seconds); Play plays it again.
     if [ -n "$media" ]; then
       PANE=100x40 start "$backend" "$xdg" "$base" --media-play always
-      step "$t: the feed, with a player" "0:00 / 0:02" "[ Play ]"
+      step "$t: the feed, with a player: its video plays by itself, muted, to its end" \
+        "0:02 / 0:02" "[x] Mute" "[ Play ]"
       for _ in $(seq 5); do keys Tab; done
       keys Enter # Play
-      step "$t: Play: the video plays to its end" "0:02 / 0:02"
+      step "$t: Play: the video plays again" "[ Pause ]"
     fi
     # Everyone: the public feed, with someone ada doesn't follow.
     start "$backend" "$xdg" "$base"
