@@ -1,0 +1,150 @@
+# The rest of the TX.WTF window's views (ui/app.ari): the hashtags, your notifications, search,
+# a new post, and the viewer. Each list is rows of text with an Open button: a button's label is
+# fixed in a document, so the row's text says what Open goes to.
+
+units:
+  # Every hashtag, by how many posts name it (GET /social/tags). Open shows its posts.
+  tags_view:
+    type: group
+    children:
+      - text: ""
+        bind: tags.head
+        color: [0.6, 0.6, 0.6]
+      - type: group
+        repeat: (state-get "tags.rows")
+        children:
+          - type: group
+            layout: {kind: horizontal}
+            children:
+              - text: ""
+                bind: tags.rows.{i}.line
+              - button: Open
+                on: (begin (state-set "tag.want" (state-get "tags.rows.{i}.name")) (state-set "ui.cmd" "tag"))
+      - button: More tags
+        on: (state-set "ui.cmd" "more-tags")
+        visible_when: (= (state-get "tags.more") "1")
+
+  # Your notifications, newest first (GET /notifications/): what happened, and when. Open goes to
+  # the post or the person it is about. Opening the view marks them read, as the web app does.
+  alerts_view:
+    type: group
+    children:
+      - text: ""
+        bind: alerts.head
+        color: [0.6, 0.6, 0.6]
+      - type: group
+        repeat: (state-get "alerts.rows")
+        children:
+          - type: group
+            layout: {kind: horizontal}
+            children:
+              - text: ""
+                bind: alerts.rows.{i}.line
+              - button: Open
+                on: (begin (state-set "alert.kind" (state-get "alerts.rows.{i}.kind")) (state-set "alert.target" (state-get "alerts.rows.{i}.target")) (state-set "ui.cmd" "alert-open"))
+                visible_when: (!= (state-get "alerts.rows.{i}.target") "")
+          - text: ""
+            bind: alerts.rows.{i}.at
+            color: [0.6, 0.6, 0.6]
+
+  # Posts and people (GET /search/search?q=). Enter in the field, or Search, asks.
+  search_view:
+    type: group
+    children:
+      - input_text: Find
+        bind: search.q
+        on: (state-set "ui.cmd" "search")
+        autofocus: true
+      - button: Search
+        on: (state-set "ui.cmd" "search")
+      - text: ""
+        bind: search.note
+        color: [0.6, 0.6, 0.6]
+      - type: group
+        repeat: (state-get "search.rows")
+        children:
+          - type: group
+            layout: {kind: horizontal}
+            children:
+              - text: ""
+                bind: search.rows.{i}.line
+              - button: Open
+                on: (begin (state-set "hit.kind" (state-get "search.rows.{i}.kind")) (state-set "hit.id" (state-get "search.rows.{i}.id")) (state-set "ui.cmd" "hit-open"))
+          - text: ""
+            bind: search.rows.{i}.snippet
+            color: [0.6, 0.6, 0.6]
+            visible_when: (!= (state-get "search.rows.{i}.snippet") "")
+
+  # A new post (POST /social/posts): who may see it, then the text. Enter posts it; Shift+Enter
+  # (Alt+Enter in a terminal) starts a new line; ImGui adds a Post button. Text only for now:
+  # attachments need a file picker, which Ariadne doesn't have yet.
+  compose_view:
+    type: group
+    children:
+      - radio_row: Who sees it
+        bind: compose.visibility
+        options: [Public, Followers, Private]
+      - message_input: Post
+        bind: compose.text
+        hint: What's happening? (Enter posts it)
+        max_length: 4096
+        max_lines: 8
+        send: Post
+        autofocus: true
+        on: (begin (state-set "compose.send" (get-attr event "text")) (state-set "ui.cmd" "post"))
+      - text: ""
+        bind: compose.note
+        color: [0.6, 0.6, 0.6]
+
+  # A post's pictures and videos, one at a time, as wide as the window at their own shape where the
+  # host measures the line (image.fill), else 592 x 320 px (74 x 10 cells in a terminal). Prev and
+  # Next step through them; Back closes the viewer. A video here starts with its sound on: opening
+  # it was the click a browser wants first.
+  viewer_view:
+    type: group
+    children:
+      - type: group
+        layout: {kind: horizontal}
+        children:
+          - button: Prev
+            on: (state-set "ui.cmd" "view-prev")
+          - button: Next
+            on: (state-set "ui.cmd" "view-next")
+          - text: ""
+            bind: viewer.where
+            color: [0.6, 0.6, 0.6]
+      - image: ""
+        bind: viewer.url
+        size: "100%"
+        max_height: 1400
+        visible_when: (and (has? "image.url") (has? "image.fill") (not (has? "term"))
+                           (= (state-get "viewer.kind") "image"))
+      - image: ""
+        bind: viewer.url
+        size: [592, 320]
+        fit: contain
+        visible_when: (and (has? "image.url") (or (not (has? "image.fill")) (has? "term"))
+                           (= (state-get "viewer.kind") "image"))
+      - video: video
+        src: (state-get "viewer.url")
+        size: "100%"
+        max_height: 1400
+        autoplay: true
+        bind: viewer.player
+        visible_when: (and (has? "media.player") (has? "image.fill") (not (has? "term"))
+                           (= (state-get "viewer.kind") "video"))
+      - video: video
+        src: (state-get "viewer.url")
+        size: [592, 333]
+        fit: contain
+        autoplay: true
+        bind: viewer.player
+        visible_when: (and (has? "media.player") (or (not (has? "image.fill")) (has? "term"))
+                           (= (state-get "viewer.kind") "video"))
+      - audio: recording
+        src: (state-get "viewer.url")
+        bind: viewer.player
+        visible_when: (and (has? "media.player") (= (state-get "viewer.kind") "audio"))
+      - text: ""
+        bind: viewer.row
+        color: [0.45, 0.75, 0.85]

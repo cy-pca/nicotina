@@ -6,15 +6,19 @@
 #
 #  1. bin/nicotina --dry-run: the host, flags and credential store it picks.
 #  2. ari check: without the network flags the document refuses to load, and says why.
-#  3. ari snapshot, FTXUI and tvision: the sign-in form; a stored session, resumed (the profile,
-#     laid out as the web app's: the banner and avatar slots, the card, the Posts tab); a stored
-#     session the server no longer knows (back to the form, and the host forgets it).
+#  3. ari snapshot, FTXUI and tvision: the sign-in form; a stored session, resumed (the TX.WTF
+#     window: its bar, the feed; the profile, laid out as the web app's: the banner and avatar
+#     slots, the card, the Posts tab); a stored session the server no longer knows (back to the
+#     form, and the host forgets it). Then each view --start opens: a post with its replies, a
+#     hashtag's posts, the hashtags, the notifications, search, a new post, another's profile, the
+#     viewer.
 #  4. arigl snapshot, if arigl is here: the resumed session as text (--terminal) and in a window
 #     (a PNG; checked only for being drawn, since nothing here reads pixels).
 #  5. bin/nicotina --terminal in a tmux pane, FTXUI and tvision, typed at the way a person types:
-#     sign in, see the profile, the Replies and Balances tabs and an older page of posts, start
-#     again still signed in, sign out; a wrong password; the emailed code, wrong and then right;
-#     an account that must change its password.
+#     sign in, see the profile, the Replies and Balances tabs and an older page of posts, open a
+#     post and go Back, like a post and take it back, write a post and a reply, open a hashtag,
+#     follow someone and stop, start again still signed in, sign out; a wrong password; the emailed
+#     code, wrong and then right; an account that must change its password.
 #
 # `ari snapshot` lays a frame out with FTXUI whatever --backend says, so 5 is what checks the
 # tvision desktop itself. 5 needs tmux; without it those cases are skipped.
@@ -132,22 +136,17 @@ media=
 "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement media.player" || media=1
 player_stops=0
 [ -n "$media" ] && player_stops=3
-# Whether this ari opens a URL in a browser (open-url, transfix/libcvc#916): then each card has an
-# "In browser" button after Open, one more Tab stop a card, and a post shows that button instead
-# of its URL.
-open_url=
-"$ARI" check --net "$main" 2>&1 | grep -q "optional requirement open-url" || open_url=1
 # Whether this ari draws a post's :emoji: (text.emoji, transfix/libcvc#1052): a standard one's
 # shortcode becomes its character; a custom one stays its :name: in a terminal, which can't put
 # a picture in a line of text.
 emoji=
 "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement text.emoji" || emoji=1
-open_row="││↩5 ⇄3 ♥21 · 310 views                                         [ Open ]   │"
-browser_stops=0
-if [ -n "$open_url" ]; then
-  open_row="││↩5 ⇄3 ♥21 · 310 views                           [ Open ][ In browser ]   │"
-  browser_stops=10
-fi
+# The bar along the window's top, in every view.
+bar="[ Back ][ Home ][ Tags ][ Search ][ Alerts ][ Profile ][ Post ]"
+# The first card's counts and buttons, and View on its first attachment's row (it has a picture
+# and a video).
+open_row="││↩5 ⇄3 ♥21 · 310 views              [ Open ][ Reply ][ Like ][ Repost ]"
+view_row="││[image] engine-diagram.png · 47 KB · The engine, from the s... [ View ]"
 
 for backend in ftxui tvision; do
   snap "snap-$backend-signin" "$backend" "" --user ada
@@ -158,10 +157,13 @@ for backend in ftxui tvision; do
   seed_store "$store" ada
   snap "snap-$backend-feed" "$backend" "$store"
   check "ari snapshot ($backend): a stored session opens the home feed, a card a post" \
-    "$out/snap-$backend-feed.txt" "╭ Home ─" "│@ada@$hostport " "[ Profile ][ Refresh ][ Sign out ]" \
-    "Show: (*) Following  ( ) Everyone" "Signed in to 127.0.0.1" \
+    "$out/snap-$backend-feed.txt" "╭ TX.WTF ─" "│$bar" "$bar 2 new" \
+    "Show: (*) Following  ( ) Everyone  ( ) Friends" "Signed in to 127.0.0.1" \
     " Charles Babbage  @charles@$hostport" " 2026-10-30 22:40" \
-    "││The Difference Engine No. 2, working at last.                            │"
+    "││The Difference Engine No. 2, working at last. #engines #brass            │" \
+    "││#engines  #brass                                                         │"
+  check_not "ari snapshot ($backend): ... and no In browser button" "$out/snap-$backend-feed.txt" \
+    "In browser"
   if [ -z "$pictures$media" ]; then
     check "ari snapshot ($backend): ... its attachments, a row each" "$out/snap-$backend-feed.txt" \
       "││[image] engine-diagram.png · 47 KB · The engine, from the side           │" \
@@ -170,7 +172,7 @@ for backend in ftxui tvision; do
   if [ -z "$pictures" ]; then
     check "ari snapshot ($backend): ... the author's initials, and the next card" \
       "$out/snap-$backend-feed.txt" "││(CB) Charles Babbage  @charles@$hostport" "││     2026-10-30 22:40" \
-      "$open_row" \
+      "$open_row" "$view_row" \
       "││(GH) Grace Hopper  @grace@$hostport"
   fi
   grep -v '^ari: ' "$out/snap-$backend-feed.txt" >"$work/frame.txt"
@@ -182,13 +184,13 @@ for backend in ftxui tvision; do
   fi
   snap "snap-$backend-resume" "$backend" "$store" --start profile
   check "ari snapshot ($backend): --start profile: the profile, as the web app lays it out" \
-    "$out/snap-$backend-resume.txt" "╭ Profile ─" " @ada@$hostport  Ada Lovelace" \
+    "$out/snap-$backend-resume.txt" "╭ TX.WTF ─" "│$bar" " @ada@$hostport  Ada Lovelace" \
     "Writes notes on the analytical engine. Prefers punched cards t..." \
     "admin · Verified · online" "GB · Joined 2025-03-01 · 42 posts · 1234 views" \
-    "│Groups: users, analysts" "[ Feed ][ Refresh ][ Sign out ]│" \
+    "│Groups: users, analysts" "[ Refresh ][ Sign out ]" \
     "Show: (*) Posts  ( ) Replies  ( ) Balances" \
-    "2026-10-30  Finished the notes on Menabrea's paper. Note G is th...  ↩2 ♥5" \
-    "2026-10-28  The Analytical Engine weaves algebraic patterns just...  ↩4 ♥9" \
+    "2026-10-30  Finished the notes on Menabrea's paper. Not...  ↩2 ♥5 [ Open ]" \
+    "2026-10-28  The Analytical Engine weaves algebraic patt...  ↩4 ♥9 [ Open ]" \
     "2026-10-24  Hello, TX.WTF." "[ Newer ][ Older ]  Page 1" "Signed in to 127.0.0.1"
   if [ -z "$pictures" ]; then
     check "ari snapshot ($backend): ... the banner and avatar placeholders" \
@@ -222,6 +224,69 @@ for backend in ftxui tvision; do
     fail "ari snapshot ($backend): the expired session is still in the store"
   fi
 done
+
+# Each view, as --start opens it (a deep link: post:ID, tag:NAME, user:ID, view:ID[:N], tags,
+# alerts, search, compose), in a tall terminal so the whole view is in the frame.
+store=$work/snap-views/credentials
+seed_store "$store" ada
+view() { # view NAME START: a 80x60 frame of the view START opens
+  "$ARI" snapshot --width 80 --height 60 --net-allow "$base" --credential-store "$store" "$main" \
+    --instance "$base" --start "$2" >"$out/snap-view-$1.txt" 2>&1
+}
+view post post:312
+check "ari snapshot: a post: its text, hashtags, counts, reactions, buttons and link" \
+  "$out/snap-view-post.txt" "│$bar" " Charles Babbage  @charles@$hostport" \
+  "The Difference Engine No. 2, working at last. #engines #brass" \
+  "Tags: (*) #engines  ( ) #brass  [ Open tag ]" "↩5 ⇄3 ♥21 · 310 views" \
+  "Reactions: :thumbsup: 12  :heart: 9" "[ Like ][ Repost ][ Author ]" \
+  "Link: $base/app/post/312" \
+  "[image] engine-diagram.png · 47 KB · The engine, from the side      [ View ]"
+check "ari snapshot: ... its replies, oldest first, and the reply box" "$out/snap-view-post.txt" \
+  "2 replies" "Grace Hopper  @grace@$hostport  2026-10-30 22:50  ↩1" "Splendid. How many digits?" \
+  "Alan Turing  @alan@peer.example  2026-10-30 23:10" "A fine machine. #engines" \
+  "Reply: [Write a reply (Enter sends it)"
+check_not "ari snapshot: ... not someone else's Delete, nor a reply's reply" \
+  "$out/snap-view-post.txt" "[ Delete ]" "Thirty-one"
+view reply post:315
+check "ari snapshot: a reply: the post it replies to, and your own post's Delete" \
+  "$out/snap-view-reply.txt" "[ In reply to ]" "Grace Hopper: Splendid. How many digits?" \
+  "Thirty-one, and seven orders of differences." "[ Like ][ Repost ][ Author ][ Delete ]" \
+  "No replies yet."
+view tag tag:engines
+check "ari snapshot: a hashtag's posts, newest first, as cards" "$out/snap-view-tag.txt" \
+  "#engines  ·  3 posts" "A fine machine. #engines" \
+  "The Difference Engine No. 2, working at last. #engines #brass" "Nanoseconds, in wire. #engines" \
+  "[ Load more ]"
+check_not "ari snapshot: ... no feed choice, no posts without it" "$out/snap-view-tag.txt" \
+  "Show: (*) Following" "A ship in port"
+view tags tags
+check "ari snapshot: the hashtags, the most named first" "$out/snap-view-tags.txt" \
+  "2 hashtags, the most named first" "#engines  ·  3 posts" "#brass  ·  2 posts" "[ Open ]"
+view alerts alerts
+check "ari snapshot: the notifications, the new ones marked" "$out/snap-view-alerts.txt" \
+  "3 notifications, 2 new" "● Grace Hopper replied to your post" \
+  "● Charles Babbage liked your post" "  Alan Turing followed you" "2026-10-30 22:50  reply"
+view alerts-read alerts
+check "ari snapshot: ... and once seen, read" "$out/snap-view-alerts-read.txt" "3 notifications"
+check_not "ari snapshot: ... none new now" "$out/snap-view-alerts-read.txt" "● " " new"
+view search search
+check "ari snapshot: search" "$out/snap-view-search.txt" "Find: [" "[ Search ]" \
+  "Find posts and people."
+view compose compose
+check "ari snapshot: a new post: who sees it, and the text" "$out/snap-view-compose.txt" \
+  "Who sees it: (*) Public  ( ) Followers  ( ) Private" "Post: [What's happening? (Enter posts it)"
+view user user:7
+check "ari snapshot: another's profile: Unfollow (ada follows him), Posts and Replies" \
+  "$out/snap-view-user.txt" "@charles@$hostport  Charles Babbage" "[ Unfollow ]" \
+  "Show: (*) Posts  ( ) Replies" "The Difference Engine No. 2"
+check_not "ari snapshot: ... not his balance, nor ada's Sign out" "$out/snap-view-user.txt" \
+  "Balances" "[ Sign out ]" "[ Follow ]"
+view viewer view:312:1
+check "ari snapshot: the viewer: a post's picture and video, one at a time" \
+  "$out/snap-view-viewer.txt" "[ Prev ][ Next ]  2 of 2" "[video] engine.mp4 · 11 KB"
+view gone post:9999
+check "ari snapshot: a post that is gone: the feed instead, saying so" "$out/snap-view-gone.txt" \
+  "Show: (*) Following" " Charles Babbage"
 
 # The card's first row: the full handle, @user@instance, then the display name cut to fit the
 # 65 columns beside the avatar.
@@ -269,7 +334,9 @@ check "ari snapshot: the feed's first page: attachments, a repost, a paid post, 
   "Found a moth in relay 70. First actual case of bug being found." \
   "[image] moth.png · 29 KB · The moth, taped into the log book" \
   "🔒 This post is locked. Pay 5 scrip to unlock." "[file] cobol-notes.pdf · 2 KB" \
-  "[image] relay-70.png · 30 KB" "+1 more (Open shows them all)" "[ Load more ]  10 posts"
+  "[image] relay-70.png · 30 KB" "+1 more (Open shows them all)" "[ Load more ]  10 posts" \
+  "│↩12 ⇄8 ♥64 · 900 views             [ Open ][ Reply ][ Like ][ Repost ]" \
+  "[image] moth.png · 29 KB · The moth, taped into the log book [ View ]"
 if [ -n "$emoji" ]; then
   check "ari snapshot: ... a post's emoji: a standard one's character, a custom one's :name:" \
     "$out/snap-feed-tall.txt" "Notes on the mill :gear: 💯 at 14:50:47."
@@ -384,7 +451,7 @@ if [ -n "$ARIGL" ] && [ -x "$ARIGL" ]; then
   "$ARIGL" snapshot --terminal --frames 60 --width 80 --height 24 --net --net-allow "$base" \
     --credential-store "$store" "$main" --instance "$base" >"$out/arigl-terminal.txt" 2>&1
   check "arigl snapshot --terminal: the feed" "$out/arigl-terminal.txt" \
-    "@ada@$hostport" "Show: (*) Following" " Charles Babbage  @charles@$hostport" \
+    "$bar" "Show: (*) Following" " Charles Babbage  @charles@$hostport" \
     "The Difference Engine No. 2, working at last."
   if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] || [ -n "${NICOTINA_TEST_PNG:-}" ]; then
     "$ARIGL" snapshot --frames 60 --png "$out/arigl.png" --net --net-allow "$base" \
@@ -432,17 +499,20 @@ else
         "correct horse"
     fi
     keys Tab; keys Enter
-    step "$t: signed in, the home feed" "Home" "@ada@$hostport" "Show: (*) Following" \
+    # The focus, in the TX.WTF window: the bar's seven buttons are the first seven stops (Back,
+    # Home, Tags, Search, Alerts, Profile, Post) in every view, and stay where they are.
+    step "$t: signed in, the home feed" "Home" "$bar" "Show: (*) Following" \
       " Charles Babbage  @charles@$hostport" " 2026-10-30 22:40" \
       "The Difference Engine No. 2, working at last."
     check_store "$t: the host keeps the session, owner-only (0600 in 0700)" "$store"
     check_not "$t: the password is not on the screen" \
       "$out/tmux-$(slug "$t: signed in, the home feed").txt" "correct horse"
-    keys Tab; keys Enter # Profile
+    for _ in $(seq 6); do keys Tab; done
+    keys Enter # Profile
     step "$t: Profile: the profile" "@ada@$hostport  Ada Lovelace" "admin · Verified · online" \
       "GB · Joined 2025-03-01 · 42 posts · 1234 views" "Groups: users, analysts" \
       "(*) Posts" "Finished the notes on Menabrea's paper." "Page 1"
-    # The tabs: Tab past Feed, Refresh and Sign out to them, then Right picks the next one.
+    # The tabs: Tab past Post, Refresh and Sign out to them, then Right picks the next one.
     keys Tab; keys Tab; keys Tab; keys Tab; keys Right
     step "$t: the Replies tab" "(*) Replies" "2026-10-29  Agreed: the engine might compose music" \
       "2026-10-25  Thank you, Mr. Babbage."
@@ -453,56 +523,125 @@ else
       "SCRIP    1234.56789" "Value    \$1234.57"
     check_not "$t: ... no runway" "$out/tmux-$(slug "$t: the Balances tab: SCRIP and its value, and no runway").txt" \
       "Runway" "days"
-    keys Right # round to Posts again, then Older (Newer is off on the first page)
+    keys Right # round to Posts again, then past the five rows' Open (and Newer, off on the
+    # first page) to Older
     step "$t: back to Posts" "(*) Posts" "Finished the notes on Menabrea's paper."
-    keys Tab; keys Enter
+    for _ in $(seq 6); do keys Tab; done
+    keys Enter
     step "$t: Older: the next page" "Page 2" "2026-10-23  Testing, testing."
     keys BTab; keys Enter
     step "$t: Newer: the first page again" "Page 1" "Finished the notes on Menabrea's paper."
 
     # The feed: a card's Open shows the whole post; Back; Load more adds the next page.
     start "$backend" "$xdg" "$base"
-    step "$t: started again, still signed in: the feed" "@ada@$hostport" " Charles Babbage"
-    # past Profile, Refresh, Sign out, Show (and, with a player, the first card's video)
-    for _ in $(seq $((5 + player_stops))); do keys Tab; done
+    step "$t: started again, still signed in: the feed" "$bar" " Charles Babbage"
+    # past the bar and Show (and, with a player, the first card's video, then View) to the first
+    # card's Open
+    for _ in $(seq $((10 + player_stops))); do keys Tab; done
     keys Enter
-    step "$t: Open: the whole post, its attachments' URLs and its reactions" "[ Back ]" \
-      " Charles Babbage  @charles@$hostport" " 2026-10-30 22:40" \
-      "↩5 ⇄3 ♥21 · 310 views" "Reactions: :thumbsup: 12  :heart: 9" \
+    step "$t: Open: the whole post, its hashtags, reactions, attachments and replies" \
+      "Reactions: :thumbsup: 12  :heart: 9" " Charles Babbage  @charles@$hostport" \
+      " 2026-10-30 22:40" "↩5 ⇄3 ♥21 · 310 views" "Tags: (*) #engines  ( ) #brass" \
       "[image] engine-diagram.png · 47 KB · The engine, from the side" \
-      "  $base/uploads/media/engine-diagram.png" \
-      "$(if [ -n "$open_url" ]; then echo "[ Back ][ In browser ]"; else echo "$base/app/post/312"; fi)"
-    keys Enter # Back has the focus
+      "Link: $base/app/post/312" "Splendid. How many digits?"
+    # Nothing has the focus in a view just opened: the first Tab is Back.
+    keys Tab; keys Enter # Back
     step "$t: Back to the feed" "Show: (*) Following" " Charles Babbage"
-    # The feed comes back with nothing focused: Load more is the 15th stop (Profile, Refresh,
-    # Sign out, Show, then ten cards' Open), 10 more with open-url (each card's In browser), and 6
-    # more with players (a video and a recording).
-    for _ in $(seq $((15 + browser_stops + 2 * player_stops))); do keys Tab; done
+    # Back keeps the focus. Load more is stop 53: the bar and Show (8), then ten cards' buttons
+    # (Open, Reply, Like, Repost, and View on the four with something to view: 44), and two
+    # players more (the video and the recording).
+    for _ in $(seq $((52 + 2 * player_stops))); do keys Tab; done
     keys Enter
     step "$t: Load more: the next page, below the first" "13 posts; no more" \
       "Good morning, TX.WTF."
+
+    # Like: the first card's Like (View, Open, Reply, Like), its count and mark; again, taken back.
+    start "$backend" "$xdg" "$base"
+    step "$t: the feed, to like a post" "$bar" " Charles Babbage"
+    for _ in $(seq $((12 + player_stops))); do keys Tab; done
+    keys Enter
+    step "$t: Like: liked, the count one up" "Liked." "↩5 ⇄3 ♥22 · 310 views · liked"
+    keys Enter
+    step "$t: Like again: taken back" "Like taken back." "↩5 ⇄3 ♥21 · 310 views "
+    check_not "$t: ... no mark" "$out/tmux-$(slug "$t: Like again: taken back").txt" "· liked"
+
+    # A hashtag, in a terminal: open the post, pick it in the post's Tags (the arrow keys move a
+    # radio's choice there), then Open tag. Back, and Back again.
+    keys BTab; keys BTab; keys Enter # Open, two stops before Like
+    step "$t: the post again" "Tags: (*) #engines  ( ) #brass  [ Open tag ]"
+    for _ in $(seq 8); do keys Tab; done
+    keys Right
+    step "$t: Tags: #brass picked" "( ) #engines  (*) #brass"
+    keys Tab; keys Enter # Open tag
+    step "$t: Open tag: the hashtag's posts" "#brass  ·  2 posts" "The engine needs more #brass." \
+      "The Difference Engine No. 2, working at last. #engines #brass"
+    check_not "$t: ... and no others" "$out/tmux-$(slug "$t: Open tag: the hashtag's posts").txt" \
+      "A ship in port"
+    keys Tab; keys Enter # Back
+    step "$t: Back: the post" "Reactions: :thumbsup: 12  :heart: 9"
+    keys Enter # Back again: it keeps the focus
+    step "$t: Back again: the feed" "Show: (*) Following" " Charles Babbage"
+
+    # A new post: Post, type, Enter. It opens, yours; Delete takes it away again, back to the feed.
+    for _ in $(seq 6); do keys Tab; done
+    keys Enter # Post
+    step "$t: Post: the new post's view" "Who sees it: (*) Public" "What's happening?"
+    type_text "Posted from $backend, by hand."
+    keys Enter
+    step "$t: posted: the new post, yours" "Posted." "Posted from $backend, by hand." \
+      "[ Like ][ Repost ][ Author ][ Delete ]" "No replies yet."
+    for _ in $(seq 11); do keys Tab; done
+    keys Enter # Delete: the bar, Like, Repost, Author, Delete
+    step "$t: Delete: gone, back to the feed" "Deleted." "Show: (*) Following" " Charles Babbage"
+    check_not "$t: ... and not in the feed" "$out/tmux-$(slug "$t: Delete: gone, back to the feed").txt" \
+      "Posted from $backend"
+
+    # A reply: the second card's Reply opens the post with the reply box focused.
+    for _ in $(seq $((15 + player_stops))); do keys Tab; done
+    keys Enter # the bar, Show, the first card's five (and its video), then Open, Reply
+    step "$t: Reply: the post, and the reply box" "A ship in port is safe" "Reply: ["
+    type_text "Aye, from $backend."
+    keys Enter
+    step "$t: replied: the reply, under the post" "Replied." "Aye, from $backend." \
+      "Ada Lovelace  @ada@$hostport"
+
+    # Author, then Unfollow and Follow: ada follows grace.
+    for _ in $(seq 10); do keys Tab; done
+    keys Enter # Author: the bar, Like, Repost, Author
+    step "$t: Author: her profile, followed" "@grace@$hostport  Grace Hopper" "[ Unfollow ]"
+    for _ in $(seq 8); do keys Tab; done
+    keys Enter
+    step "$t: Unfollow" "Stopped following @grace@$hostport." "[ Follow ]"
+    for _ in $(seq 8); do keys Tab; done
+    keys Enter
+    step "$t: Follow again" "Following @grace@$hostport." "[ Unfollow ]"
+
     # Where the host has a player, the first card's video plays by itself, muted, to its end
     # (two seconds); Play plays it again.
     if [ -n "$media" ]; then
       PANE=100x40 start "$backend" "$xdg" "$base" --media-play always
       step "$t: the feed, with a player: its video plays by itself, muted, to its end" \
         "0:02 / 0:02" "[x] Mute" "[ Play ]"
-      for _ in $(seq 5); do keys Tab; done
-      keys Enter # Play
+      for _ in $(seq 9); do keys Tab; done
+      keys Enter # Play: past the bar and Show
       step "$t: Play: the video plays again" "[ Pause ]"
     fi
     # Everyone: the public feed, with someone ada doesn't follow.
     start "$backend" "$xdg" "$base"
     step "$t: the feed again" "Show: (*) Following" " Charles Babbage"
-    keys Tab; keys Tab; keys Tab; keys Tab; keys Right
+    for _ in $(seq 8); do keys Tab; done
+    keys Right
     step "$t: Show: Everyone" "(*) Everyone" "Hello from someone you don't follow."
 
     start "$backend" "$xdg" "$base"
-    step "$t: started again, still signed in" "@ada@$hostport" " Charles Babbage"
-    keys Tab; keys Tab; keys Enter # Refresh
-    step "$t: Refresh loads the feed again" "Updated. Signed in to $hostport." \
+    step "$t: started again, still signed in" "$bar" " Charles Babbage"
+    keys Tab; keys Tab; keys Enter # Home, on the feed: it again
+    step "$t: Home loads the feed again" "Updated. Signed in to $hostport." \
       " Charles Babbage"
-    keys Tab; keys Enter # Sign out
+    for _ in $(seq 4); do keys Tab; done
+    keys Enter # Profile
+    step "$t: Profile, to sign out" "@ada@$hostport  Ada Lovelace" "[ Sign out ]"
+    keys Tab; keys Tab; keys Tab; keys Enter # past Post and Refresh to Sign out
     step "$t: signed out" "Signed out." "Sign in to TX.WTF" "Username: [ada"
     if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: sign-out drops the session"; else
       fail "$t: the session is still in the store after signing out"
@@ -519,9 +658,10 @@ else
     form_focus; type_text 000000; keys Tab; keys Enter
     step "$t: a wrong code" "That code didn't work. Try again, or go Back." "Code: []"
     keys BTab; type_text 123456; keys Tab; keys Enter
-    step "$t: the right code signs in: her feed, empty" "@grace@$hostport" \
+    step "$t: the right code signs in: her feed, empty" "$bar" \
       "Your feed is empty. Follow people, or Show: Everyone."
-    keys Tab; keys Enter # Profile
+    for _ in $(seq 6); do keys Tab; done
+    keys Enter # Profile
     step "$t: grace's profile" "@grace@$hostport  Grace Hopper" "No posts yet."
     keys Tab; keys Tab; keys Tab; keys Tab; keys Right; keys Right # the tabs: Balances
     step "$t: grace's balance" "(*) Balances" "SCRIP    25" "Value    \$25.00"
@@ -549,10 +689,13 @@ else
         fail "$t: no 'Signing in...' while mary's profile loads" \
           "$out/tmux-$(slug "$t: the spinner").txt"
       fi
-      step "$t: and then mary's feed" "@mary@$hostport" "Your feed is empty."
+      step "$t: and then mary's feed" "$bar" "Your feed is empty."
       check_not "$t: no spinner once the requests are back" \
         "$out/tmux-$(slug "$t: and then mary's feed").txt" "Signing in..."
-      keys Tab; keys Tab; keys Tab; keys Enter # past Profile and Refresh to Sign out
+      for _ in $(seq 6); do keys Tab; done
+      keys Enter # Profile (it takes the stub 3 s)
+      step "$t: mary's profile" "@mary@$hostport" "[ Sign out ]"
+      keys Tab; keys Tab; keys Tab; keys Enter # past Post and Refresh to Sign out
       step "$t: mary signs out" "Signed out."
     fi
 
@@ -561,16 +704,16 @@ else
     PANE=80x24 start "$backend" "$xdg" "$base" -- --user ada
     step "$t: the form for ada at 80x24" "Username: [ada"
     form_focus; keys Tab; type_text "correct horse"; keys Tab; keys Enter
-    step "$t: the feed fits an 80x24 terminal" "Signed in to $hostport." \
-      "@ada@$hostport" "[ Profile ][ Refresh ][ Sign out ]" " Charles Babbage"
+    step "$t: the feed fits an 80x24 terminal" "Signed in to $hostport." "$bar" " Charles Babbage"
     fits_80x24 "$t: ... its frame whole, within 80 columns" \
       "$out/tmux-$(slug "$t: the feed fits an 80x24 terminal").txt"
-    keys Tab; keys Enter # Profile
+    for _ in $(seq 6); do keys Tab; done
+    keys Enter # Profile
     step "$t: the profile fits an 80x24 terminal" "@ada@$hostport  Ada Lovelace" "Show: (*) Posts" \
       "[ Newer ][ Older ]  Page 1"
     fits_80x24 "$t: ... its frame whole, within 80 columns" \
       "$out/tmux-$(slug "$t: the profile fits an 80x24 terminal").txt"
-    keys Tab; keys Tab; keys Tab; keys Enter # past Feed and Refresh to Sign out
+    keys Tab; keys Tab; keys Tab; keys Enter # past Post and Refresh to Sign out
     step "$t: ada signs out at 80x24" "Signed out."
 
     start "$backend" "$xdg" "$base" -- --user linus

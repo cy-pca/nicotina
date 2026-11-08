@@ -1,20 +1,20 @@
-# The signed-in windows: the profile, laid out as the TX.WTF web app lays one out, and (outside a
-# terminal) the details.
+# A profile, laid out as the TX.WTF web app lays one out: a view in the TX.WTF window (ui/app.ari),
+# and (outside a terminal) the Details window beside it for your own.
 #
 # The web app's profile is a header banner, then a card (the avatar beside the name, handle,
 # badges, description and counts, then the groups and an action bar), then tabs: Posts, Replies
-# and Balances. home_window is that, for an 80x24 terminal first: 76 columns wide (the banner's
-# crop), at most 19 rows, below the menu bar. ImGui draws the same window and adds the Details
-# window beside it.
+# and, on your own, Balances. profile_view is that, for an 80x24 terminal first: 74 columns wide
+# (the banner's crop). It shows prof.*: your own profile (prof.self "1", a copy of me.*) or
+# anyone else's (GET /user/profile/{id}), with Follow or Unfollow in its action bar.
 #
 # The banner and the avatar are the account's own pictures (txwtf's header_image_url and
 # avatar_url, resolved against the instance; no sign-in needed), where the host can show a
 # picture from a URL (image.url: transfix/libcvc#931). Elsewhere, for an account without a header
-# image, and for a video avatar or banner (the web app plays those as muted loops; Ariadne has no
-# video widget yet), each slot shows a placeholder: the banner the plain colour the web app shows
-# without one, and the avatar a frame with the account's initials. An animated GIF or WebP shows
-# its first frame. The card and the window have the account's card and page pictures behind
-# them where the host has background: (transfix/libcvc#932); a host without it ignores the key.
+# image, and for a video avatar or banner (the web app plays those as muted loops), each slot shows
+# a placeholder: the banner the plain colour the web app shows without one, and the avatar a frame
+# with the account's initials. An animated GIF or WebP shows its first frame. The card has the
+# account's card picture behind it where the host has background: (transfix/libcvc#932); a host
+# without it ignores the key.
 
 units:
   # The banner: the header image, cropped to the window's width and two rows (592 x 32 px), as
@@ -25,12 +25,12 @@ units:
     type: group
     children:
       - image: header image
-        bind: me.header_pic
+        bind: prof.header_pic
         size: [592, 32]
         fit: cover
-        visible_when: (and (has? "image.url") (!= (state-get "me.header_pic") ""))
+        visible_when: (and (has? "image.url") (!= (state-get "prof.header_pic") ""))
       - type: group
-        visible_when: (not (and (has? "image.url") (!= (state-get "me.header_pic") "")))
+        visible_when: (not (and (has? "image.url") (!= (state-get "prof.header_pic") "")))
         children:
           - text: ""
             bind: ui.banner_row
@@ -50,43 +50,36 @@ units:
     type: group
     children:
       - image: avatar
-        bind: me.avatar_pic
+        bind: prof.avatar_pic
         size: [64, 64]
         fit: cover
         shape: circle
-        visible_when: (and (has? "image.url") (!= (state-get "me.avatar_pic") ""))
+        visible_when: (and (has? "image.url") (!= (state-get "prof.avatar_pic") ""))
       - type: group
-        visible_when: (not (and (has? "image.url") (!= (state-get "me.avatar_pic") "")))
+        visible_when: (not (and (has? "image.url") (!= (state-get "prof.avatar_pic") "")))
         children:
           - text: ""
-            bind: me.avatar_box.0
+            bind: prof.avatar_box.0
             color: [0.55, 0.6, 0.7]
           - text: ""
-            bind: me.avatar_box.1
+            bind: prof.avatar_box.1
             color: [0.55, 0.6, 0.7]
           - text: ""
-            bind: me.avatar_box.2
+            bind: prof.avatar_box.2
             color: [0.55, 0.6, 0.7]
           - text: ""
-            bind: me.avatar_box.3
+            bind: prof.avatar_box.3
             color: [0.55, 0.6, 0.7]
 
-  home_window:
-    window: Profile
-    id: home
-    pos: [16, 32]
-    size: [608, auto]
-    visible_when: (= (state-get "ui.screen") "home")
-    # The account's page background (profile_bg_url), faint, behind the window in ImGui, as the
-    # web app puts it behind the page. A terminal shows none: the card's is enough there.
-    background: {bind: me.bg_pic, fit: cover, opacity: 0.25, terminal: none}
+  profile_view:
+    type: group
     children:
       - include: banner_slot
       # The card, over the account's card picture (card_image_url), dimmed as the web app dims it
       # (a host with background:, libcvc 3.7.9 and later; others ignore the key). In a terminal
       # it is half-blocks behind the card's text.
       - type: group
-        background: {bind: me.card_pic, fit: cover, opacity: 0.3, terminal: behind}
+        background: {bind: prof.card_pic, fit: cover, opacity: 0.3, terminal: behind}
         children:
           # The card: the avatar beside who it is.
           - type: group
@@ -98,48 +91,57 @@ units:
                 children:
                   # The full handle, @user@instance, then the display name, cut to fit.
                   - text: ""
-                    bind: me.header
+                    bind: prof.header
                   - text: ""
-                    bind: me.badges
+                    bind: prof.badges
                     color: [0.95, 0.75, 0.3]
                   - text: ""
-                    bind: '(if (= (state-get "me.about_short") "") " " (state-get "me.about_short"))'
+                    bind: '(if (= (state-get "prof.about_short") "") " " (state-get "prof.about_short"))'
                   - text: ""
-                    bind: me.stats
+                    bind: prof.stats
                     color: [0.6, 0.6, 0.6]
-          # The groups, and the action bar at the end of the card: back to the feed, Refresh,
-          # Sign out.
+          # The groups, and the action bar at the end of the card: on your own profile Refresh
+          # and Sign out; on another's Follow or Unfollow.
           - type: group
             layout: {kind: horizontal}
             children:
               - text: ""
-                bind: me.groups_line
-              - button: Feed
-                on: (state-set "ui.cmd" "to-feed")
-                enabled_when: (!= (state-get "ui.busy") "1")
+                bind: prof.groups_line
               - button: Refresh
                 on: (state-set "ui.cmd" "refresh")
-                enabled_when: (!= (state-get "ui.busy") "1")
+                visible_when: (= (state-get "prof.self") "1")
               - button: Sign out
                 on: (state-set "ui.cmd" "signout")
-                enabled_when: (!= (state-get "ui.busy") "1")
+                visible_when: (= (state-get "prof.self") "1")
+              - button: Follow
+                on: (state-set "ui.cmd" "follow")
+                visible_when: (and (!= (state-get "prof.self") "1") (!= (state-get "prof.following") "1"))
+              - button: Unfollow
+                on: (state-set "ui.cmd" "unfollow")
+                visible_when: (and (!= (state-get "prof.self") "1") (= (state-get "prof.following") "1"))
       - separator
       # The tabs. Choosing one loads it (main.ari's "tab"). A terminal host draws a radio row's
       # label even when it is empty (a lone ":"), so it has one.
       - radio_row: Show
         bind: ui.tab
-        options: [Posts, Replies, Balances]
+        options: (if (= (state-get "prof.self") "1") (list "Posts" "Replies" "Balances") (list "Posts" "Replies"))
         on: (state-set "ui.cmd" "tab")
       - separator
-      # Posts and Replies: a page of five, newest first, a row each.
+      # Posts and Replies: a page of five, newest first, a row each with Open.
       - type: group
         visible_when: (!= (state-get "ui.tab") "Balances")
         children:
           - type: group
             repeat: (state-get "tab.rows")
             children:
-              - text: ""
-                bind: tab.rows.{i}
+              - type: group
+                layout: {kind: horizontal}
+                children:
+                  - text: ""
+                    bind: tab.rows.{i}.line
+                  - button: Open
+                    on: (begin (state-set "post.want" (state-get "tab.rows.{i}.id")) (state-set "post.focus_reply" "") (state-set "ui.cmd" "open"))
+                    visible_when: (!= (state-get "tab.rows.{i}.id") "")
           - type: group
             layout: {kind: horizontal}
             children:
@@ -170,14 +172,13 @@ units:
           - text: " "
           - text: " "
           - text: " "
-      - separator
-      - include: status_line
 
   details_window:
     window: Details
     id: details
     pos: [640, 32]
-    visible_when: (and (= (state-get "ui.screen") "home") (not (has? "term")))
+    visible_when: (and (= (state-get "ui.screen") "profile") (= (state-get "prof.self") "1")
+                       (not (has? "term")))
     children:
       - text: "Handle"
         bind: me.handle

@@ -1,18 +1,17 @@
-# The home feed, and one post in full.
+# The feed, and one post in full: two of the views in the TX.WTF window (ui/app.ari).
 #
-# feed_window is the screen after signing in, as the web app's home is: the posts of the people
-# you follow (or everyone's), newest first, each a card. A card is a bordered group: a header
-# (the author's avatar, name, handle and time), the text (three lines at most), the
-# attachments, and the counts with an Open button. Open shows the whole post (post_window).
+# feed_view is the view after signing in, as the web app's home is: the posts of the people you
+# follow (or everyone's, or your friends'), newest first, each a card. The same view shows one
+# hashtag's posts (feed.source "tag"). A card is a bordered group: a header (the author's avatar,
+# name, handle and time), the text (three lines at most), its hashtags, the attachments, and the
+# counts with the card's buttons: Open (the whole post), Reply, Like and Repost. A post with
+# pictures, video or a recording has View too, on its first attachment's row (the viewer).
 #
 # Terminal first: the window is as wide as its cards (74 columns in a terminal, the cards' text 70)
 # and at most 86% of the screen tall (21 rows in an 80x24 terminal; more in a bigger one, or a
-# window). It sizes itself to what it shows, so a wider line, picture or row of buttons never
-# needs the user to widen it. Its cards don't fit at once, so the window scrolls: a terminal
-# keeps the focused widget in view, and each card's Open button is one, so Tab walks the feed
-# card by card. (Ariadne has no scrolling region inside a window yet, so the
-# header scrolls away with the cards.) Load more, at the end, fetches the next page and adds it
-# below.
+# window). Its cards don't fit at once, so the window scrolls: a terminal keeps the focused widget
+# in view, and each card's buttons are focusable, so Tab walks the feed card by card. Load more,
+# at the end, fetches the next page and adds it below.
 #
 # Avatars and pictures show where the host can fetch a picture from a URL (image.url:
 # transfix/libcvc#931); txwtf's /uploads/... and /static/... need no sign-in. Elsewhere an avatar
@@ -26,8 +25,11 @@
 # the small fixed sizes. A post's emoji (text.emoji, the same PR) come from its content_html: a
 # custom one is drawn as its picture in the line (a terminal keeps its :name:), a standard one's
 # shortcode becomes its character.
-# A host with open-url (transfix/libcvc#916) also gets an "In browser" button that opens the post
-# in the web app.
+#
+# Hashtags: a button's label is fixed in an Ariadne document, so a post's hashtags are a radio
+# row, whose options a program computes. Outside a terminal, clicking one opens that hashtag's
+# posts. A terminal moves a radio's choice with the arrow keys, so there the card lists them as
+# text, and the post's view has the row and an Open tag button.
 
 units:
   # A card: feed.items.{i} holds what main.ari's feed-card made of a post. Its one column is as
@@ -74,6 +76,16 @@ units:
         bind: feed.items.{i}.l2
         emoji: feed.items.{i}.emoji
         visible_when: (!= (state-get "feed.items.{i}.l2") "")
+      # Its hashtags: text in a terminal, a row to click elsewhere.
+      - text: ""
+        bind: feed.items.{i}.tagline
+        color: [0.45, 0.65, 0.95]
+        visible_when: (and (has? "term") (!= (state-get "feed.items.{i}.tags") ""))
+      - radio_row: Tags
+        bind: feed.items.{i}.tag_pick
+        options: (string.split (state-get "feed.items.{i}.tags") "|")
+        on: (begin (state-set "tag.want" (state-get "feed.items.{i}.tag_pick")) (state-set "ui.cmd" "tag"))
+        visible_when: (and (not (has? "term")) (!= (state-get "feed.items.{i}.tags") ""))
       # The first picture, inline, where the host can show one: as wide as the card at its own
       # shape (at most 480 px tall) where the host measures the line (image.fill: ImGui), else
       # 192 x 112 px (24 x 7 cells in a terminal).
@@ -91,8 +103,8 @@ units:
                            (!= (state-get "feed.items.{i}.pic") ""))
       # The first video or recording, with its controls (play/pause, seek, mute), where the host
       # has a player (media.player: ari-media and arigl; transfix/libcvc#935). The lean ari, and
-      # a host without the widgets, show the rows below; "In browser" opens the post. A video is
-      # sized as the picture is (at most 400 px tall), and plays while it is in view.
+      # a host without the widgets, show the rows below. A video is sized as the picture is (at
+      # most 400 px tall), and plays while it is in view.
       - video: video
         src: (state-get "feed.items.{i}.av_url")
         size: "100%"
@@ -115,11 +127,18 @@ units:
         src: (state-get "feed.items.{i}.av_url")
         bind: feed.items.{i}.player
         visible_when: (and (has? "media.player") (= (state-get "feed.items.{i}.av_kind") "audio"))
-      # The attachments: two rows at most, and how many more there are.
-      - text: ""
-        bind: feed.items.{i}.m0
-        color: [0.45, 0.75, 0.85]
+      # The attachments: two rows at most, and how many more there are. View, on the first row
+      # of a post with something to view, opens the viewer.
+      - type: group
+        layout: {kind: horizontal}
         visible_when: (!= (state-get "feed.items.{i}.m0") "")
+        children:
+          - text: ""
+            bind: feed.items.{i}.m0
+            color: [0.45, 0.75, 0.85]
+          - button: View
+            on: (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" 0) (state-set "ui.cmd" "view"))
+            visible_when: (= (state-get "feed.items.{i}.has_media") "1")
       - text: ""
         bind: feed.items.{i}.m1
         color: [0.45, 0.75, 0.85]
@@ -128,47 +147,38 @@ units:
         bind: feed.items.{i}.mmore
         color: [0.6, 0.6, 0.6]
         visible_when: (!= (state-get "feed.items.{i}.mmore") "")
+      # The counts, then the buttons. Never disabled, and never hidden once shown: a terminal
+      # that loses the focused widget scrolls back to the top. The controller takes one command
+      # at a time, so a press while busy waits its turn.
       - type: group
         layout: {kind: horizontal}
         children:
           - text: ""
             bind: feed.items.{i}.counts
             color: [0.6, 0.6, 0.6]
-          # Never disabled: a terminal that loses the focused widget scrolls back to the top.
-          # The controller takes one command at a time, so a press while busy waits its turn.
           - button: Open
-            on: (begin (state-set "post.want" (state-get "feed.items.{i}.id")) (state-set "ui.cmd" "open"))
-          - button: In browser
-            on: (open-url (state-get "feed.items.{i}.web"))
-            visible_when: (has? "open-url")
+            on: (begin (state-set "post.want" (state-get "feed.items.{i}.id")) (state-set "post.focus_reply" "") (state-set "ui.cmd" "open"))
+          - button: Reply
+            on: (begin (state-set "post.want" (state-get "feed.items.{i}.pid")) (state-set "post.focus_reply" "1") (state-set "ui.cmd" "open"))
+          - button: Like
+            on: (begin (state-set "act.i" "{i}") (state-set "ui.cmd" "like"))
+          - button: Repost
+            on: (begin (state-set "act.i" "{i}") (state-set "ui.cmd" "repost"))
 
-  feed_window:
-    window: Home
-    id: feed
-    pos: [16, 32]
-    size: [auto, "86%"]    # as wide as what it shows, 86% tall: what does not fit scrolls
-    visible_when: (= (state-get "ui.screen") "feed")
+  # The feed: Following is GET /social/timeline/home, Everyone /social/timeline/public, Friends
+  # /social/timeline/friends; a hashtag's posts are GET /social/timeline/tag/{tag}.
+  feed_view:
+    type: group
     children:
-      - type: group
-        layout: {kind: horizontal}
-        children:
-          - text: ""
-            bind: feed.who
-          - button: Profile
-            on: (state-set "ui.cmd" "profile")
-            enabled_when: (!= (state-get "ui.busy") "1")
-          - button: Refresh
-            on: (state-set "ui.cmd" "refresh")
-            enabled_when: (!= (state-get "ui.busy") "1")
-          - button: Sign out
-            on: (state-set "ui.cmd" "signout")
-            enabled_when: (!= (state-get "ui.busy") "1")
-      # Following is GET /social/timeline/home, Everyone /social/timeline/public.
       - radio_row: Show
         bind: feed.mode
-        options: [Following, Everyone]
+        options: [Following, Everyone, Friends]
         on: (state-set "ui.cmd" "feed")
-      - include: status_line
+        visible_when: (!= (state-get "feed.source") "tag")
+      - text: ""
+        bind: feed.title
+        color: [0.45, 0.65, 0.95]
+        visible_when: (= (state-get "feed.source") "tag")
       - separator
       - text: ""
         bind: feed.empty
@@ -187,33 +197,26 @@ units:
             bind: feed.tail
             color: [0.6, 0.6, 0.6]
 
-  # One post in full: every line of its text, every attachment with its URL, and the reactions
-  # (GET /social/posts/{id}, which has them; the feed doesn't).
-  post_window:
-    window: Post
-    id: post
-    pos: [16, 32]
-    size: [auto, "86%"]    # as wide as what it shows, 86% tall: what does not fit scrolls
-    visible_when: (= (state-get "ui.screen") "post")
+  # One post in full: every line of its text, every attachment, the reactions (GET
+  # /social/posts/{id}, which has them; the feed doesn't), the post it replies to, its replies
+  # (GET /social/posts/{id}/replies) and a box to reply in.
+  post_view:
+    type: group
     children:
-      - type: group
-        layout: {kind: horizontal}
-        children:
-          - button: Back
-            on: (state-set "ui.cmd" "back-to-feed")
-            autofocus: true
-          - button: In browser
-            on: (open-url (state-get "post.web"))
-            visible_when: (has? "open-url")
-          - text: ""
-            bind: post.web_note
-            color: [0.6, 0.6, 0.6]
-      - include: status_line
-      - separator
       - text: ""
         bind: post.note
         color: [0.6, 0.6, 0.6]
         visible_when: (!= (state-get "post.note") "")
+      # What it replies to: a button to it, and who wrote it.
+      - type: group
+        layout: {kind: horizontal}
+        visible_when: (!= (state-get "post.parent") "")
+        children:
+          - button: In reply to
+            on: (begin (state-set "post.want" (state-get "post.parent")) (state-set "post.focus_reply" "") (state-set "ui.cmd" "open"))
+          - text: ""
+            bind: post.parent_note
+            color: [0.6, 0.6, 0.6]
       - type: group
         layout: {kind: horizontal}
         children:
@@ -241,23 +244,59 @@ units:
           - text: ""
             bind: post.lines.{i}
             emoji: post.emoji
+      # Its hashtags: click one (outside a terminal), or pick one and Open tag (in a terminal).
+      - type: group
+        layout: {kind: horizontal}
+        visible_when: (!= (state-get "post.tags") "")
+        children:
+          - radio_row: Tags
+            bind: post.tag_pick
+            options: (string.split (state-get "post.tags") "|")
+            on: (if (not (has? "term")) (begin (state-set "tag.want" (state-get "post.tag_pick")) (state-set "ui.cmd" "tag")))
+          - text: "  "
+            visible_when: (has? "term")
+          - button: Open tag
+            on: (begin (state-set "tag.want" (state-get "post.tag_pick")) (state-set "ui.cmd" "tag"))
+            visible_when: (has? "term")
       - text: ""
         bind: post.counts
         color: [0.6, 0.6, 0.6]
       - text: ""
         bind: post.reactions
         visible_when: (!= (state-get "post.reactions") "")
-      # Each attachment: its row and its URL, then the picture (384 x 216 px, 48 x 13 cells)
-      # where the host can show one.
+      # What you can do with it. Delete is there for your own posts only.
+      - type: group
+        layout: {kind: horizontal}
+        children:
+          # Nothing here takes the focus by itself: Back, pressed again and again, walks back
+          # through the views, and a post shown again mustn't catch an Enter meant for Back.
+          - button: Like
+            on: (state-set "ui.cmd" "post-like")
+          - button: Repost
+            on: (state-set "ui.cmd" "post-repost")
+          - button: Author
+            on: (begin (state-set "user.want" (state-get "post.author_id")) (state-set "ui.cmd" "user"))
+          - button: Delete
+            on: (state-set "ui.cmd" "delete")
+            visible_when: (= (state-get "post.mine") "1")
+      # Its address on the instance, to copy.
+      - text: ""
+        bind: post.link
+        color: [0.6, 0.6, 0.6]
+      # Each attachment: its row, then the picture or the player where the host can show one,
+      # and View, which opens the viewer at it.
       - type: group
         repeat: (state-get "post.media")
         children:
-          - text: ""
-            bind: post.media.{i}.row
-            color: [0.45, 0.75, 0.85]
-          - text: ""
-            bind: post.media.{i}.where
-            color: [0.6, 0.6, 0.6]
+          - type: group
+            layout: {kind: horizontal}
+            children:
+              - text: ""
+                bind: post.media.{i}.row
+                color: [0.45, 0.75, 0.85]
+              - button: View
+                on: (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" "{i}") (state-set "ui.cmd" "view"))
+                visible_when: (!= (state-get "post.media.{i}.kind") "file")
           - image: ""
             bind: post.media.{i}.url
             size: "100%"
@@ -292,3 +331,48 @@ units:
             src: (state-get "post.media.{i}.url")
             bind: post.media.{i}.player
             visible_when: (and (has? "media.player") (= (state-get "post.media.{i}.kind") "audio"))
+      - separator
+      # The replies, oldest first: who and when, two lines of each, and Open.
+      - text: ""
+        bind: post.replies_head
+        color: [0.6, 0.6, 0.6]
+      - type: group
+        repeat: (state-get "post.replies")
+        children:
+          - type: group
+            layout: {kind: horizontal}
+            children:
+              - text: ""
+                bind: post.replies.{i}.head
+              - button: Open
+                on: (begin (state-set "post.want" (state-get "post.replies.{i}.id")) (state-set "post.focus_reply" "") (state-set "ui.cmd" "open"))
+          - text: ""
+            bind: post.replies.{i}.l0
+            emoji: post.replies.{i}.emoji
+          - text: ""
+            bind: post.replies.{i}.l1
+            emoji: post.replies.{i}.emoji
+            visible_when: (!= (state-get "post.replies.{i}.l1") "")
+      - button: More replies
+        on: (state-set "ui.cmd" "more-replies")
+        visible_when: (= (state-get "post.replies_more") "1")
+      # The reply box. Enter sends it (Shift+Enter, or Alt+Enter in a terminal, starts a new
+      # line); ImGui adds a Reply button. Reply on a card opens the post with the box focused: the
+      # same box, shown with autofocus (one of the two is drawn at a time).
+      - message_input: Reply
+        bind: post.reply_text
+        hint: Write a reply (Enter sends it)
+        max_length: 4096
+        max_lines: 6
+        send: Reply
+        on: (begin (state-set "post.reply_send" (get-attr event "text")) (state-set "ui.cmd" "reply"))
+        visible_when: (!= (state-get "post.focus_reply") "1")
+      - message_input: Reply
+        bind: post.reply_text
+        hint: Write a reply (Enter sends it)
+        max_length: 4096
+        max_lines: 6
+        send: Reply
+        autofocus: true
+        on: (begin (state-set "post.reply_send" (get-attr event "text")) (state-set "ui.cmd" "reply"))
+        visible_when: (= (state-get "post.focus_reply") "1")

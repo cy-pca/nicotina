@@ -1,0 +1,87 @@
+# The signed-in client: one window, as the TX.WTF web app is one page. A bar of buttons along its
+# top goes to each part, and below it the window shows one view at a time:
+#
+#   feed      the home feed (Following, Everyone, Friends), or one hashtag's posts
+#   post      one post in full, the post it replies to, its replies, and a reply box
+#   profile   anyone's profile: yours (with Balances and the Details window), or another's
+#   tags      every hashtag, by how many posts name it
+#   alerts    your notifications
+#   search    posts and people
+#   compose   a new post
+#   viewer    a post's pictures and videos, one at a time, as wide as the window
+#
+# Going to a view remembers the one it came from, and Back returns to it (main.ari's "back").
+# Home starts over at the feed. The window is the feed's width (74 columns in a terminal) and 86%
+# of the screen tall; a view taller than that scrolls.
+
+units:
+  # The bar: Back, then the parts of the client. A terminal draws a button as its label in
+  # brackets, so the bar is 63 columns; the unread count follows it.
+  nav_bar:
+    type: group
+    layout: {kind: horizontal}
+    children:
+      - button: Back
+        on: (state-set "ui.cmd" "back")
+      - button: Home
+        on: (state-set "ui.cmd" "home")
+      - button: Tags
+        on: (state-set "ui.cmd" "tags")
+      - button: Search
+        on: (state-set "ui.cmd" "search-view")
+      - button: Alerts
+        on: (state-set "ui.cmd" "alerts")
+      - button: Profile
+        on: (state-set "ui.cmd" "profile")
+      - button: Post
+        on: (state-set "ui.cmd" "compose")
+      - text: ""
+        bind: alerts.badge
+        color: [0.95, 0.75, 0.3]
+
+  app_window:
+    window: TX.WTF
+    id: app
+    pos: [16, 32]
+    size: [auto, "86%"]    # as wide as what it shows, 86% tall: what does not fit scrolls
+    visible_when: (and (!= (state-get "ui.screen") "boot") (!= (state-get "ui.screen") "signin")
+                       (!= (state-get "ui.screen") "2fa"))
+    # The account's page background (profile_bg_url), faint, behind a profile in ImGui, as the
+    # web app puts it behind the page. A terminal shows none: the card's is enough there.
+    background: {bind: prof.bg_pic_shown, fit: cover, opacity: 0.25, terminal: none}
+    children:
+      - include: nav_bar
+      - include: status_line
+      - separator
+      - type: group
+        visible_when: (= (state-get "ui.screen") "feed")
+        children:
+          - include: feed_view
+      - type: group
+        visible_when: (= (state-get "ui.screen") "post")
+        children:
+          - include: post_view
+      - type: group
+        visible_when: (= (state-get "ui.screen") "profile")
+        children:
+          - include: profile_view
+      - type: group
+        visible_when: (= (state-get "ui.screen") "tags")
+        children:
+          - include: tags_view
+      - type: group
+        visible_when: (= (state-get "ui.screen") "alerts")
+        children:
+          - include: alerts_view
+      - type: group
+        visible_when: (= (state-get "ui.screen") "search")
+        children:
+          - include: search_view
+      - type: group
+        visible_when: (= (state-get "ui.screen") "compose")
+        children:
+          - include: compose_view
+      - type: group
+        visible_when: (= (state-get "ui.screen") "viewer")
+        children:
+          - include: viewer_view

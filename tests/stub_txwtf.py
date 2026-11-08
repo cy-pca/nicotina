@@ -73,7 +73,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs
 
 PASSWORD = "correct horse"
-TOP_LEVEL = ("/user/", "/billing/", "/social/", "/uploads/", "/static/")
+TOP_LEVEL = ("/user/", "/billing/", "/social/", "/uploads/", "/static/", "/notifications",
+             "/search/")
 TWO_FACTOR_CODE = "123456"
 CHALLENGE = "Q9mUj4Z1x0bR7nVt2LcYw8sDp3HkGfA5"
 
@@ -308,7 +309,8 @@ POSTS = {
 # The home feed: posts by the people ada follows, newest first, two pages of ten. Grace follows
 # no one, so hers is empty, as txwtf's is then. The public feed has these, linus's and ada's.
 FEED = [
-    post("charles", 312, "2026-10-30T22:40:00", "The Difference Engine No. 2, working at last.",
+    post("charles", 312, "2026-10-30T22:40:00",
+         "The Difference Engine No. 2, working at last. #engines #brass",
          None, (5, 3, 21, 310),
          [attachment(901, "/uploads/media/engine-diagram.png", 48213, "The engine, from the side"),
           attachment(902, "/uploads/media/engine.mp4", 11142)]),
@@ -343,22 +345,56 @@ FEED = [
          None, (0, 0, 1, 9),
          content_html="<p>Notes on the mill " + custom_emoji_html("gear", 12) + " "
          + unicode_emoji_html("100", "💯") + " at 14:50:47.</p>"),
-    post("grace", 303, "2026-10-28T09:00:00", "Nanoseconds, in wire.", None, (0, 0, 2, 14)),
+    post("grace", 303, "2026-10-28T09:00:00", "Nanoseconds, in wire. #engines", None, (0, 0, 2, 14)),
     post("alan@peer.example", 302, "2026-10-27T11:00:00", "On morphogenesis.", None, (0, 0, 3, 22)),
-    post("charles", 301, "2026-10-26T08:30:00", "The engine needs more brass.", None, (0, 0, 0, 5)),
+    post("charles", 301, "2026-10-26T08:30:00", "The engine needs more #brass.", None, (0, 0, 0, 5)),
     post("grace", 300, "2026-10-25T07:15:00", "Good morning, TX.WTF.", None, (1, 0, 2, 30)),
 ]
 FOLLOWS = {"ada": {"charles", "grace", "alan@peer.example"}}
 # In the public feed only: someone ada doesn't follow.
 PUBLIC_ONLY = [post("linus", 313, "2026-10-30T23:00:00", "Hello from someone you don't follow.",
                     None, (0, 0, 1, 3))]
+# Replies, oldest first, as GET /social/posts/{id}/replies lists them (never in a feed).
+REPLIES = [
+    post("grace", 314, "2026-10-30T22:50:00", "Splendid. How many digits?", 312, (1, 0, 2, 20)),
+    post("ada", 315, "2026-10-30T23:05:00", "Thirty-one, and seven orders of differences.", 314,
+         (0, 0, 3, 18)),
+    post("alan@peer.example", 316, "2026-10-30T23:10:00", "A fine machine. #engines", 312,
+         (0, 0, 1, 9)),
+]
+# Notifications for ada, newest first (NotificationResponse); two not yet viewed.
+NOTIFICATIONS = [
+    {"id": 503, "notification_type": "reply", "message": "Grace Hopper replied to your post",
+     "related_id": 314, "related_type": "post", "created_at": "2026-10-30T22:50:00", "viewed": False},
+    {"id": 502, "notification_type": "reaction", "message": "Charles Babbage liked your post",
+     "related_id": 107, "related_type": "post", "created_at": "2026-10-30T20:00:00", "viewed": False},
+    {"id": 501, "notification_type": "follow", "message": "Alan Turing followed you",
+     "related_id": 8, "related_type": "user", "created_at": "2026-10-29T09:00:00", "viewed": True},
+]
 # A post's reactions, by emoji name, as GET /social/posts/{id} sums them (dislikes left out).
 REACTIONS = {312: [{"emoji": "thumbsup", "count": 12}, {"emoji": "heart", "count": 9}],
              308: [{"emoji": "bug", "count": 30}, {"emoji": "laughing", "count": 3}]}
 
 
-def post_response(p):
+# What the people signed in have done since the stub started: their likes, follows and posts.
+# main() makes it; post_response reads it for the viewer's own fields.
+LIVE = None
+
+
+def all_posts():
+    """Every post the stub knows, the ones made here first; deleted ones left out."""
+    made = LIVE.made if LIVE else []
+    gone = LIVE.deleted if LIVE else set()
+    return [p for p in made + FEED + PUBLIC_ONLY + POSTS["ada"] + REPLIES if p["id"] not in gone]
+
+
+def post_response(p, viewer=None):
     replies, reposts, reactions, views = p["counts"]
+    replies += sum(1 for q in (LIVE.made if LIVE else []) if q["reply_to"] == p["id"])
+    liked = bool(LIVE and viewer and (viewer, p["id"]) in LIVE.likes)
+    reactions += sum(1 for (_, pid) in (LIVE.likes if LIVE else set()) if pid == p["id"])
+    reposted = bool(LIVE and viewer and any(q["repost"] is p and q["author"] == viewer
+                                            for q in LIVE.made))
     locked = p["price"] is not None
     a = brief(p["author"])
     r = p["repost"]
@@ -394,6 +430,8 @@ def post_response(p):
         "promoted_until": None,
         "promotion_tier": None,
         "author": a,
+        "user_has_reacted": liked,
+        "user_has_reposted": reposted,
         "reactions_summary": None,  # the timeline leaves it out
         "attachments": [] if locked else p["attachments"],
         # txwtf's reposted-post brief (asoc:992): created_at an ISO string, author the same brief
@@ -408,9 +446,9 @@ def post_response(p):
     }
 
 
-def page_of(posts, has_more):
+def page_of(posts, has_more, viewer=None):
     return {
-        "posts": [post_response(p) for p in posts],
+        "posts": [post_response(p, viewer) for p in posts],
         "has_more": has_more,
         "next_before_id": posts[-1]["id"] if posts else None,
         "total": None,
@@ -420,29 +458,94 @@ def page_of(posts, has_more):
     }
 
 
-def user_timeline(user_id, query):
+def user_timeline(user_id, query, viewer=None):
     """GET /social/timeline/user/{id}: offset paging, as the web app pages a profile's posts."""
-    username = next((n for n, u in USERS.items() if u["id"] == user_id), None)
-    posts = POSTS.get(username, [])
+    username = next((n for n, u in list(USERS.items()) + list(AUTHORS.items())
+                     if u["id"] == user_id), None)
+    posts = [p for p in all_posts() if p["author"] == username]
     if query.get("include_replies", ["true"])[0] == "false":
         posts = [p for p in posts if p["reply_to"] is None]
     limit = min(int(query.get("limit", ["20"])[0]), 100)
     offset = int(query.get("offset", ["0"])[0])
-    return page_of(posts[offset:offset + limit], offset + limit < len(posts))
+    return page_of(posts[offset:offset + limit], offset + limit < len(posts), viewer)
+
+
+def tag_feed(tag, query, viewer):
+    """GET /social/timeline/tag/{tag}: the posts naming #tag, newest first, offset paging."""
+    want = "#" + tag.lower()
+    posts = sorted((p for p in all_posts()
+                    if any(w.strip(".,;:!?").lower() == want for w in p["content"].split())),
+                   key=lambda p: p["id"], reverse=True)
+    limit = min(int(query.get("limit", ["20"])[0]), 100)
+    offset = int(query.get("offset", ["0"])[0])
+    page = page_of(posts[offset:offset + limit], offset + limit < len(posts), viewer)
+    page["tag"] = tag
+    return page
+
+
+def tag_list(query):
+    """GET /social/tags: every hashtag the posts name, with its count (TagResponse)."""
+    counts = {}
+    for p in all_posts():
+        for w in p["content"].split():
+            w = w.strip(".,;:!?")
+            if w.startswith("#") and len(w) > 1:
+                counts[w[1:].lower()] = counts.get(w[1:].lower(), 0) + 1
+    tags = [{"id": i + 1, "name": n, "slug": n, "description": None, "owner_user_id": None,
+             "owner_username": None, "owner_group_id": None, "owner_group_name": None,
+             "pinned_post_id": None, "post_count": c, "created_at": "2026-10-01T00:00:00"}
+            for i, (n, c) in enumerate(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))]
+    limit = min(int(query.get("limit", ["50"])[0]), 100)
+    offset = int(query.get("offset", ["0"])[0])
+    return {"tags": tags[offset:offset + limit], "total": len(tags), "limit": limit,
+            "offset": offset}
+
+
+def replies_of(pid, query, viewer):
+    """GET /social/posts/{id}/replies: the direct replies, oldest first."""
+    rs = sorted((p for p in all_posts() if p["reply_to"] == pid), key=lambda p: p["id"])
+    limit = min(int(query.get("limit", ["20"])[0]), 100)
+    offset = int(query.get("offset", ["0"])[0])
+    return {"replies": [post_response(p, viewer) for p in rs[offset:offset + limit]],
+            "has_more": offset + limit < len(rs)}
+
+
+def search(q, viewer):
+    """GET /search/search?q=: posts and people whose text or name has q (the web app's fields)."""
+    q = q.lower()
+    results = []
+    for n, u in list(USERS.items()) + list(AUTHORS.items()):
+        if q in n.lower() or q in u["name"].lower():
+            results.append({"type": "user", "id": u["id"], "title": u["name"],
+                            "snippet": "@" + n, "avatar_url": u.get("avatar_url", DEFAULT_AVATAR),
+                            "url": f"/app/profile/{u['id']}", "author": n, "instance": None})
+    for p in sorted(all_posts(), key=lambda p: p["id"], reverse=True):
+        if p["price"] is None and q in p["content"].lower():
+            results.append({"type": "post", "id": p["id"], "title": brief(p["author"])["name"],
+                            "snippet": p["content"][:140], "avatar_url": None,
+                            "url": f"/app/post/{p['id']}", "author": p["author"],
+                            "instance": None})
+    return {"query": q, "results": results[:10], "federated": []}
 
 
 def feed(username, which, query):
     """GET /social/timeline/home and /public: before_id paging (no offset), replies left out."""
-    if which == "home":
-        posts = [p for p in FEED if p["author"] in FOLLOWS.get(username, set())]
+    follows = LIVE.follows.get(username, set()) if LIVE else FOLLOWS.get(username, set())
+    top = [p for p in all_posts() if p["reply_to"] is None]
+    made = LIVE.made if LIVE else []
+    if which == "home":  # the people followed, and what the user posted here
+        posts = [p for p in top if (p["author"] in follows and (p in FEED or p in made))
+                 or (p["author"] == username and p in made)]
+    elif which == "friends":  # the people who follow back: ada and grace, here
+        posts = [p for p in top if p["author"] == "grace" and username == "ada"]
     else:
-        posts = sorted(FEED + PUBLIC_ONLY + [p for p in POSTS["ada"] if p["reply_to"] is None],
-                       key=lambda p: p["id"], reverse=True)
+        posts = top
+    posts = sorted(posts, key=lambda p: p["id"], reverse=True)
     before = query.get("before_id", [None])[0]
     if before is not None:
         posts = [p for p in posts if p["id"] < int(before)]
     limit = min(int(query.get("limit", ["50"])[0]), 100)
-    return page_of(posts[:limit], len(posts) > limit)
+    return page_of(posts[:limit], len(posts) > limit, username)
 
 
 def png(width, height, pixel):
@@ -489,6 +592,12 @@ class State:
         self.lock = threading.Lock()
         self.live = {}  # token -> username
         self.log_path = log_path
+        self.likes = set()  # (username, post id): a heart from that user
+        self.follows = {u: set(f) for u, f in FOLLOWS.items()}
+        self.made = []  # posts made here, newest first
+        self.deleted = set()
+        self.next_id = 400
+        self.viewed = set()  # notification ids marked viewed
 
     def log(self, entry):
         if not self.log_path:
@@ -564,6 +673,27 @@ def profile_response(username):
             for i, g in enumerate(u["groups"])
         ],
     }
+
+
+def names_by_id():
+    return {v["id"]: n for n, v in list(USERS.items()) + list(AUTHORS.items())}
+
+
+def public_profile(user_id):
+    """GET /user/profile/{id}: an account's profile, or an author's who has no account here."""
+    for n, u in USERS.items():
+        if u["id"] == user_id:
+            return profile_response(n)
+    for n, a in AUTHORS.items():
+        if a["id"] == user_id:
+            return {"id": a["id"], "username": n, "name": a["name"],
+                    "avatar_url": a.get("avatar_url", DEFAULT_AVATAR), "header_image_url": None,
+                    "card_image_url": None, "profile_bg_url": None, "description": None,
+                    "created_time": "2025-01-01T00:00:00", "last_login_country": a.get("country"),
+                    "view_count": 10, "post_count": sum(1 for p in all_posts() if p["author"] == n),
+                    "status": a.get("status", "offline"), "is_admin": False, "emblems": [],
+                    "groups": [], "enabled": True}
+    return None
 
 
 def make_handler(state):
@@ -664,11 +794,84 @@ def make_handler(state):
                 )
             if method == "GET" and path in ("/social/timeline/home", "/social/timeline/public"):
                 return self.reply(200, feed(user, path.rsplit("/", 1)[1], query)), user
+            if method == "GET" and path == "/social/timeline/friends":
+                return self.reply(200, feed(user, "friends", query)), user
+            if method == "GET" and path.startswith("/social/timeline/tag/"):
+                return self.reply(200, tag_feed(path.rsplit("/", 1)[1], query, user)), user
+            if method == "GET" and path == "/social/tags":
+                return self.reply(200, tag_list(query)), user
+            if method == "GET" and path == "/search/search":
+                return self.reply(200, search(query.get("q", [""])[0], user)), user
+            if method == "GET" and path.startswith("/user/profile/"):
+                tail = path.rsplit("/", 1)[1]
+                found = public_profile(int(tail)) if tail.isdigit() else None
+                if found is None:
+                    return self.reply(404, {"detail": "User not found"}), user
+                return self.reply(200, found), user
+            if method == "GET" and path.startswith("/social/follow/check/"):
+                uid = int(path.rsplit("/", 1)[1])
+                with state.lock:
+                    following = names_by_id().get(uid) in state.follows.get(user, set())
+                return self.reply(200, {"is_following": following, "user_id": uid}), user
+            if method == "POST" and path == "/social/follow":
+                uid = (self.json_body() or {}).get("user_id")
+                if uid not in names_by_id():
+                    return self.reply(404, {"detail": "User not found"}), user
+                with state.lock:
+                    state.follows.setdefault(user, set()).add(names_by_id()[uid])
+                return self.reply(200, {"message": "Followed", "following": True}), user
+            if method == "DELETE" and path.startswith("/social/follow/"):
+                uid = int(path.rsplit("/", 1)[1])
+                with state.lock:
+                    state.follows.setdefault(user, set()).discard(names_by_id().get(uid))
+                return self.reply(200, {"message": "Unfollowed", "following": False}), user
+            if method == "GET" and path == "/notifications/count":
+                with state.lock:
+                    n = sum(1 for x in NOTIFICATIONS
+                            if not x["viewed"] and x["id"] not in state.viewed)
+                return self.reply(200, {"unviewed_count": n if user == "ada" else 0}), user
+            if method == "GET" and path.rstrip("/") == "/notifications":
+                with state.lock:
+                    items = [dict(x, user_id=1, viewed=x["viewed"] or x["id"] in state.viewed,
+                                  extra_data=None, viewed_at=None, stale=False, gone_reason=None)
+                             for x in NOTIFICATIONS] if user == "ada" else []
+                return self.reply(200, {"notifications": items, "total_count": len(items),
+                                        "unviewed_count": sum(1 for x in items if not x["viewed"]),
+                                        "limit": 20, "offset": 0}), user
+            if method == "POST" and path == "/notifications/viewed":
+                with state.lock:
+                    state.viewed |= {x["id"] for x in NOTIFICATIONS}
+                return self.reply(200, {"message": "Marked viewed", "code": 0, "data": None}), user
+            if method == "POST" and path == "/social/posts":
+                return self.create_post(user), user
+            parts = path.split("/")  # ['', 'social', 'posts', ID, ...]
+            if path.startswith("/social/posts/") and len(parts) >= 4 and parts[3].isdigit():
+                pid = int(parts[3])
+                target = next((p for p in all_posts() if p["id"] == pid), None)
+                if target is None:
+                    return self.reply(404, {"detail": "Post not found"}), user
+                rest = "/".join(parts[4:])
+                if method == "GET" and rest == "replies":
+                    return self.reply(200, replies_of(pid, query, user)), user
+                if method == "POST" and rest == "reactions":
+                    with state.lock:
+                        state.likes.add((user, pid))
+                    return self.reply(200, {"message": "Reaction added", "emoji": "heart"}), user
+                if method == "DELETE" and rest == "reactions":
+                    with state.lock:
+                        state.likes.discard((user, pid))
+                    return self.reply(200, {"message": "Reaction removed"}), user
+                if method == "DELETE" and rest == "":
+                    if target["author"] != user:
+                        return self.reply(403, {"detail": "Not your post"}), user
+                    with state.lock:
+                        state.deleted.add(pid)
+                    return self.reply(200, {"message": "Post deleted"}), user
             if method == "GET" and path.startswith("/social/posts/"):
-                found = [p for p in FEED + POSTS["ada"] if str(p["id"]) == path.rsplit("/", 1)[1]]
+                found = [p for p in all_posts() if str(p["id"]) == path.rsplit("/", 1)[1]]
                 if not found:
                     return self.reply(404, {"detail": "Post not found"}), user
-                body = post_response(found[0])
+                body = post_response(found[0], user)
                 # GET /social/posts/{id} fills in the reactions the timeline leaves out
                 body["reactions_summary"] = REACTIONS.get(found[0]["id"], [])
                 return self.reply(200, body), user
@@ -677,7 +880,7 @@ def make_handler(state):
                     user_id = int(path.rsplit("/", 1)[1])
                 except ValueError:
                     return self.reply(422, {"detail": "user_id must be an integer"}), user
-                return self.reply(200, user_timeline(user_id, query)), user
+                return self.reply(200, user_timeline(user_id, query, user)), user
             if method == "POST" and path == "/user/logout":
                 token = self.headers["Authorization"].partition(" ")[2]
                 with state.lock:
@@ -687,6 +890,29 @@ def make_handler(state):
                     user,
                 )
             return self.reply(404, {"detail": "Not Found"}), user
+
+        def create_post(self, user):
+            """POST /social/posts (PostCreate): a post, a reply (reply_to_id) or a repost."""
+            body = self.json_body()
+            if body is None:
+                return self.reply(422, {"detail": "Invalid body"})
+            content = body.get("content") or ""
+            if len(content) > 4096:
+                return self.reply(422, {"detail": "content: at most 4096 characters"})
+            repost = None
+            if body.get("repost_id") is not None:
+                repost = next((p for p in all_posts() if p["id"] == body["repost_id"]), None)
+                if repost is None:
+                    return self.reply(404, {"detail": "Post not found"})
+            elif not content.strip():
+                return self.reply(400, {"detail": "A post needs content or attachments"})
+            with state.lock:
+                pid = state.next_id
+                state.next_id += 1
+                made = post(user, pid, "2026-10-31T09:00:00", content, body.get("reply_to_id"),
+                            repost=repost)
+                state.made.insert(0, made)
+            return self.reply(201, post_response(made, user))
 
         def sign_in(self, username):
             with state.lock:
@@ -749,6 +975,9 @@ def make_handler(state):
         def do_POST(self):
             self.run("POST")
 
+        def do_DELETE(self):
+            self.run("DELETE")
+
     return Handler
 
 
@@ -767,7 +996,9 @@ def main():
     )
     args = ap.parse_args()
 
+    global LIVE
     state = State(args.log)
+    LIVE = state
     for user in args.signed_in:
         state.live[TOKENS[user]] = user
     server = ThreadingHTTPServer((args.host, args.port), make_handler(state))
