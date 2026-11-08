@@ -18,7 +18,9 @@ set -euo pipefail
 umask 022
 
 SITES=(nicotina nicotina-term)
-# The instances a page may talk to (its CSP connect-src). The page config's --net-allow picks one.
+# The instances a page may talk to (its CSP connect-src), and play video and audio from (media-src:
+# the players stream an attachment from the instance's /uploads). The page config's --net-allow
+# picks one.
 CONNECT="https://tx.wtf https://dev.tx.wtf"
 MAX_BYTES=$((512 * 1024 * 1024))
 # Overridable only so the script can be tested off the box; the forced command sets neither.
@@ -59,7 +61,8 @@ for m in headers deflate; do
   apache2ctl -M 2>/dev/null | grep -q "${m}_module" || a2enmod -q "$m"
 done
 CSP="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; \
-connect-src 'self' $CONNECT; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; \
+connect-src 'self' $CONNECT; img-src 'self' data: blob:; media-src 'self' blob: $CONNECT; \
+font-src 'self' data:; object-src 'none'; \
 base-uri 'self'; form-action 'none'; frame-ancestors 'self'"
 CONF="$APACHE/conf-available/nicotina.conf"
 NEW=$(mktemp)

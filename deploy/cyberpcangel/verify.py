@@ -51,6 +51,10 @@ def main():
         check(status == 200 and body == (root / page).read_bytes(), f"/{site}/ serves {page}")
         csp = headers.get("Content-Security-Policy", "")
         check("'wasm-unsafe-eval'" in csp, "Content-Security-Policy set")
+        # Without media-src the players' <video> and <audio> fall back to default-src 'self', and
+        # Chrome refuses every attachment from the instance ("Media load rejected by URL safety
+        # check").
+        check("media-src 'self' blob:" in csp, "Content-Security-Policy lets video and audio play")
         status, headers, _ = get(f"{base}/{site}", follow=False)
         check(status in (301, 302) and headers.get("Location", "").endswith(f"/{site}/"),
               f"/{site} redirects to /{site}/")

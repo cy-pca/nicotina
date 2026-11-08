@@ -33,7 +33,8 @@ atx-crypto-club/txwtf#312 on. tx.wtf does: `TXWTF_CORS_ORIGINS=https://cyberpcan
 Without CORS the browser blocks the sign-in, and the page says "Can't reach tx.wtf".
 
 To use another instance, change both URLs in `ariadne.config.json`. The pages' Content-Security-Policy
-(`connect-src`) allows tx.wtf and dev.tx.wtf; another instance also needs adding to `CONNECT` in
+allows tx.wtf and dev.tx.wtf, for requests (`connect-src`) and for the video and audio the players
+stream from them (`media-src`); another instance also needs adding to `CONNECT` in
 [nicotina-deploy.sh](nicotina-deploy.sh), and that instance's CORS.
 
 ## How it deploys
@@ -84,8 +85,14 @@ verify.py          every staged file served byte for byte, the CSP, the redirect
 - **Apache** (`nicotina.conf`, scoped to the two directories): `application/wasm`, deflate, no
   directory listings, no rewrites into WordPress, `DirectoryIndex ari.html` for the terminal site,
   `Cache-Control: no-cache` (a redeploy shows on the next load), and
-  `Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://tx.wtf https://dev.tx.wtf; ...; frame-ancestors 'self'`.
+  `Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://tx.wtf https://dev.tx.wtf; img-src 'self' data: blob:; media-src 'self' blob: https://tx.wtf https://dev.tx.wtf; ...; frame-ancestors 'self'`.
   `'unsafe-inline'` styles are for xterm.js's DOM renderer, which it falls back to without WebGL2.
+  `media-src` is for the `video:` and `audio:` players, which are the browser's own `<video>` and
+  `<audio>`: without it they fall back to `default-src 'self'`, and Chrome refuses every
+  attachment ("Media load rejected by URL safety check").
+- **A change to `nicotina-deploy.sh` needs installing on the box** (the command at the top of the
+  script) before it takes effect; the next deploy then rewrites `nicotina.conf`. verify.py checks
+  the live CSP, so a deploy fails its check until the installed script matches.
 
 ## By hand
 

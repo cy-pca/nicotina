@@ -137,10 +137,10 @@ player_stops=0
 # of its URL.
 open_url=
 "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement open-url" || open_url=1
-open_row="││↩5 ⇄3 ♥21 · 310 views                                         [ Open ] │"
+open_row="││↩5 ⇄3 ♥21 · 310 views                                         [ Open ]   │"
 browser_stops=0
 if [ -n "$open_url" ]; then
-  open_row="││↩5 ⇄3 ♥21 · 310 views                           [ Open ][ In browser ] │"
+  open_row="││↩5 ⇄3 ♥21 · 310 views                           [ Open ][ In browser ]   │"
   browser_stops=10
 fi
 
@@ -156,11 +156,11 @@ for backend in ftxui tvision; do
     "$out/snap-$backend-feed.txt" "╭ Home ─" "│@ada@$hostport " "[ Profile ][ Refresh ][ Sign out ]" \
     "Show: (*) Following  ( ) Everyone" "Signed in to 127.0.0.1" \
     " Charles Babbage  @charles@$hostport" " 2026-10-30 22:40" \
-    "││The Difference Engine No. 2, working at last.                          │"
+    "││The Difference Engine No. 2, working at last.                            │"
   if [ -z "$pictures$media" ]; then
     check "ari snapshot ($backend): ... its attachments, a row each" "$out/snap-$backend-feed.txt" \
-      "││[image] engine-diagram.png · 47 KB · The engine, from the side         │" \
-      "││[video] engine.mp4 · 11 KB                                             │"
+      "││[image] engine-diagram.png · 47 KB · The engine, from the side           │" \
+      "││[video] engine.mp4 · 11 KB                                               │"
   fi
   if [ -z "$pictures" ]; then
     check "ari snapshot ($backend): ... the author's initials, and the next card" \
