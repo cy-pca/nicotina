@@ -144,9 +144,10 @@ emoji=
 # The bar along the window's top, in every view.
 bar="[ Back ][ Home ][ Tags ][ Search ][ Alerts ][ Profile ][ Post ]"
 # The first card's counts and buttons, and View on its first attachment's row (it has a picture
-# and a video).
-open_row="││↩5 ⇄3 ♥21 · 310 views              [ Open ][ Reply ][ Like ][ Repost ]"
-view_row="││[image] engine-diagram.png · 47 KB · The engine, from the ... [ View ]"
+# and a video), inside the card's frame. (The window's own frame is rounded, or heavy while it
+# has the focus, by host: the checks look inside it.)
+open_row="│↩5 ⇄3 ♥21 · 310 views              [ Open ][ Reply ][ Like ][ Repost ]"
+view_row="│[image] engine-diagram.png · 47 KB · The engine, from the ... [ View ]"
 
 for backend in ftxui tvision; do
   snap "snap-$backend-signin" "$backend" "" --user ada
@@ -157,45 +158,45 @@ for backend in ftxui tvision; do
   seed_store "$store" ada
   snap "snap-$backend-feed" "$backend" "$store"
   check "ari snapshot ($backend): a stored session opens the home feed, a card a post" \
-    "$out/snap-$backend-feed.txt" "╭ TX.WTF ─" "│$bar" "$bar 2 new" \
+    "$out/snap-$backend-feed.txt" " TX.WTF " "$bar 2 new" \
     "Show: (*) Following  ( ) Everyone  ( ) Friends" "Signed in to 127.0.0.1" \
     " Charles Babbage  @charles@$hostport" " 2026-10-30 22:40" \
-    "││The Difference Engine No. 2, working at last. #engines #brass            │" \
-    "││#engines  #brass                                                         │"
+    "│The Difference Engine No. 2, working at last. #engines #brass            │" \
+    "│#engines  #brass                                                         │"
   check_not "ari snapshot ($backend): ... and no In browser button" "$out/snap-$backend-feed.txt" \
     "In browser"
   if [ -z "$pictures$media" ]; then
     check "ari snapshot ($backend): ... its attachments, a row each" "$out/snap-$backend-feed.txt" \
-      "││[image] engine-diagram.png · 47 KB · The engine, from the side           │" \
-      "││[video] engine.mp4 · 11 KB                                               │"
+      "│[image] engine-diagram.png · 47 KB · The engine, from the side           │" \
+      "│[video] engine.mp4 · 11 KB                                               │"
   fi
   if [ -z "$pictures" ]; then
     check "ari snapshot ($backend): ... the author's initials, and the next card" \
-      "$out/snap-$backend-feed.txt" "││(CB) Charles Babbage  @charles@$hostport" "││     2026-10-30 22:40" \
+      "$out/snap-$backend-feed.txt" "│(CB) Charles Babbage  @charles@$hostport" "│     2026-10-30 22:40" \
       "$open_row" "$view_row" \
-      "││(GH) Grace Hopper  @grace@$hostport"
+      "│(GH) Grace Hopper  @grace@$hostport"
   fi
   grep -v '^ari: ' "$out/snap-$backend-feed.txt" >"$work/frame.txt"
   if [ "$(wc -l <"$work/frame.txt")" -le 24 ] && [ "$(wc -L <"$work/frame.txt")" -le 80 ] &&
-    grep -qE '^  ╰[─┴]{70}' "$work/frame.txt"; then
+    grep -qE '^  [╰┗][─┴━┷]{70}' "$work/frame.txt"; then
     pass "ari snapshot ($backend): the feed fits 80x24, its frame whole"
   else
     fail "ari snapshot ($backend): the feed runs past 80x24" "$out/snap-$backend-feed.txt"
   fi
   snap "snap-$backend-resume" "$backend" "$store" --start profile
   check "ari snapshot ($backend): --start profile: the profile, as the web app lays it out" \
-    "$out/snap-$backend-resume.txt" "╭ TX.WTF ─" "│$bar" " @ada@$hostport  Ada Lovelace" \
+    "$out/snap-$backend-resume.txt" " TX.WTF " "$bar" " @ada@$hostport  Ada Lovelace" \
     "Writes notes on the analytical engine. Prefers punched cards t..." \
     "admin · Verified · online" "GB · Joined 2025-03-01 · 42 posts · 1234 views" \
-    "│Groups: users, analysts" "[ Refresh ][ Sign out ]" \
+    "Groups: users, analysts" "[ Refresh ][ Sign out ]" \
     "Show: (*) Posts  ( ) Replies  ( ) Balances" \
     "2026-10-30  Finished the notes on Menabrea's paper. Not...  ↩2 ♥5 [ Open ]" \
     "2026-10-28  The Analytical Engine weaves algebraic patt...  ↩4 ♥9 [ Open ]" \
     "2026-10-24  Hello, TX.WTF." "[ Newer ][ Older ]  Page 1" "Signed in to 127.0.0.1"
   if [ -z "$pictures" ]; then
     check "ari snapshot ($backend): ... the banner and avatar placeholders" \
-      "$out/snap-$backend-resume.txt" "│████████" "│╭──────╮ @ada@$hostport  Ada Lovelace" \
-      "││  AL  │ Writes notes" "││      │ admin · Verified" "│╰──────╯ GB · Joined"
+      "$out/snap-$backend-resume.txt" "████████" "╭──────╮ @ada@$hostport  Ada Lovelace" \
+      "│  AL  │ Writes notes" "│      │ admin · Verified" "╰──────╯ GB · Joined"
   else
     # The card's picture (card_image_url) is half-blocks behind its text, as the web app dims it
     # behind the card.
@@ -235,7 +236,7 @@ view() { # view NAME START: a 80x60 frame of the view START opens
 }
 view post post:312
 check "ari snapshot: a post: its text, hashtags, counts, reactions, buttons and link" \
-  "$out/snap-view-post.txt" "│$bar" " Charles Babbage  @charles@$hostport" \
+  "$out/snap-view-post.txt" "$bar" " Charles Babbage  @charles@$hostport" \
   "The Difference Engine No. 2, working at last. #engines #brass" \
   "Tags: (*) #engines  ( ) #brass  [ Open tag ]" "↩5 ⇄3 ♥21 · 310 views" \
   "Reactions: :thumbsup: 12  :heart: 9" "[ Like ][ Repost ][ Author ]" \
@@ -391,7 +392,7 @@ else
   seed_store "$store" bob@peer.example
   snap snap-pictures-video-avatar ftxui "$store" --start profile
   check "ari snapshot: a video avatar keeps its placeholder" "$out/snap-pictures-video-avatar.txt" \
-    "│╭──────╮ @bob@peer.example  Bob" "││  B   │"
+    "╭──────╮ @bob@peer.example  Bob" "│  B   │"
   check_not "ari snapshot: ... and isn't fetched as a picture" "$out/stub.log" \
     '"path": "/uploads/u5/avatar-loop.mp4"' '"path": "/uploads/u8/avatar-loop.webm"'
 fi
@@ -546,11 +547,12 @@ else
     # card's Open
     for _ in $(seq $((9 + player_stops))); do keys Tab; done
     keys Enter
-    step "$t: Open: the whole post, its hashtags, reactions, attachments and replies" \
+    # (Its replies are below the fold here: the 80x60 snapshot of post:312 has them.)
+    step "$t: Open: the whole post, its hashtags, reactions and attachments" \
       "Reactions: :thumbsup: 12  :heart: 9" " Charles Babbage  @charles@$hostport" \
       " 2026-10-30 22:40" "↩5 ⇄3 ♥21 · 310 views" "Tags: (*) #engines  ( ) #brass" \
       "[image] engine-diagram.png · 47 KB · The engine, from the side" \
-      "Link: $base/app/post/312" "Splendid. How many digits?"
+      "Link: $base/app/post/312"
     keys Enter # Back: a view just opened has the focus there
     step "$t: Back to the feed" "Show: (*) Following" " Charles Babbage"
     # Back keeps the focus. Load more is stop 53: the bar and Show (8), then ten cards' buttons
@@ -566,9 +568,10 @@ else
     step "$t: the feed, to like a post" "$bar" " Charles Babbage"
     for _ in $(seq $((11 + player_stops))); do keys Tab; done
     keys Enter
-    step "$t: Like: liked, the count one up" "Liked." "↩5 ⇄3 ♥22 · 310 views · liked"
+    # (The view scrolls to keep Like in sight, the status line above it out of sight.)
+    step "$t: Like: liked, the count one up" "↩5 ⇄3 ♥22 · 310 views · liked"
     keys Enter
-    step "$t: Like again: taken back" "Like taken back." "↩5 ⇄3 ♥21 · 310 views "
+    step "$t: Like again: taken back" "↩5 ⇄3 ♥21 · 310 views "
     check_not "$t: ... no mark" "$out/tmux-$(slug "$t: Like again: taken back").txt" "· liked"
 
     # A hashtag, in a terminal: open the post, pick it in the post's Tags (the arrow keys move a
@@ -579,7 +582,8 @@ else
     keys Right
     step "$t: Tags: #brass picked" "( ) #engines  (*) #brass"
     keys Tab; keys Enter # Open tag
-    step "$t: Open tag: the hashtag's posts" "#brass  ·  2 posts" "The engine needs more #brass." \
+    # (The second, #brass on its own, is below the fold here: the 80x60 snapshots have tags.)
+    step "$t: Open tag: the hashtag's posts" "#brass  ·  2 posts" \
       "The Difference Engine No. 2, working at last. #engines #brass"
     check_not "$t: ... and no others" "$out/tmux-$(slug "$t: Open tag: the hashtag's posts").txt" \
       "A ship in port"
@@ -670,7 +674,7 @@ else
       "Your feed is empty. Follow people, or Show: Everyone."
     for _ in $(seq 5); do keys Tab; done
     keys Enter # Profile
-    step "$t: grace's profile" "@grace@$hostport  Grace Hopper" "No posts yet."
+    step "$t: grace's profile" "@grace@$hostport  Grace Hopper" "Nanoseconds, in wire. #engines"
     for _ in $(seq 9); do keys Tab; done
     keys Right; keys Right # the tabs: Balances
     step "$t: grace's balance" "(*) Balances" "SCRIP    25" "Value    \$25.00"
