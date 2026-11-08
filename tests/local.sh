@@ -117,6 +117,9 @@ tokens_from() { awk '!/^#/ && NF == 3 { print $3 }' "$1" >>"$work/secrets"; }
 pictures=
 "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement image.url" || pictures=1
 ada_card="(AL) Ada Lovelace"
+# The bar along the TX.WTF window's top: its seven buttons are the first seven focus stops, and
+# each new view starts with the focus on Back (stop 1): Tab k times reaches stop k + 1.
+bar="[ Back ][ Home ][ Tags ][ Search ][ Alerts ][ Profile ][ Post ]"
 [ -n "$pictures" ] && ada_card=" Ada Lovelace"
 
 # --- the client --------------------------------------------------------------------------------
@@ -134,19 +137,21 @@ for backend in ftxui tvision; do
   step "$t: the form again" "Username: [ada"
   sign_in "$work/password"
   # She follows no one, so her home feed is empty, as txwtf's is then.
-  step "$t: ada signs in: her home feed, empty" "@ada@127.0.0.1:$port" "Show: (*) Following" \
+  step "$t: ada signs in: her home feed, empty" "$bar" "Show: (*) Following" \
     "Your feed is empty. Follow people, or Show: Everyone." "Signed in to 127.0.0.1"
-  keys Tab; keys Tab; keys Tab; keys Tab; keys Right # past Profile, Refresh, Sign out: Everyone
+  for _ in $(seq 7); do keys Tab; done
+  keys Right # past the bar to Show: Everyone
   step "$t: Everyone: the public timeline, a card a post" "(*) Everyone" \
     "$ada_card  @ada@127.0.0.1:$port" "│Bernoulli numbers, step by step." \
     "│Hello from the analytical engine." "[ Open ]"
-  keys BTab; keys BTab; keys BTab; keys Enter # back past Sign out and Refresh to Profile
+  keys BTab; keys BTab; keys Enter # back past Post to Profile
   step "$t: her profile" "@ada@127.0.0.1:$port  Ada Lovelace" \
     "Writes notes on the analytical engine. Prefers punched cards t..." "Joined " \
     "Show: (*) Posts" "  Bernoulli numbers, step by step." "  Hello from the analytical engine."
   check_not "$t: ... her posts, not her reply" "$out/tmux-$(slug "$t: her profile").txt" \
     "Note G is the long one."
-  keys Tab; keys Tab; keys Tab; keys Tab; keys Right # past Feed, Refresh, Sign out: Replies
+  for _ in $(seq 9); do keys Tab; done
+  keys Right # past the bar, Refresh and Sign out: Replies
   step "$t: the Replies tab: her reply" "(*) Replies" "  Note G is the long one."
   keys Right
   step "$t: the Balances tab: the balance the server works out" "(*) Balances" \
@@ -162,7 +167,7 @@ for backend in ftxui tvision; do
   "$ARI" snapshot --backend "$backend" --width 80 --height 24 --net --net-allow "$base" \
     --credential-store "$store" "$main" --instance "$base" >"$out/txwtf-snap-$backend.txt" 2>&1
   check "$t: ari snapshot resumes the session" "$out/txwtf-snap-$backend.txt" \
-    "@ada@127.0.0.1:$port" "Your feed is empty."
+    "$bar" "Your feed is empty."
   if [ "$backend" = ftxui ] && [ -n "$ARIGL" ] && [ -x "$ARIGL" ]; then
     "$ARIGL" snapshot --terminal --frames 60 --width 80 --height 24 --net --net-allow "$base" \
       --credential-store "$store" "$main" --instance "$base" --start profile \
@@ -172,8 +177,43 @@ for backend in ftxui tvision; do
   fi
 
   start "$backend" "$xdg" "$base"
-  step "$t: started again, still signed in" "@ada@127.0.0.1:$port" "Show: (*) Following"
-  keys Tab; keys Tab; keys Tab; keys Enter # past Profile and Refresh to Sign out
+  step "$t: started again, still signed in" "$bar" "Show: (*) Following"
+  # A post with a hashtag, against the server: Post, type, Enter; its hashtag's posts; Back;
+  # Delete (the bar, the post's Tags and Open tag, Like, Repost, Author, Delete).
+  for _ in $(seq 6); do keys Tab; done
+  keys Enter # Post
+  step "$t: a new post" "Who sees it: (*) Public"
+  type_text "Hello from nicotina on $backend. #nicotina"
+  keys Enter
+  step "$t: posted: the post, with its hashtag" "Posted." \
+    "Hello from nicotina on $backend. #nicotina" "Tags: (*) #nicotina" "[ Delete ]"
+  for _ in $(seq 8); do keys Tab; done
+  keys Enter # Open tag
+  step "$t: the hashtag's posts, from the server" "#nicotina  ·  1 post" \
+    "Hello from nicotina on $backend. #nicotina"
+  keys Enter # Back
+  step "$t: Back: the post" "Hello from nicotina on $backend. #nicotina" "[ Delete ]"
+  for _ in $(seq 12); do keys Tab; done
+  keys Enter # Delete
+  step "$t: deleted: back to the feed" "Deleted." "Show: (*) Following"
+  # The notifications, the hashtags and search, as the server answers them.
+  for _ in $(seq 4); do keys Tab; done
+  keys Enter # Alerts
+  step "$t: the notifications" "otifications"
+  keys Tab; keys Tab; keys Enter # Tags
+  step "$t: the hashtags" "ashtag"
+  keys Tab; keys Tab; keys Tab; keys Enter # Search: its field has the focus
+  step "$t: search" "Find: ["
+  type_text "Bernoulli"
+  keys Enter
+  step "$t: search finds her post" "found for \"Bernoulli\"" "Bernoulli numbers"
+  start "$backend" "$xdg" "$base"
+  step "$t: started again, to sign out" "$bar" "Show: (*) Following"
+  for _ in $(seq 5); do keys Tab; done
+  keys Enter # Profile
+  step "$t: her profile, to sign out" "@ada@127.0.0.1:$port  Ada Lovelace" "[ Sign out ]"
+  for _ in $(seq 8); do keys Tab; done
+  keys Enter # past the bar and Refresh to Sign out
   step "$t: ada signs out" "Signed out." "Username: [ada"
   if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: sign-out drops the session"; else
     fail "$t: the session is still in the store after signing out"
@@ -200,11 +240,13 @@ for backend in ftxui tvision; do
     fail "$t: no code in the mail the instance sent"
   fi
   keys BTab; type_secret "$work/code"; keys Tab; keys Enter
-  step "$t: the emailed code signs grace in" "@grace@127.0.0.1:$port" "Your feed is empty."
+  step "$t: the emailed code signs grace in" "$bar" "Your feed is empty."
   tokens_from "$store"
-  keys Tab; keys Enter # Profile
+  for _ in $(seq 5); do keys Tab; done
+  keys Enter # Profile
   step "$t: grace's profile" "@grace@127.0.0.1:$port  Grace Hopper" "No posts yet."
-  keys Tab; keys Tab; keys Tab; keys Tab; keys Right; keys Right # the tabs: Balances
+  for _ in $(seq 9); do keys Tab; done
+  keys Right; keys Right # the tabs: Balances
   step "$t: grace's balance: nothing minted" "(*) Balances" "SCRIP    0" "Value    \$0.00"
   keys BTab; keys Enter # back from the tabs to Sign out
   step "$t: grace signs out" "Signed out."

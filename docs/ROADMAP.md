@@ -32,6 +32,16 @@ on TX.WTF is tracked as T-items in the TX.WTF repository.
 | L9 | `open-url`: the system browser natively, `window.open` in wasm | M3 |
 | L10 | An `arigl` cvcpkg package (today only `ari` has one) and the wasm shell as a package | M0 |
 | L11 | A masked `input_text` for passwords, in ImGui **and both terminal backends** (`password: true`, transfix/libcvc#906, merged); still wanted: a host-held secret field that keeps it out of state | M0 |
+| L12 | `{i}` substituted in a repeated widget's `on_click`, `on_hover`, `on_drag*`, `on_top`, `hint` and `send` (today only `on:` and the binds are) | M2 |
+| L13 | A whole group clickable (`on_click:` on a card), with a hover highlight; in a terminal the group takes the focus and Enter fires it. Then a card opens its post and a picture the viewer | M2 |
+| L14 | `(clipboard-set TEXT)`: the system clipboard in ImGui and the browser, OSC 52 in a terminal. Copy link | M2 |
+| L15 | Rich text: runs with links (hashtags, @mentions, URLs) a click follows, and word wrap, built on the emoji runs of transfix/libcvc#1052 | M2 |
+| L16 | Fullscreen for `video:` and `image:`: the OS window, or the browser's fullscreen | M2 |
+| L17 | `message_input:` tells the document each edit (a live count, and #tag and @mention completion) | M2 |
+| L18 | A file picker that hands the document a host-held file, read in chunks into TX.WTF's resumable upload: attachments | M2 |
+| L19 | `(time-now)`: the wall clock, for "2h ago" | M2 |
+| L20 | Wheel scrolling of a window in FTXUI and tvision | M2 |
+| L21 | End-to-end encrypted messaging in the host: TX.WTF's X3DH and Double Ratchet over libsodium (X25519, Ed25519, XChaCha20-Poly1305, BLAKE2b, Argon2id backup), wire-compatible with the web app, its keys held by the host as the session token is (never in state). Needs a libsodium package on cvcpkg | M2 |
 
 ## Milestones
 
@@ -51,8 +61,24 @@ on TX.WTF is tracked as T-items in the TX.WTF repository.
     tabs), in every host. Pictures, video and audio are placeholders until libcvc can show media
     from a URL (L5's images from `https://`, and the media widgets being designed in
     transfix/libcvc#929). Left: PKCE sign-in, live notifications, other users' profiles.
-- **M2, write:** posts, replies, reactions, and non-E2EE direct messages.
-  E2EE threads open in the browser.
+- **M2, write:** posts, replies, reactions, follows, direct messages and the admin screens,
+  all in the one TX.WTF window, never sending the user to a browser.
+  - Drafted (needs no new host feature): one window, laid out as the web app's single page: a
+    bar (Back, Home, Tags, Search, Alerts with the unread count, Profile, Post) above one view at
+    a time, Back walking the views visited. The feed (Following, Everyone, Friends) and a
+    hashtag's posts; a post with the post it replies to, its hashtags, its replies and a reply
+    box; Like and Repost on a card and a post, Delete on your own; anyone's profile, with Follow;
+    the hashtags; notifications; search; a new post (text, who sees it); a viewer stepping through
+    a post's pictures, videos and recordings. "In browser" is gone: a post shows its link.
+    `--start` opens any view (post:ID, tag:NAME, user:ID, view:ID[:N], tags, alerts, search,
+    compose).
+  - Next, with L12-L20 (transfix/libcvc, the next release): a card and a picture clickable,
+    Copy link, fullscreen video, hashtags and mentions clickable in the text, a live character
+    count, "2h ago", attachments, wheel scrolling in a terminal. Then direct messages: plain
+    first, then end-to-end encrypted ones in the client itself (L21), never in a browser. Then
+    the admin screens an administrator needs: users, groups and permissions, invites, logs,
+    emoji and tag moderation, content retention, federation peers and settings, OIDC clients,
+    mail status. Billing, wallet and monetization admin wait for M3.
 - **M3, SCRIP:** live balance, top-up through hosted checkout in the system
   browser, and the metered prompt chat.
 - **M4, ship:** publish the cvcpkg recipe for linux-x86_64, macOS and Windows,
