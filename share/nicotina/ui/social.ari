@@ -98,8 +98,9 @@ units:
 
   # A post's pictures and videos, one at a time, as wide as the window at their own shape where the
   # host measures the line (image.fill), else 592 x 320 px (74 x 10 cells in a terminal). Prev and
-  # Next step through them; Back closes the viewer. A video here starts with its sound on: opening
-  # it was the click a browser wants first.
+  # Next step through them; Back closes the viewer. A video here has its controls (the feed's and
+  # the post's have none), loops, and starts with its sound on: opening it was the click a browser
+  # wants first.
   viewer_view:
     type: group
     children:
@@ -117,34 +118,32 @@ units:
         bind: viewer.url
         size: "100%"
         max_height: 1400
-        visible_when: (and (has? "image.url") (has? "image.fill") (not (has? "term"))
-                           (= (state-get "viewer.kind") "image"))
+        visible_when: (= (state-get "viewer.v.v_img_fill") "1")
       - image: ""
         bind: viewer.url
         size: [592, 320]
         fit: contain
-        visible_when: (and (has? "image.url") (or (not (has? "image.fill")) (has? "term"))
-                           (= (state-get "viewer.kind") "image"))
+        visible_when: (= (state-get "viewer.v.v_img_fix") "1")
       - video: video
         src: (state-get "viewer.url")
         size: "100%"
         max_height: 1400
         autoplay: true
+        loop: true
         bind: viewer.player
-        visible_when: (and (has? "media.player") (has? "image.fill") (not (has? "term"))
-                           (= (state-get "viewer.kind") "video"))
+        visible_when: (= (state-get "viewer.v.v_vid_fill") "1")
       - video: video
         src: (state-get "viewer.url")
         size: [592, 333]
         fit: contain
         autoplay: true
+        loop: true
         bind: viewer.player
-        visible_when: (and (has? "media.player") (or (not (has? "image.fill")) (has? "term"))
-                           (= (state-get "viewer.kind") "video"))
+        visible_when: (= (state-get "viewer.v.v_vid_fix") "1")
       - audio: recording
         src: (state-get "viewer.url")
         bind: viewer.player
-        visible_when: (and (has? "media.player") (= (state-get "viewer.kind") "audio"))
+        visible_when: (= (state-get "viewer.v.v_aud") "1")
       - text: ""
         bind: viewer.row
         color: [0.45, 0.75, 0.85]

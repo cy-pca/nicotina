@@ -42,6 +42,9 @@ on TX.WTF is tracked as T-items in the TX.WTF repository.
 | L19 | `(time-now)`: the wall clock, for "2h ago" | M2 |
 | L20 | Wheel scrolling of a window in FTXUI and tvision | M2 |
 | L21 | End-to-end encrypted messaging in the host: TX.WTF's X3DH and Double Ratchet over libsodium (X25519, Ed25519, XChaCha20-Poly1305, BLAKE2b, Argon2id backup), wire-compatible with the web app, its keys held by the host as the session token is (never in state). Needs a libsodium package on cvcpkg | M2 |
+| L22 | Loop as a player control: a Loop box beside Mute, and a `loop` key the document reads and writes, as `muted` | M2 |
+| L23 | `badge:` on `image:` and `video:`, a label drawn over the picture (the grid's "+N"), with a capability token (`image.badge`). Not `overlay:`, a widget type the loader would take it for | M2 |
+| L24 | A reactive expression the per-frame budget skipped is not the document's error: no warning (a big feed's first frame in wasm showed one) | M2 |
 
 ## Milestones
 
@@ -72,6 +75,11 @@ on TX.WTF is tracked as T-items in the TX.WTF repository.
     a post's pictures, videos and recordings. "In browser" is gone: a post shows its link.
     `--start` opens any view (post:ID, tag:NAME, user:ID, view:ID[:N], tags, alerts, search,
     compose).
+  - Drafted: a post's pictures and videos as tx.wtf lays them out, one as wide as the card or a
+    grid of up to four with "+N" for the rest (where the host measures the line: image.fill,
+    libcvc 3.7.13); videos in the feed and a post play muted and looping with no
+    controls, the viewer has them, and a click pauses or plays one (L12). The bar and each view
+    scope their widgets' IDs, so the search view's Search button is no longer the bar's.
   - Next, with L12-L20 (transfix/libcvc, the next release): a card and a picture clickable,
     Copy link, fullscreen video, hashtags and mentions clickable in the text, a live character
     count, "2h ago", attachments, wheel scrolling in a terminal. Then direct messages: plain

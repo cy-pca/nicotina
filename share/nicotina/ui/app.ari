@@ -21,6 +21,10 @@
 # view changes, and the copy that appears gives its Back the focus (autofocus:). A view's own
 # autofocus (the search field, a new post's text, the reply box) comes later in the window and
 # takes it from Back.
+#
+# Each copy of the bar and each view is a group with an id:, which scopes its widgets' identities
+# (ImGui's IDs): the bar's Search and the search view's Search button are two buttons, not one ID
+# drawn twice.
 
 units:
   # The bar: Back, then the parts of the client. A terminal draws a button as its label in
@@ -60,44 +64,54 @@ units:
     background: {bind: prof.bg_pic_shown, fit: cover, opacity: 0.25, terminal: none}
     children:
       - type: group
+        id: nav_a
         visible_when: (!= (state-get "ui.nav") "b")
         children:
           - include: nav_bar
       - type: group
+        id: nav_b
         visible_when: (= (state-get "ui.nav") "b")
         children:
           - include: nav_bar
       - include: status_line
       - separator
       - type: group
+        id: v_feed
         visible_when: (= (state-get "ui.screen") "feed")
         children:
           - include: feed_view
       - type: group
+        id: v_post
         visible_when: (= (state-get "ui.screen") "post")
         children:
           - include: post_view
       - type: group
+        id: v_profile
         visible_when: (= (state-get "ui.screen") "profile")
         children:
           - include: profile_view
       - type: group
+        id: v_tags
         visible_when: (= (state-get "ui.screen") "tags")
         children:
           - include: tags_view
       - type: group
+        id: v_alerts
         visible_when: (= (state-get "ui.screen") "alerts")
         children:
           - include: alerts_view
       - type: group
+        id: v_search
         visible_when: (= (state-get "ui.screen") "search")
         children:
           - include: search_view
       - type: group
+        id: v_compose
         visible_when: (= (state-get "ui.screen") "compose")
         children:
           - include: compose_view
       - type: group
+        id: v_viewer
         visible_when: (= (state-get "ui.screen") "viewer")
         children:
           - include: viewer_view
