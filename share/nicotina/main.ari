@@ -53,6 +53,7 @@ requires:
   - state-set-tree
 
 import:
+  - ui/card.ari
   - ui/signin.ari
   - ui/app.ari
   - ui/home.ari
@@ -87,6 +88,10 @@ init: |
   ;; Where the window is (main.ari's "go"), and the views before it, for Back.
   (state-set "ui.here" "")
   (state-set "ui.back" "")
+  (state-set "ui.fwd" "")
+  ;; The window is titled by the site (GET /site/title, asked at start), its host until then.
+  (state-set "app.title" host)
+  (state-set "app.signin_title" (str-concat "Sign in to " host))
   (state-set "ui.nav" "a") ;; which copy of the bar is drawn (ui/app.ari): flipped per view
   ;; What the host can do, asked once. The controller decides from these what each card, post and
   ;; viewer item shows (card-flags, post-flags, item-flags), and a view reads that decision, one
@@ -100,11 +105,15 @@ init: |
   ;; clicks: a group's click is its own and its handlers see {i} (ui.group_click, libcvc 3.7.13)
   (state-set "app.clicks" (if (has? "ui.group_click") "1" ""))
   (state-set "app.clip" (if (has? "clipboard-set") "1" ""))
-  (state-set-tree "feed" (dict "items" (list) "mode" "Following" "source" "home" "tag" "" "title" ""
+  ;; icons: the bar's buttons and the feed's choices as symbols (a back arrow, a house, ...),
+  ;; where a window draws emoji (text.emoji: libcvc 3.7.13); elsewhere words
+  (state-set "app.icons" (if (and (has? "text.emoji") (not (has? "term"))) "1" ""))
+  (state-set-tree "feed" (dict "items" (list) "mode" "Following" "mode_pick" "👥 Following"
+                               "source" "home" "tag" "" "title" ""
                                "more" "" "before" "" "offset" 0 "empty" "" "tail" ""))
   (state-set-tree "post" (dict "lines" (list) "media" (list) "replies" (list) "tags" ""
                                "parent" "" "mine" "" "focus_reply" "" "reply_text" ""))
-  (state-set-tree "tab" (dict "rows" (list) "offset" 0 "more" "" "page" ""))
+  (state-set-tree "tab" (dict "rows" (list) "items" (list) "offset" 0 "more" "" "page" ""))
   (state-set-tree "prof" (dict "self" "" "following" "" "bg_pic_shown" ""))
   (state-set-tree "tags" (dict "rows" (list) "more" "" "offset" 0 "head" ""))
   (state-set-tree "alerts" (dict "rows" (list) "head" "" "badge" ""))
@@ -253,7 +262,7 @@ on_tick: |
                                        "tail" ""))
           (state-set-tree "post" (dict "lines" (list) "media" (list) "replies" (list) "tags" ""
                                        "parent" "" "mine" "" "focus_reply" "" "reply_text" ""))
-          (state-set-tree "tab" (dict "rows" (list) "offset" 0 "more" "" "page" ""))
+          (state-set-tree "tab" (dict "rows" (list) "items" (list) "offset" 0 "more" "" "page" ""))
           (state-set-tree "prof" (dict "self" "" "following" "" "bg_pic_shown" ""))
           (state-set-tree "alerts" (dict "rows" (list) "head" "" "badge" ""))
           (state-set-tree "search" (dict "q" "" "rows" (list) "note" "Find posts and people."))
@@ -467,6 +476,11 @@ on_tick: |
         (begin
           (while (< (length rows) PAGE) (set rows (append rows (dict "id" "" "line" " "))))
           (state-set-tree "tab.rows" rows)))
+      ;; In a window the tab's posts are cards (ui/card.ari's card_list over tab.items); a
+      ;; terminal keeps the rows, a page of which fits 80x24.
+      ;; None in a terminal, and none on the Balances tab: the list is shown as it is.
+      (defun show-cards (posts)
+        (state-set-tree "tab.items" (if (cap "term") (list) (collections.map posts feed-card))))
       (defun note-row (s) (dict "id" "" "line" s))
       ;; The tab ui.tab names, from tab.offset: Posts asks for a page of five; Replies, as the
       ;; web app does, asks for twenty posts and replies together and keeps the replies.
@@ -474,7 +488,7 @@ on_tick: |
         (let ((tab (state-get "ui.tab"))
               (off (int (state-get "tab.offset"))))
           (if (= tab "Balances")
-            true
+            (begin (show-cards (list)) (state-set "tab.empty" "") true)
             (let ((r (get-authed (str-concat "/social/timeline/user/" (text (state-get "prof.id"))
                                              (if (= tab "Posts")
                                                (str-concat "?include_replies=false&limit=" (text PAGE))
@@ -490,6 +504,10 @@ on_tick: |
                     (show-rows (if (= (length posts) 0)
                                  (list (note-row (if (= tab "Posts") "No posts yet." "No replies yet.")))
                                  (collections.map posts post-row)))
+                    (show-cards posts)
+                    (state-set "tab.empty" (if (= (length posts) 0)
+                                             (if (= tab "Posts") "No posts yet." "No replies yet.")
+                                             ""))
                     (state-set "tab.more" (if (opt (reply-json r) "has_more" nil) "1" ""))
                     (state-set "tab.page"
                       (if (and (= off 0) (= (state-get "tab.more") "")) ""
@@ -497,6 +515,8 @@ on_tick: |
                     true))
                 (begin
                   (show-rows (list (note-row (str-concat "Couldn't load the " (string.lower tab) "."))))
+                  (show-cards (list))
+                  (state-set "tab.empty" (str-concat "Couldn't load the " (string.lower tab) "."))
                   (state-set "tab.more" "")
                   (if (session-over? r) (session-over)
                     (if (= (status r) 0) (unreachable r)
@@ -722,6 +742,16 @@ on_tick: |
               "c_views" (str-concat "· " (text (opt q "view_count" 0)) " views")))
       (defun merge4 (a b c d)
         (collections.dict-merge (collections.dict-merge (collections.dict-merge a b) c) d))
+      ;; The site's own name (GET /site/title, a JSON string, no sign-in needed): the window's
+      ;; title, as the web app's. Its host when the site has none or doesn't answer.
+      (defun load-site-title ()
+        (let ((r (http-get (str-concat (base) "/site/title")
+                           (dict "headers" (dict "Accept" "application/json")))))
+          (let ((name (if (ok? r) (string.trim (text (reply-json r))) "")))
+            (begin
+              (if (or (= name "") (= name "{}")) (set name (state-get "app.host")))
+              (state-set "app.title" name)
+              (state-set "app.signin_title" (str-concat "Sign in to " name))))))
       (defun counts-of (q)
         (str-concat "↩" (text (opt q "reply_count" 0)) " ⇄" (text (opt q "repost_count" 0))
                     " ♥" (text (opt q "reaction_count" 0)) " · " (text (opt q "view_count" 0))
@@ -1290,6 +1320,7 @@ on_tick: |
           (if (show-entry entry)
             (begin
               (if (and (!= was "") (!= was entry)) (push-back was))
+              (state-set "ui.fwd" "")
               (state-set "ui.here" entry)
               (new-view)
               true)
@@ -1297,6 +1328,7 @@ on_tick: |
       (defun go-home ()
         (begin
           (state-set "ui.back" "")
+          (state-set "ui.fwd" "")
           (state-set "ui.here" "")
           (go "feed")))
 
@@ -1385,9 +1417,9 @@ on_tick: |
           (if (ok? r)
             (begin (say (if (= reposted "1") "Repost taken back." "Reposted.")) true)
             (begin (act-failed r (if (= reposted "1") "take the repost back" "repost it")) nil))))
-      ;; After either, card i's counts and marks, from the post again.
-      (defun refresh-card (i)
-        (let ((key (str-concat "feed.items." (text i))))
+      ;; After either, card i of LIST's counts and marks, from the post again.
+      (defun refresh-card (lst i)
+        (let ((key (str-concat lst "." (text i))))
           (let ((r (get-authed (str-concat "/social/posts/" (text (state-get (str-concat key ".id")))))))
             (if (ok? r)
               (let ((c (feed-card (reply-json r))))
@@ -1401,8 +1433,13 @@ on_tick: |
                             (set-attr c "liked" (if (opt op "user_has_reacted" nil) "1" ""))
                             (set-attr c "reposted" (if (opt op "user_has_reposted" nil) "1" ""))
                             (set-attr c "my_repost" (text (opt op "user_repost_id" ""))))))))
-                  (for k (list "counts" "liked" "reposted" "my_repost")
+                  (for k (list "counts" "liked" "reposted" "my_repost"
+                               "c_reply" "c_repost" "c_like" "c_views")
                     (state-set (str-concat key "." k) (get-attr c k)))))))))
+      ;; The list the card pressed is in (act.list): the feed's when a terminal's buttons, which
+      ;; don't name one, were pressed.
+      (defun card-list ()
+        (let ((l (text (state-get "act.list")))) (if (= l "") "feed.items" l)))
       ;; A new post, or a reply (reply_to set): POST /social/posts. Its id, or nil.
       (defun publish (content reply-to visibility)
         (let ((r (send-authed "POST" "/social/posts"
@@ -1417,7 +1454,7 @@ on_tick: |
         (begin
           (if (= cmd "resume")
             ;; and/or are functions here, not special forms: they evaluate every argument.
-            (if (if (net-auth-has? "txwtf" (base)) (load-home) nil)
+            (if (begin (load-site-title) (if (net-auth-has? "txwtf" (base)) (load-home) nil))
               (say (signed-in-msg))
               (state-set "ui.screen" (if (= (state-get "ui.screen") "boot") "signin" (state-get "ui.screen")))))
           (if (= cmd "login")
@@ -1439,14 +1476,33 @@ on_tick: |
                   (after-login (post-json "/user/login/2fa"
                                           (dict "challenge" (state-get "login.challenge") "code" code)
                                           true))))))
-          ;; Back: on the code screen, to the sign-in form; signed in, to the view before.
+          ;; Back: on the code screen, to the sign-in form; signed in, to the view before, and
+          ;; Forward returns to where Back left.
           (if (= cmd "back")
             (if (= (state-get "ui.screen") "2fa")
               (to-signin "" nil)
-              (let ((entry (pop-back)))
+              (let ((entry (pop-back)) (was (state-get "ui.here")))
                 (if (= entry "")
                   (say "This is where you started.")
-                  (if (show-entry entry) (begin (state-set "ui.here" entry) (new-view)))))))
+                  (if (show-entry entry)
+                    (begin
+                      (if (!= was "")
+                        (state-set "ui.fwd" (if (= (state-get "ui.fwd") "") was
+                                              (str-concat (state-get "ui.fwd") ";" was))))
+                      (state-set "ui.here" entry)
+                      (new-view)))))))
+          (if (= cmd "forward")
+            (let ((l (if (= (state-get "ui.fwd") "") (list) (string.split (state-get "ui.fwd") ";")))
+                  (was (state-get "ui.here")))
+              (if (= (length l) 0)
+                (say "Nothing to go forward to.")
+                (let ((entry (nth l (- (length l) 1))))
+                  (if (show-entry entry)
+                    (begin
+                      (state-set "ui.fwd" (string.join (slice l 0 (- (length l) 1)) ";"))
+                      (if (!= was "") (push-back was))
+                      (state-set "ui.here" entry)
+                      (new-view)))))))
           (if (= cmd "home") ;; on the feed already: it again, newest first
             (let ((again (and (= (state-get "ui.screen") "feed") (= (state-get "feed.source") "home"))))
               (if (go-home) (if again (say (str-concat "Updated. " (signed-in-msg)))))))
@@ -1498,17 +1554,17 @@ on_tick: |
                   (begin
                     (say (str-concat "Loading " (string.lower (state-get "ui.tab")) "..."))
                     (if (load-tab) (say "")))))))
-          ;; On a card: act.i names it.
+          ;; On a card: act.list and act.i name it (the feed's, a hashtag's or a profile's).
           (if (= cmd "like")
-            (let ((key (str-concat "feed.items." (text (state-get "act.i")))))
+            (let ((key (str-concat (card-list) "." (text (state-get "act.i")))))
               (if (toggle-like (state-get (str-concat key ".pid")) (text (state-get (str-concat key ".liked"))))
-                (refresh-card (state-get "act.i")))))
+                (refresh-card (card-list) (state-get "act.i")))))
           (if (= cmd "repost")
-            (let ((key (str-concat "feed.items." (text (state-get "act.i")))))
+            (let ((key (str-concat (card-list) "." (text (state-get "act.i")))))
               (if (toggle-repost (state-get (str-concat key ".pid"))
                                  (text (state-get (str-concat key ".reposted")))
                                  (text (state-get (str-concat key ".my_repost"))))
-                (refresh-card (state-get "act.i")))))
+                (refresh-card (card-list) (state-get "act.i")))))
           ;; On the post shown.
           (if (= cmd "post-like")
             (if (toggle-like (state-get "post.pid") (text (state-get "post.liked")))
@@ -1600,6 +1656,12 @@ menubar:
       - menu_item: Back
         on: (state-set "ui.cmd" "back")
         enabled_when: (and (!= (state-get "ui.back") "") (!= (state-get "ui.busy") "1"))
+      - menu_item: Forward
+        on: (state-set "ui.cmd" "forward")
+        enabled_when: (and (!= (state-get "ui.fwd") "") (!= (state-get "ui.busy") "1"))
+      # The window closes with its X; this brings it back.
+      - menu_item: Show the window
+        on: (begin (state-set "tree.app.open" 1) (state-set "tree.app.raise" "1"))
       - menu_item: New post
         on: (state-set "ui.cmd" "compose")
         enabled_when: (and (!= (state-get "ui.screen") "signin") (!= (state-get "ui.screen") "2fa")

@@ -74,7 +74,7 @@ from urllib.parse import parse_qs
 
 PASSWORD = "correct horse"
 TOP_LEVEL = ("/user/", "/billing/", "/social/", "/uploads/", "/static/", "/notifications",
-             "/search/")
+             "/search/", "/site/")
 TWO_FACTOR_CODE = "123456"
 CHALLENGE = "Q9mUj4Z1x0bR7nVt2LcYw8sDp3HkGfA5"
 
@@ -768,6 +768,9 @@ def make_handler(state):
                 gear = png(32, 32, lambda x, y: (120, 120, 130) if 64 <= (x - 16) ** 2 + (y - 16) ** 2
                            <= 196 else (250, 200, 60))
                 return self.reply_bytes(200, gear, "image/png"), None
+            if method == "GET" and path == "/site/title":
+                # the site's name, public as txwtf's: the client's window is titled by it
+                return self.reply(200, "TX.WTF"), None
             if method == "GET" and (path.startswith("/uploads/") or path.startswith("/static/")):
                 # no auth, as txwtf serves them
                 mime, source = FILES.get(path, ("image/png", None))

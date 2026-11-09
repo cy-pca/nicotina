@@ -117,7 +117,7 @@ tokens_from() { awk '!/^#/ && NF == 3 { print $3 }' "$1" >>"$work/secrets"; }
 pictures=
 "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement image.url" || pictures=1
 ada_card="(AL) Ada Lovelace"
-# The bar along the TX.WTF window's top: its seven buttons are the first seven focus stops, and
+# The bar along the main window's top: its seven buttons are the first seven focus stops, and
 # each new view starts with the focus on Back (stop 1): Tab k times reaches stop k + 1.
 bar="[ Back ][ Home ][ Tags ][ Search ][ Alerts ][ Profile ][ Post ]"
 [ -n "$pictures" ] && ada_card=" Ada Lovelace"
@@ -255,7 +255,7 @@ for backend in ftxui tvision; do
   step "$t: the form for linus" "Username: [linus"
   sign_in "$work/password"
   step "$t: linus must change his password first" "Change your password at 127.0.0.1" \
-    "Sign in to TX.WTF"
+    "Sign in to tx.wtf"
   if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: and no session is kept"; else
     fail "$t: a session was kept for an account that must change its password"
   fi
@@ -285,7 +285,7 @@ stop_backend
   --credential-store "$work/session-for-later" "$main" --instance "$base" \
   >"$out/txwtf-snap-down.txt" 2>&1
 check "with the server stopped, the client says it can't reach it" "$out/txwtf-snap-down.txt" \
-  "Sign in to TX.WTF" "Can't reach 127.0.0.1:$port"
+  "Sign in to 127.0.0.1:$port" "Can't reach 127.0.0.1:$port"
 
 no_secrets_in_output "$work/secrets"
 finish

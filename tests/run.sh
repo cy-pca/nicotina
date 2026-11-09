@@ -444,8 +444,9 @@ seed_store "$work/snap-down/credentials" ada http://127.0.0.1:9
 "$ARI" snapshot --width 80 --height 24 --net-allow http://127.0.0.1:9 \
   --credential-store "$work/snap-down/credentials" "$main" --instance http://127.0.0.1:9 \
   >"$out/snap-unreachable.txt" 2>&1
+# (No site answers to name the window, so its host does.)
 check "ari snapshot: an instance that doesn't answer" "$out/snap-unreachable.txt" \
-  "Sign in to TX.WTF" "Can't reach 127.0.0.1:9"
+  "Sign in to 127.0.0.1:9" "Can't reach 127.0.0.1:9"
 
 # --- 4. arigl snapshot ------------------------------------------------------------------------
 
