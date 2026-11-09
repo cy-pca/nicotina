@@ -5,7 +5,8 @@
 # hashtag's posts (feed.source "tag"). A card is a bordered group: a header (the author's avatar,
 # name, handle and time), the text (three lines at most), its hashtags, the attachments, and the
 # counts with the card's buttons: Open (the whole post), Reply, Like and Repost. A post with
-# pictures, video or a recording has View too, on its first attachment's row (the viewer).
+# pictures, video or a recording has View too (the viewer), on its first attachment's row, or
+# among the buttons where the grid shows every attachment.
 #
 # Terminal first: the window is as wide as its cards (74 columns in a terminal, the cards' text 70)
 # and at most 86% of the screen tall (21 rows in an 80x24 terminal; more in a bigger one, or a
@@ -15,16 +16,24 @@
 #
 # Avatars and pictures show where the host can fetch a picture from a URL (image.url:
 # transfix/libcvc#931); txwtf's /uploads/... and /static/... need no sign-in. Elsewhere an avatar
-# is the author's initials. Every attachment also has a row naming it (its kind, file name, size
-# and alt text). Video and audio play in the card and the post (video: and audio:, with their
-# controls) where the host has a player; elsewhere they are rows too. A video starts by itself,
-# muted, as the web app's feed does (a browser plays sound only after a click on the page, and ten
-# cards' sound at once would be noise); its Mute box turns the sound on.
-# Where the host measures the line (image.fill: ImGui, transfix/libcvc#1052) a picture or a video
-# is as wide as the card at its own shape, and a video plays while it is in view; a terminal keeps
-# the small fixed sizes. A post's emoji (text.emoji, the same PR) come from its content_html: a
-# custom one is drawn as its picture in the line (a terminal keeps its :name:), a standard one's
-# shortcode becomes its character.
+# is the author's initials. An attachment also has a row naming it (its kind, file name, size and
+# alt text), except where the grid below shows them all. Video and audio play in the card and the
+# post where the host has a player (video: and audio:); elsewhere they are rows. A video plays by
+# itself, muted and looping, as the web app's feed does (a browser plays sound only after a click
+# on the page, and ten cards' sound at once would be noise), with no controls: View has them, and
+# a click on it pauses or plays it. A recording keeps its controls.
+# Outside a terminal the pictures and videos are laid out as tx.wtf lays them out: one is the
+# whole picture or video, as wide as the post at its own shape; two or more are a grid of up to
+# four, "+N" on the fourth for the rest. Where the host measures the line (image.fill: ImGui,
+# transfix/libcvc#1052) they fill it, and a video plays while it is in view; elsewhere the grid is
+# 592 px across. A terminal shows the first picture and the first video, small. A post's emoji (text.emoji, transfix/libcvc#1056)
+# come from its content_html: a custom one is drawn as its picture in the line (a terminal keeps
+# its :name:), a standard one's shortcode becomes its character.
+#
+# What a card or a post shows (its avatar, its picture, its player, its rows) the controller
+# decides once, as it builds the card (main.ari's card-flags, post-flags and item-flags, from the
+# host's capabilities, asked once at start as app.*). Each widget's visible_when reads that one
+# key: a predicate runs on every frame, so it stays a single state read.
 #
 # Hashtags: a button's label is fixed in an Ariadne document, so a post's hashtags are a radio
 # row, whose options a program computes. Outside a terminal, clicking one opens that hashtag's
@@ -32,6 +41,675 @@
 # text, and the post's view has the row and an Open tag button.
 
 units:
+  # The media grid, as tx.wtf's: a card's (card_grid, card_fgrid) and a post's (post_grid,
+  # post_fgrid), from main.ari's grid-fields: gn tiles (1 to 4), each a picture or a video (g0..g3),
+  # and gmore, "+N", over the fourth when there are more. One is the whole picture or video, as
+  # wide as the post at its own shape. Two or more are tiles cropped to their cells, 180 px tall:
+  # two side by side, three in a row, four two by two. _grid is for a host that measures the line
+  # (image.fill: libcvc 3.7.13), each tile filling its column; _fgrid for one that doesn't, at
+  # fixed sizes 592 px across. A video plays by itself, muted and looping, with no controls: the
+  # viewer (View) has them. A click on a lone video pauses or plays it; a click on a picture, or
+  # on a tile, opens the viewer at it. (Clicks need a host whose handlers see {i}: ui.group_click,
+  # libcvc 3.7.13.)
+  card_grid:
+    type: group
+    children:
+      # One: the whole picture or video, as wide as the post at its own shape.
+      - type: group
+        visible_when: (= (state-get "feed.items.{i}.gn") "1")
+        children:
+          - image: ""
+            bind: feed.items.{i}.g0_url
+            size: "100%"
+            on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g0_vi")) (state-set "ui.cmd" "view")))
+            visible_when: (= (state-get "feed.items.{i}.g0_kind") "image")
+          - video: video
+            src: (state-get "feed.items.{i}.g0_url")
+            size: "100%"
+            controls: false
+            autoplay: true
+            muted: true
+            loop: true
+            bind: feed.items.{i}.g0_player
+            on_click: (if (has? "ui.group_click") (state-set "feed.items.{i}.g0_player.playing" (if (= (state-get "feed.items.{i}.g0_player.playing") "1") "0" "1")))
+            visible_when: (= (state-get "feed.items.{i}.g0_kind") "video")
+      # Two side by side, three in a row, four two by two: each tile fills its column.
+      - type: group
+        layout: {kind: grid, col_widths: ["50%", "50%"]}
+        visible_when: (= (state-get "feed.items.{i}.gn") "2")
+        children:
+          - include: card_tile_0
+          - include: card_tile_1
+      - type: group
+        layout: {kind: grid, col_widths: ["34%", "33%", "33%"]}
+        visible_when: (= (state-get "feed.items.{i}.gn") "3")
+        children:
+          - include: card_tile_0
+          - include: card_tile_1
+          - include: card_tile_2
+      - type: group
+        layout: {kind: grid, col_widths: ["50%", "50%"]}
+        visible_when: (= (state-get "feed.items.{i}.gn") "4")
+        children:
+          - include: card_tile_0
+          - include: card_tile_1
+          - include: card_tile_2
+          - include: card_tile_3
+      # How many more there are: over the fourth tile where the host draws a label over a picture
+      # (image.badge), else under the grid.
+      - text: ""
+        bind: feed.items.{i}.gmore_line
+        color: [0.6, 0.6, 0.6]
+        visible_when: (= (state-get "feed.items.{i}.v_gmore") "1")
+  card_tile_0:
+    type: group
+    children:
+      - image: ""
+        bind: feed.items.{i}.g0_url
+        size: ["100%", 180]
+        fit: cover
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g0_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "feed.items.{i}.g0_kind") "image")
+      - video: video
+        src: (state-get "feed.items.{i}.g0_url")
+        size: ["100%", 180]
+        fit: cover
+        controls: false
+        autoplay: true
+        muted: true
+        loop: true
+        bind: feed.items.{i}.g0_player
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g0_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "feed.items.{i}.g0_kind") "video")
+  card_tile_1:
+    type: group
+    children:
+      - image: ""
+        bind: feed.items.{i}.g1_url
+        size: ["100%", 180]
+        fit: cover
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g1_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "feed.items.{i}.g1_kind") "image")
+      - video: video
+        src: (state-get "feed.items.{i}.g1_url")
+        size: ["100%", 180]
+        fit: cover
+        controls: false
+        autoplay: true
+        muted: true
+        loop: true
+        bind: feed.items.{i}.g1_player
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g1_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "feed.items.{i}.g1_kind") "video")
+  card_tile_2:
+    type: group
+    children:
+      - image: ""
+        bind: feed.items.{i}.g2_url
+        size: ["100%", 180]
+        fit: cover
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g2_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "feed.items.{i}.g2_kind") "image")
+      - video: video
+        src: (state-get "feed.items.{i}.g2_url")
+        size: ["100%", 180]
+        fit: cover
+        controls: false
+        autoplay: true
+        muted: true
+        loop: true
+        bind: feed.items.{i}.g2_player
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g2_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "feed.items.{i}.g2_kind") "video")
+  card_tile_3:
+    type: group
+    children:
+      - image: ""
+        bind: feed.items.{i}.g3_url
+        size: ["100%", 180]
+        fit: cover
+        badge: (state-get "feed.items.{i}.gmore")
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g3_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "feed.items.{i}.g3_kind") "image")
+      - video: video
+        src: (state-get "feed.items.{i}.g3_url")
+        size: ["100%", 180]
+        fit: cover
+        controls: false
+        autoplay: true
+        muted: true
+        loop: true
+        badge: (state-get "feed.items.{i}.gmore")
+        bind: feed.items.{i}.g3_player
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g3_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "feed.items.{i}.g3_kind") "video")
+  card_fgrid:
+    type: group
+    children:
+      # One: the whole picture or video, as wide as the post at its own shape.
+      - type: group
+        visible_when: (= (state-get "feed.items.{i}.gn") "1")
+        children:
+          - image: ""
+            bind: feed.items.{i}.g0_url
+            size: 592
+            on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g0_vi")) (state-set "ui.cmd" "view")))
+            visible_when: (= (state-get "feed.items.{i}.g0_kind") "image")
+          - video: video
+            src: (state-get "feed.items.{i}.g0_url")
+            size: 592
+            controls: false
+            autoplay: true
+            muted: true
+            loop: true
+            bind: feed.items.{i}.g0_player
+            on_click: (if (has? "ui.group_click") (state-set "feed.items.{i}.g0_player.playing" (if (= (state-get "feed.items.{i}.g0_player.playing") "1") "0" "1")))
+            visible_when: (= (state-get "feed.items.{i}.g0_kind") "video")
+      # Two side by side, three in a row, four two by two: 592 px across, as the line is.
+      - type: group
+        layout: {kind: horizontal}
+        visible_when: (= (state-get "feed.items.{i}.gn") "2")
+        children:
+          - include: card_ftile_0_292
+          - include: card_ftile_1_292
+      - type: group
+        layout: {kind: horizontal}
+        visible_when: (= (state-get "feed.items.{i}.gn") "3")
+        children:
+          - include: card_ftile_0_194
+          - include: card_ftile_1_194
+          - include: card_ftile_2_194
+      - type: group
+        visible_when: (= (state-get "feed.items.{i}.gn") "4")
+        children:
+          - type: group
+            layout: {kind: horizontal}
+            children:
+              - include: card_ftile_0_292
+              - include: card_ftile_1_292
+          - type: group
+            layout: {kind: horizontal}
+            children:
+              - include: card_ftile_2_292
+              - include: card_ftile_3_292
+      # How many more there are: over the fourth tile where the host draws a label over a picture
+      # (image.badge), else under the grid.
+      - text: ""
+        bind: feed.items.{i}.gmore_line
+        color: [0.6, 0.6, 0.6]
+        visible_when: (= (state-get "feed.items.{i}.v_gmore") "1")
+  card_ftile_0_292:
+    type: group
+    children:
+      - image: ""
+        bind: feed.items.{i}.g0_url
+        size: [292, 180]
+        fit: cover
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g0_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "feed.items.{i}.g0_kind") "image")
+      - video: video
+        src: (state-get "feed.items.{i}.g0_url")
+        size: [292, 180]
+        fit: cover
+        controls: false
+        autoplay: true
+        muted: true
+        loop: true
+        bind: feed.items.{i}.g0_player
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g0_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "feed.items.{i}.g0_kind") "video")
+  card_ftile_1_292:
+    type: group
+    children:
+      - image: ""
+        bind: feed.items.{i}.g1_url
+        size: [292, 180]
+        fit: cover
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g1_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "feed.items.{i}.g1_kind") "image")
+      - video: video
+        src: (state-get "feed.items.{i}.g1_url")
+        size: [292, 180]
+        fit: cover
+        controls: false
+        autoplay: true
+        muted: true
+        loop: true
+        bind: feed.items.{i}.g1_player
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g1_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "feed.items.{i}.g1_kind") "video")
+  card_ftile_2_292:
+    type: group
+    children:
+      - image: ""
+        bind: feed.items.{i}.g2_url
+        size: [292, 180]
+        fit: cover
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g2_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "feed.items.{i}.g2_kind") "image")
+      - video: video
+        src: (state-get "feed.items.{i}.g2_url")
+        size: [292, 180]
+        fit: cover
+        controls: false
+        autoplay: true
+        muted: true
+        loop: true
+        bind: feed.items.{i}.g2_player
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g2_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "feed.items.{i}.g2_kind") "video")
+  card_ftile_3_292:
+    type: group
+    children:
+      - image: ""
+        bind: feed.items.{i}.g3_url
+        size: [292, 180]
+        fit: cover
+        badge: (state-get "feed.items.{i}.gmore")
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g3_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "feed.items.{i}.g3_kind") "image")
+      - video: video
+        src: (state-get "feed.items.{i}.g3_url")
+        size: [292, 180]
+        fit: cover
+        controls: false
+        autoplay: true
+        muted: true
+        loop: true
+        badge: (state-get "feed.items.{i}.gmore")
+        bind: feed.items.{i}.g3_player
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g3_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "feed.items.{i}.g3_kind") "video")
+  card_ftile_0_194:
+    type: group
+    children:
+      - image: ""
+        bind: feed.items.{i}.g0_url
+        size: [194, 180]
+        fit: cover
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g0_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "feed.items.{i}.g0_kind") "image")
+      - video: video
+        src: (state-get "feed.items.{i}.g0_url")
+        size: [194, 180]
+        fit: cover
+        controls: false
+        autoplay: true
+        muted: true
+        loop: true
+        bind: feed.items.{i}.g0_player
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g0_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "feed.items.{i}.g0_kind") "video")
+  card_ftile_1_194:
+    type: group
+    children:
+      - image: ""
+        bind: feed.items.{i}.g1_url
+        size: [194, 180]
+        fit: cover
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g1_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "feed.items.{i}.g1_kind") "image")
+      - video: video
+        src: (state-get "feed.items.{i}.g1_url")
+        size: [194, 180]
+        fit: cover
+        controls: false
+        autoplay: true
+        muted: true
+        loop: true
+        bind: feed.items.{i}.g1_player
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g1_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "feed.items.{i}.g1_kind") "video")
+  card_ftile_2_194:
+    type: group
+    children:
+      - image: ""
+        bind: feed.items.{i}.g2_url
+        size: [194, 180]
+        fit: cover
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g2_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "feed.items.{i}.g2_kind") "image")
+      - video: video
+        src: (state-get "feed.items.{i}.g2_url")
+        size: [194, 180]
+        fit: cover
+        controls: false
+        autoplay: true
+        muted: true
+        loop: true
+        bind: feed.items.{i}.g2_player
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" (state-get "feed.items.{i}.g2_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "feed.items.{i}.g2_kind") "video")
+  post_grid:
+    type: group
+    children:
+      # One: the whole picture or video, as wide as the post at its own shape.
+      - type: group
+        visible_when: (= (state-get "post.gn") "1")
+        children:
+          - image: ""
+            bind: post.g0_url
+            size: "100%"
+            on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g0_vi")) (state-set "ui.cmd" "view")))
+            visible_when: (= (state-get "post.g0_kind") "image")
+          - video: video
+            src: (state-get "post.g0_url")
+            size: "100%"
+            controls: false
+            autoplay: true
+            muted: true
+            loop: true
+            bind: post.g0_player
+            on_click: (if (has? "ui.group_click") (state-set "post.g0_player.playing" (if (= (state-get "post.g0_player.playing") "1") "0" "1")))
+            visible_when: (= (state-get "post.g0_kind") "video")
+      # Two side by side, three in a row, four two by two: each tile fills its column.
+      - type: group
+        layout: {kind: grid, col_widths: ["50%", "50%"]}
+        visible_when: (= (state-get "post.gn") "2")
+        children:
+          - include: post_tile_0
+          - include: post_tile_1
+      - type: group
+        layout: {kind: grid, col_widths: ["34%", "33%", "33%"]}
+        visible_when: (= (state-get "post.gn") "3")
+        children:
+          - include: post_tile_0
+          - include: post_tile_1
+          - include: post_tile_2
+      - type: group
+        layout: {kind: grid, col_widths: ["50%", "50%"]}
+        visible_when: (= (state-get "post.gn") "4")
+        children:
+          - include: post_tile_0
+          - include: post_tile_1
+          - include: post_tile_2
+          - include: post_tile_3
+      # How many more there are: over the fourth tile where the host draws a label over a picture
+      # (image.badge), else under the grid.
+      - text: ""
+        bind: post.gmore_line
+        color: [0.6, 0.6, 0.6]
+        visible_when: (= (state-get "post.v_gmore") "1")
+  post_tile_0:
+    type: group
+    children:
+      - image: ""
+        bind: post.g0_url
+        size: ["100%", 180]
+        fit: cover
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g0_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "post.g0_kind") "image")
+      - video: video
+        src: (state-get "post.g0_url")
+        size: ["100%", 180]
+        fit: cover
+        controls: false
+        autoplay: true
+        muted: true
+        loop: true
+        bind: post.g0_player
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g0_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "post.g0_kind") "video")
+  post_tile_1:
+    type: group
+    children:
+      - image: ""
+        bind: post.g1_url
+        size: ["100%", 180]
+        fit: cover
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g1_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "post.g1_kind") "image")
+      - video: video
+        src: (state-get "post.g1_url")
+        size: ["100%", 180]
+        fit: cover
+        controls: false
+        autoplay: true
+        muted: true
+        loop: true
+        bind: post.g1_player
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g1_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "post.g1_kind") "video")
+  post_tile_2:
+    type: group
+    children:
+      - image: ""
+        bind: post.g2_url
+        size: ["100%", 180]
+        fit: cover
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g2_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "post.g2_kind") "image")
+      - video: video
+        src: (state-get "post.g2_url")
+        size: ["100%", 180]
+        fit: cover
+        controls: false
+        autoplay: true
+        muted: true
+        loop: true
+        bind: post.g2_player
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g2_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "post.g2_kind") "video")
+  post_tile_3:
+    type: group
+    children:
+      - image: ""
+        bind: post.g3_url
+        size: ["100%", 180]
+        fit: cover
+        badge: (state-get "post.gmore")
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g3_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "post.g3_kind") "image")
+      - video: video
+        src: (state-get "post.g3_url")
+        size: ["100%", 180]
+        fit: cover
+        controls: false
+        autoplay: true
+        muted: true
+        loop: true
+        badge: (state-get "post.gmore")
+        bind: post.g3_player
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g3_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "post.g3_kind") "video")
+  post_fgrid:
+    type: group
+    children:
+      # One: the whole picture or video, as wide as the post at its own shape.
+      - type: group
+        visible_when: (= (state-get "post.gn") "1")
+        children:
+          - image: ""
+            bind: post.g0_url
+            size: 592
+            on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g0_vi")) (state-set "ui.cmd" "view")))
+            visible_when: (= (state-get "post.g0_kind") "image")
+          - video: video
+            src: (state-get "post.g0_url")
+            size: 592
+            controls: false
+            autoplay: true
+            muted: true
+            loop: true
+            bind: post.g0_player
+            on_click: (if (has? "ui.group_click") (state-set "post.g0_player.playing" (if (= (state-get "post.g0_player.playing") "1") "0" "1")))
+            visible_when: (= (state-get "post.g0_kind") "video")
+      # Two side by side, three in a row, four two by two: 592 px across, as the line is.
+      - type: group
+        layout: {kind: horizontal}
+        visible_when: (= (state-get "post.gn") "2")
+        children:
+          - include: post_ftile_0_292
+          - include: post_ftile_1_292
+      - type: group
+        layout: {kind: horizontal}
+        visible_when: (= (state-get "post.gn") "3")
+        children:
+          - include: post_ftile_0_194
+          - include: post_ftile_1_194
+          - include: post_ftile_2_194
+      - type: group
+        visible_when: (= (state-get "post.gn") "4")
+        children:
+          - type: group
+            layout: {kind: horizontal}
+            children:
+              - include: post_ftile_0_292
+              - include: post_ftile_1_292
+          - type: group
+            layout: {kind: horizontal}
+            children:
+              - include: post_ftile_2_292
+              - include: post_ftile_3_292
+      # How many more there are: over the fourth tile where the host draws a label over a picture
+      # (image.badge), else under the grid.
+      - text: ""
+        bind: post.gmore_line
+        color: [0.6, 0.6, 0.6]
+        visible_when: (= (state-get "post.v_gmore") "1")
+  post_ftile_0_292:
+    type: group
+    children:
+      - image: ""
+        bind: post.g0_url
+        size: [292, 180]
+        fit: cover
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g0_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "post.g0_kind") "image")
+      - video: video
+        src: (state-get "post.g0_url")
+        size: [292, 180]
+        fit: cover
+        controls: false
+        autoplay: true
+        muted: true
+        loop: true
+        bind: post.g0_player
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g0_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "post.g0_kind") "video")
+  post_ftile_1_292:
+    type: group
+    children:
+      - image: ""
+        bind: post.g1_url
+        size: [292, 180]
+        fit: cover
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g1_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "post.g1_kind") "image")
+      - video: video
+        src: (state-get "post.g1_url")
+        size: [292, 180]
+        fit: cover
+        controls: false
+        autoplay: true
+        muted: true
+        loop: true
+        bind: post.g1_player
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g1_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "post.g1_kind") "video")
+  post_ftile_2_292:
+    type: group
+    children:
+      - image: ""
+        bind: post.g2_url
+        size: [292, 180]
+        fit: cover
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g2_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "post.g2_kind") "image")
+      - video: video
+        src: (state-get "post.g2_url")
+        size: [292, 180]
+        fit: cover
+        controls: false
+        autoplay: true
+        muted: true
+        loop: true
+        bind: post.g2_player
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g2_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "post.g2_kind") "video")
+  post_ftile_3_292:
+    type: group
+    children:
+      - image: ""
+        bind: post.g3_url
+        size: [292, 180]
+        fit: cover
+        badge: (state-get "post.gmore")
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g3_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "post.g3_kind") "image")
+      - video: video
+        src: (state-get "post.g3_url")
+        size: [292, 180]
+        fit: cover
+        controls: false
+        autoplay: true
+        muted: true
+        loop: true
+        badge: (state-get "post.gmore")
+        bind: post.g3_player
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g3_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "post.g3_kind") "video")
+  post_ftile_0_194:
+    type: group
+    children:
+      - image: ""
+        bind: post.g0_url
+        size: [194, 180]
+        fit: cover
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g0_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "post.g0_kind") "image")
+      - video: video
+        src: (state-get "post.g0_url")
+        size: [194, 180]
+        fit: cover
+        controls: false
+        autoplay: true
+        muted: true
+        loop: true
+        bind: post.g0_player
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g0_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "post.g0_kind") "video")
+  post_ftile_1_194:
+    type: group
+    children:
+      - image: ""
+        bind: post.g1_url
+        size: [194, 180]
+        fit: cover
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g1_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "post.g1_kind") "image")
+      - video: video
+        src: (state-get "post.g1_url")
+        size: [194, 180]
+        fit: cover
+        controls: false
+        autoplay: true
+        muted: true
+        loop: true
+        bind: post.g1_player
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g1_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "post.g1_kind") "video")
+  post_ftile_2_194:
+    type: group
+    children:
+      - image: ""
+        bind: post.g2_url
+        size: [194, 180]
+        fit: cover
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g2_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "post.g2_kind") "image")
+      - video: video
+        src: (state-get "post.g2_url")
+        size: [194, 180]
+        fit: cover
+        controls: false
+        autoplay: true
+        muted: true
+        loop: true
+        bind: post.g2_player
+        on_click: (if (has? "ui.group_click") (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.g2_vi")) (state-set "ui.cmd" "view")))
+        visible_when: (= (state-get "post.g2_kind") "video")
+
   # A card: feed.items.{i} holds what main.ari's feed-card made of a post. Its one column is as
   # wide as the window ("100%"), so a picture or a video filling it is as wide as the card.
   post_card:
@@ -51,11 +729,11 @@ units:
             size: [32, 32]
             fit: cover
             shape: circle
-            visible_when: (and (has? "image.url") (!= (state-get "feed.items.{i}.avatar_url") ""))
+            visible_when: (= (state-get "feed.items.{i}.v_avpic") "1")
           - text: ""
             bind: feed.items.{i}.avatar
             color: [0.55, 0.6, 0.7]
-            visible_when: (not (and (has? "image.url") (!= (state-get "feed.items.{i}.avatar_url") "")))
+            visible_when: (= (state-get "feed.items.{i}.v_avtxt") "1")
           - text: " "
           - type: group
             children:
@@ -80,73 +758,68 @@ units:
       - text: ""
         bind: feed.items.{i}.tagline
         color: [0.45, 0.65, 0.95]
-        visible_when: (and (has? "term") (!= (state-get "feed.items.{i}.tags") ""))
+        visible_when: (= (state-get "feed.items.{i}.v_tagline") "1")
       - radio_row: Tags
         bind: feed.items.{i}.tag_pick
         options: (string.split (state-get "feed.items.{i}.tags") "|")
         on: (begin (state-set "tag.want" (state-get "feed.items.{i}.tag_pick")) (state-set "ui.cmd" "tag"))
-        visible_when: (and (not (has? "term")) (!= (state-get "feed.items.{i}.tags") ""))
-      # The first picture, inline, where the host can show one: as wide as the card at its own
-      # shape (at most 480 px tall) where the host measures the line (image.fill: ImGui), else
-      # 192 x 112 px (24 x 7 cells in a terminal).
-      - image: ""
-        bind: feed.items.{i}.pic
-        size: "100%"
-        max_height: 480
-        visible_when: (and (has? "image.url") (has? "image.fill") (not (has? "term"))
-                           (!= (state-get "feed.items.{i}.pic") ""))
+        visible_when: (= (state-get "feed.items.{i}.v_tagrow") "1")
+      # Its pictures and videos: one as wide as the card at its own shape, two or more a grid
+      # (card_grid where the host measures the line, card_fgrid at fixed sizes elsewhere outside a
+      # terminal). A terminal shows the first picture (192 x 112 px, 24 x 7 cells) and the first
+      # video.
+      - type: group
+        visible_when: (= (state-get "feed.items.{i}.v_grid") "1")
+        children:
+          - include: card_grid
+      - type: group
+        visible_when: (= (state-get "feed.items.{i}.v_fgrid") "1")
+        children:
+          - include: card_fgrid
       - image: ""
         bind: feed.items.{i}.pic
         size: [192, 112]
         fit: contain
-        visible_when: (and (has? "image.url") (or (not (has? "image.fill")) (has? "term"))
-                           (!= (state-get "feed.items.{i}.pic") ""))
-      # The first video or recording, with its controls (play/pause, seek, mute), where the host
-      # has a player (media.player: ari-media and arigl; transfix/libcvc#935). The lean ari, and
-      # a host without the widgets, show the rows below. A video is sized as the picture is (at
-      # most 400 px tall), and plays while it is in view.
+        visible_when: (= (state-get "feed.items.{i}.v_pic_t") "1")
       - video: video
-        src: (state-get "feed.items.{i}.av_url")
-        size: "100%"
-        max_height: 400
-        autoplay: true
-        muted: true
-        bind: feed.items.{i}.player
-        visible_when: (and (has? "media.player") (has? "image.fill") (not (has? "term"))
-                           (= (state-get "feed.items.{i}.av_kind") "video"))
-      - video: video
-        src: (state-get "feed.items.{i}.av_url")
+        src: (state-get "feed.items.{i}.vid_url")
         size: [192, 108]
         fit: contain
+        controls: false
         autoplay: true
         muted: true
+        loop: true
         bind: feed.items.{i}.player
-        visible_when: (and (has? "media.player") (or (not (has? "image.fill")) (has? "term"))
-                           (= (state-get "feed.items.{i}.av_kind") "video"))
+        visible_when: (= (state-get "feed.items.{i}.v_vid_t") "1")
+      # The first recording, with its controls, where the host has a player (media.player:
+      # ari-media and arigl; transfix/libcvc#935).
       - audio: recording
-        src: (state-get "feed.items.{i}.av_url")
-        bind: feed.items.{i}.player
-        visible_when: (and (has? "media.player") (= (state-get "feed.items.{i}.av_kind") "audio"))
+        src: (state-get "feed.items.{i}.au_url")
+        bind: feed.items.{i}.recording
+        visible_when: (= (state-get "feed.items.{i}.v_audio") "1")
       # The attachments: two rows at most, and how many more there are. View, on the first row
-      # of a post with something to view, opens the viewer.
+      # of a post with something to view, opens the viewer. Where the grid shows every attachment
+      # (pictures and videos only) there are no rows, and View is among the buttons below.
       - type: group
-        layout: {kind: horizontal}
-        visible_when: (!= (state-get "feed.items.{i}.m0") "")
+        visible_when: (= (state-get "feed.items.{i}.v_rows") "1")
         children:
+          - type: group
+            layout: {kind: horizontal}
+            children:
+              - text: ""
+                bind: feed.items.{i}.m0
+                color: [0.45, 0.75, 0.85]
+              - button: View
+                on: (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" 0) (state-set "ui.cmd" "view"))
+                visible_when: (= (state-get "feed.items.{i}.has_media") "1")
           - text: ""
-            bind: feed.items.{i}.m0
+            bind: feed.items.{i}.m1
             color: [0.45, 0.75, 0.85]
-          - button: View
-            on: (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" 0) (state-set "ui.cmd" "view"))
-            visible_when: (= (state-get "feed.items.{i}.has_media") "1")
-      - text: ""
-        bind: feed.items.{i}.m1
-        color: [0.45, 0.75, 0.85]
-        visible_when: (!= (state-get "feed.items.{i}.m1") "")
-      - text: ""
-        bind: feed.items.{i}.mmore
-        color: [0.6, 0.6, 0.6]
-        visible_when: (!= (state-get "feed.items.{i}.mmore") "")
+            visible_when: (!= (state-get "feed.items.{i}.m1") "")
+          - text: ""
+            bind: feed.items.{i}.mmore
+            color: [0.6, 0.6, 0.6]
+            visible_when: (!= (state-get "feed.items.{i}.mmore") "")
       # The counts, then the buttons. Never disabled, and never hidden once shown: a terminal
       # that loses the focused widget scrolls back to the top. The controller takes one command
       # at a time, so a press while busy waits its turn.
@@ -164,6 +837,9 @@ units:
             on: (begin (state-set "act.i" "{i}") (state-set "ui.cmd" "like"))
           - button: Repost
             on: (begin (state-set "act.i" "{i}") (state-set "ui.cmd" "repost"))
+          - button: View
+            on: (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" 0) (state-set "ui.cmd" "view"))
+            visible_when: (= (state-get "feed.items.{i}.v_viewbtn") "1")
 
   # The feed: Following is GET /social/timeline/home, Everyone /social/timeline/public, Friends
   # /social/timeline/friends; a hashtag's posts are GET /social/timeline/tag/{tag}.
@@ -225,11 +901,11 @@ units:
             size: [32, 32]
             fit: cover
             shape: circle
-            visible_when: (and (has? "image.url") (!= (state-get "post.avatar_url") ""))
+            visible_when: (= (state-get "post.v_avpic") "1")
           - text: ""
             bind: post.avatar
             color: [0.55, 0.6, 0.7]
-            visible_when: (not (and (has? "image.url") (!= (state-get "post.avatar_url") "")))
+            visible_when: (= (state-get "post.v_avtxt") "1")
           - text: " "
           - type: group
             children:
@@ -254,10 +930,10 @@ units:
             options: (string.split (state-get "post.tags") "|")
             on: (if (not (has? "term")) (begin (state-set "tag.want" (state-get "post.tag_pick")) (state-set "ui.cmd" "tag")))
           - text: "  "
-            visible_when: (has? "term")
+            visible_when: (= (state-get "post.v_term") "1")
           - button: Open tag
             on: (begin (state-set "tag.want" (state-get "post.tag_pick")) (state-set "ui.cmd" "tag"))
-            visible_when: (has? "term")
+            visible_when: (= (state-get "post.v_term") "1")
       - text: ""
         bind: post.counts
         color: [0.6, 0.6, 0.6]
@@ -283,8 +959,17 @@ units:
       - text: ""
         bind: post.link
         color: [0.6, 0.6, 0.6]
-      # Each attachment: its row, then the picture or the player where the host can show one,
-      # and View, which opens the viewer at it.
+      # Its pictures and videos, laid out as a card's are (post_grid, post_fgrid).
+      - type: group
+        visible_when: (= (state-get "post.v_grid") "1")
+        children:
+          - include: post_grid
+      - type: group
+        visible_when: (= (state-get "post.v_fgrid") "1")
+        children:
+          - include: post_fgrid
+      # Each attachment: its row, and View, which opens the viewer at it. In a terminal its
+      # picture or video follows (384 x 216 px); a recording has its player everywhere.
       - type: group
         repeat: (state-get "post.media")
         children:
@@ -295,42 +980,27 @@ units:
                 bind: post.media.{i}.row
                 color: [0.45, 0.75, 0.85]
               - button: View
-                on: (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" "{i}") (state-set "ui.cmd" "view"))
-                visible_when: (!= (state-get "post.media.{i}.kind") "file")
-          - image: ""
-            bind: post.media.{i}.url
-            size: "100%"
-            max_height: 640
-            visible_when: (and (has? "image.url") (has? "image.fill") (not (has? "term"))
-                               (= (state-get "post.media.{i}.kind") "image"))
+                on: (begin (state-set "view.post" (state-get "post.pid")) (state-set "view.i" (state-get "post.media.{i}.vi")) (state-set "ui.cmd" "view"))
+                visible_when: (= (state-get "post.media.{i}.v_view") "1")
           - image: ""
             bind: post.media.{i}.url
             size: [384, 216]
             fit: contain
-            visible_when: (and (has? "image.url") (or (not (has? "image.fill")) (has? "term"))
-                               (= (state-get "post.media.{i}.kind") "image"))
-          - video: video
-            src: (state-get "post.media.{i}.url")
-            size: "100%"
-            max_height: 540
-            autoplay: true
-            muted: true
-            bind: post.media.{i}.player
-            visible_when: (and (has? "media.player") (has? "image.fill") (not (has? "term"))
-                               (= (state-get "post.media.{i}.kind") "video"))
+            visible_when: (= (state-get "post.media.{i}.v_img_t") "1")
           - video: video
             src: (state-get "post.media.{i}.url")
             size: [384, 216]
             fit: contain
+            controls: false
             autoplay: true
             muted: true
+            loop: true
             bind: post.media.{i}.player
-            visible_when: (and (has? "media.player") (or (not (has? "image.fill")) (has? "term"))
-                               (= (state-get "post.media.{i}.kind") "video"))
+            visible_when: (= (state-get "post.media.{i}.v_vid_t") "1")
           - audio: recording
             src: (state-get "post.media.{i}.url")
             bind: post.media.{i}.player
-            visible_when: (and (has? "media.player") (= (state-get "post.media.{i}.kind") "audio"))
+            visible_when: (= (state-get "post.media.{i}.v_aud") "1")
       - separator
       # The replies, oldest first: who and when, two lines of each, and Open.
       - text: ""

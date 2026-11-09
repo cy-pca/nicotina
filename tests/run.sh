@@ -130,8 +130,8 @@ snap() { # snap NAME BACKEND STORE [doc args...]
 pictures=
 "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement image.url" || pictures=1
 # Whether this ari plays video and audio (media.player: ari-media and arigl with
-# transfix/libcvc#935): then a card's video and recording have players, three Tab stops each
-# (Play, the seek slider, Mute).
+# transfix/libcvc#935): then a card's recording has a player, three Tab stops (Play, the seek
+# slider, Mute). Its video plays with no controls, so no stops: the viewer has them.
 media=
 "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement media.player" || media=1
 player_stops=0
@@ -397,9 +397,8 @@ else
     '"path": "/uploads/u5/avatar-loop.mp4"' '"path": "/uploads/u8/avatar-loop.webm"'
 fi
 
-# Video and audio, where the host has a player: the first card's video and the third card's
-# recording have their controls, and the recordings were fetched without the session token. (In
-# tmux, below, Play runs the video to its end: its 2 s.)
+# Video and audio, where the host has a player: the third card's recording has its controls, the
+# first card's video none (the viewer has them), and both were fetched without the session token.
 if [ -z "$media" ]; then
   skip "ari snapshot: video and audio players (this ari has no media.player; ari-media has, ARI=ari-media)"
 else
@@ -407,12 +406,12 @@ else
   "$ARI" snapshot --width 80 --height 200 --net-allow "$base" --credential-store "$store" "$main" \
     --instance "$base" >"$out/snap-feed-players.txt" 2>&1
   # (ari snapshot doesn't wait for a player whose URL comes from a reply, so not the durations)
-  check "ari snapshot: the cards' video and recording have players" "$out/snap-feed-players.txt" \
+  check "ari snapshot: the card's recording has a player" "$out/snap-feed-players.txt" \
     "[ Play ]" "Mute" "[video] engine.mp4 · 11 KB" "[audio] lecture.ogg · 5 KB"
-  if [ "$(grep -c '\[ Play \]' "$out/snap-feed-players.txt")" -ge 2 ]; then
-    pass "ari snapshot: ... one each"
+  if [ "$(grep -c '\[ Play \]' "$out/snap-feed-players.txt")" -eq 1 ]; then
+    pass "ari snapshot: ... and the video has no controls"
   else
-    fail "ari snapshot: fewer than two players" "$out/snap-feed-players.txt"
+    fail "ari snapshot: a player's controls other than the recording's" "$out/snap-feed-players.txt"
   fi
   for rec in /uploads/media/engine.mp4 /uploads/media/lecture.ogg; do
     if grep -F "\"path\": \"$rec\"" "$out/stub.log" | grep -qF '"authorization": "none"' &&
@@ -543,9 +542,8 @@ else
     # The feed: a card's Open shows the whole post; Back; Load more adds the next page.
     start "$backend" "$xdg" "$base"
     step "$t: started again, still signed in: the feed" "$bar" " Charles Babbage"
-    # past the bar and Show (and, with a player, the first card's video, then View) to the first
-    # card's Open
-    for _ in $(seq $((9 + player_stops))); do keys Tab; done
+    # past the bar, Show and the first card's View to its Open
+    for _ in $(seq 9); do keys Tab; done
     keys Enter
     # (Its replies are below the fold here: the 80x60 snapshot of post:312 has them.)
     step "$t: Open: the whole post, its hashtags, reactions and attachments" \
@@ -556,9 +554,9 @@ else
     keys Enter # Back: a view just opened has the focus there
     step "$t: Back to the feed" "Show: (*) Following" " Charles Babbage"
     # Back keeps the focus. Load more is stop 53: the bar and Show (8), then ten cards' buttons
-    # (Open, Reply, Like, Repost, and View on the four with something to view: 44), and two
-    # players more (the video and the recording).
-    for _ in $(seq $((52 + 2 * player_stops))); do keys Tab; done
+    # (Open, Reply, Like, Repost, and View on the four with something to view: 44), and the
+    # recording's player more.
+    for _ in $(seq $((52 + player_stops))); do keys Tab; done
     keys Enter
     step "$t: Load more: the next page, below the first" "13 posts; no more" \
       "Good morning, TX.WTF."
@@ -566,7 +564,7 @@ else
     # Like: the first card's Like (View, Open, Reply, Like), its count and mark; again, taken back.
     start "$backend" "$xdg" "$base"
     step "$t: the feed, to like a post" "$bar" " Charles Babbage"
-    for _ in $(seq $((11 + player_stops))); do keys Tab; done
+    for _ in $(seq 11); do keys Tab; done
     keys Enter
     # (The view scrolls to keep Like in sight, the status line above it out of sight.)
     step "$t: Like: liked, the count one up" "↩5 ⇄3 ♥22 · 310 views · liked"
@@ -607,8 +605,8 @@ else
       "Posted from $backend"
 
     # A reply: the second card's Reply opens the post with the reply box focused.
-    for _ in $(seq $((14 + player_stops))); do keys Tab; done
-    keys Enter # past the bar, Show, the first card's five (and its video), and Open: Reply
+    for _ in $(seq 14); do keys Tab; done
+    keys Enter # past the bar, Show, the first card's five, and Open: Reply
     step "$t: Reply: the post, and the reply box" "A ship in port is safe" "Reply: ["
     type_text "Aye, from $backend."
     keys Enter
@@ -627,15 +625,21 @@ else
     keys Enter
     step "$t: Follow again" "Following @grace@$hostport." "[ Unfollow ]"
 
-    # Where the host has a player, the first card's video plays by itself, muted, to its end
-    # (two seconds); Play plays it again.
+    # Where the host has a player, the first card's video plays by itself, muted and looping, with
+    # no controls. View opens the viewer at the post's picture, and Next goes to the video, which
+    # has them there and keeps playing (it loops).
     if [ -n "$media" ]; then
       PANE=100x40 start "$backend" "$xdg" "$base" --media-play always
-      step "$t: the feed, with a player: its video plays by itself, muted, to its end" \
-        "0:02 / 0:02" "[x] Mute" "[ Play ]"
+      step "$t: the feed, with a player: its video has no controls" "$bar" " Charles Babbage"
+      check_not "$t: ... none" \
+        "$out/tmux-$(slug "$t: the feed, with a player: its video has no controls").txt" "[x] Mute"
       for _ in $(seq 8); do keys Tab; done
-      keys Enter # Play: past the bar and Show
-      step "$t: Play: the video plays again" "[ Pause ]"
+      keys Enter # View: past the bar and Show
+      step "$t: View: the viewer, at the post's picture" "1 of 2" "[ Prev ][ Next ]"
+      for _ in $(seq 8); do keys Tab; done
+      keys Enter # Next: past the bar and Prev
+      step "$t: Next: the video plays, looping, with its controls" "2 of 2" "[ Pause ]" \
+        "[ ] Mute"
     fi
     # Everyone: the public feed, with someone ada doesn't follow.
     start "$backend" "$xdg" "$base"

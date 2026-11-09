@@ -84,6 +84,15 @@ init: |
   (state-set "ui.here" "")
   (state-set "ui.back" "")
   (state-set "ui.nav" "a") ;; which copy of the bar is drawn (ui/app.ari): flipped per view
+  ;; What the host can do, asked once. The controller decides from these what each card, post and
+  ;; viewer item shows (card-flags, post-flags, item-flags), and a view reads that decision, one
+  ;; key a widget, instead of asking (has? ...) on every frame. rich: pictures as wide as the
+  ;; line (image.fill) outside a terminal, where the grid is drawn.
+  (state-set "app.term" (if (has? "term") "1" ""))
+  (state-set "app.pics" (if (has? "image.url") "1" ""))
+  (state-set "app.media" (if (has? "media.player") "1" ""))
+  (state-set "app.rich" (if (and (has? "image.url") (has? "image.fill") (not (has? "term"))) "1" ""))
+  (state-set "app.badge" (if (has? "image.badge") "1" ""))
   (state-set-tree "feed" (dict "items" (list) "mode" "Following" "source" "home" "tag" "" "title" ""
                                "more" "" "before" "" "offset" 0 "empty" "" "tail" ""))
   (state-set-tree "post" (dict "lines" (list) "media" (list) "replies" (list) "tags" ""
@@ -595,6 +604,90 @@ on_tick: |
             (str-concat "[" (kind (text (opt a "mime_type" ""))) "] " (text (opt a "filename" ""))
                         " · " (human-size (opt a "file_size" 0))
                         (if (= alt "") "" (str-concat " · " alt))))))
+      ;; A post's pictures and videos, in order, each with its place among what the viewer shows
+      ;; (every attachment with a URL but a file): the tiles of its grid.
+      (defun tiles-of (media)
+        (let ((tiles (list)) (vn 0))
+          (begin
+            (for m media
+              (if (and (!= (kind (text (opt m "mime_type" ""))) "file") (!= (opt m "url" "") ""))
+                (begin
+                  (if (or (= (kind (text (opt m "mime_type" ""))) "image")
+                          (= (kind (text (opt m "mime_type" ""))) "video"))
+                    (set tiles (append tiles (dict "url" (picture-url (opt m "url" nil))
+                                                   "kind" (kind (text (opt m "mime_type" "")))
+                                                   "vi" (text vn)))))
+                  (set vn (+ vn 1)))))
+            tiles)))
+      (defun tile (tiles k f) (if (> (length tiles) k) (opt (nth tiles k) f "") ""))
+      ;; The grid, as tx.wtf lays a post's pictures and videos out: gn the tiles it shows (0 to
+      ;; 4), g0..g3 each tile's picture, kind and place in the viewer, and gmore "+N" when there
+      ;; are more than four (the viewer has them all).
+      (defun grid-fields (tiles)
+        (let ((n (length tiles)))
+          (dict "gn" (text (if (> n 4) 4 n))
+                "gmore" (if (> n 4) (str-concat "+" (text (- n 4))) "")
+                "gmore_line" (if (> n 4) (str-concat "+" (text (- n 4)) " more: View shows them all") "")
+                "g0_url" (tile tiles 0 "url") "g0_kind" (tile tiles 0 "kind") "g0_vi" (tile tiles 0 "vi")
+                "g1_url" (tile tiles 1 "url") "g1_kind" (tile tiles 1 "kind") "g1_vi" (tile tiles 1 "vi")
+                "g2_url" (tile tiles 2 "url") "g2_kind" (tile tiles 2 "kind") "g2_vi" (tile tiles 2 "vi")
+                "g3_url" (tile tiles 3 "url") "g3_kind" (tile tiles 3 "kind") "g3_vi" (tile tiles 3 "vi"))))
+      ;; The URL of the first attachment of a kind ("video", "audio"), or "".
+      (defun first-of (media k)
+        (let ((hits (collections.filter media
+                      (lambda (m) (and (= (kind (text (opt m "mime_type" ""))) k)
+                                       (!= (opt m "url" "") ""))))))
+          (if (= (length hits) 0) "" (picture-url (opt (nth hits 0) "url" nil)))))
+      ;; "1" when every attachment is a picture or a video: the grid shows them all, so a card on a
+      ;; host that draws the grid needs no rows for them.
+      (defun only-visual (media)
+        (if (= (length (collections.filter media
+                         (lambda (m) (let ((k (kind (text (opt m "mime_type" "")))))
+                                       (and (!= k "image") (!= k "video"))))))
+               0)
+          "1" ""))
+      ;; The show/hide decisions, "1" or "" each, from the host's capabilities (app.*, set once
+      ;; by init) and the post: the views' visible_when read them.
+      (defun flag (b) (if b "1" ""))
+      (defun cap (k) (= (state-get (str-concat "app." k)) "1"))
+      (defun card-flags (avpic tags pic vid au tiles only m0 viewable)
+        (let ((rich (cap "rich")) (term (cap "term")) (pics (cap "pics")) (media (cap "media")))
+          (dict "v_avpic" (flag (and pics (!= avpic "")))
+                "v_avtxt" (flag (not (and pics (!= avpic ""))))
+                "v_tagline" (flag (and term (!= tags "")))
+                "v_tagrow" (flag (and (not term) (!= tags "")))
+                ;; one picture or video, or a grid: as wide as the line where the host
+                ;; measures it (rich), else at fixed sizes; a terminal shows the first picture
+                ;; and the first video
+                "v_grid" (flag (and rich (> (length tiles) 0)))
+                "v_fgrid" (flag (and pics (not rich) (not term) (> (length tiles) 0)))
+                "v_pic_t" (flag (and pics term (!= pic "")))
+                "v_vid_t" (flag (and media term (!= vid "")))
+                "v_audio" (flag (and media (!= au "")))
+                ;; no rows where the pictures show every attachment: View moves to the buttons
+                "v_rows" (flag (and (!= m0 "") (not (and pics (not term) (= only "1")))))
+                "v_viewbtn" (flag (and pics (not term) (= only "1") viewable))
+                "v_gmore" (flag (and (> (length tiles) 4) (not (cap "badge")))))))
+      (defun post-flags (avpic tiles)
+        (let ((pics (cap "pics")))
+          (dict "v_avpic" (flag (and pics (!= avpic "")))
+                "v_avtxt" (flag (not (and pics (!= avpic ""))))
+                "v_grid" (flag (and (cap "rich") (> (length tiles) 0)))
+                "v_fgrid" (flag (and pics (not (cap "rich")) (not (cap "term")) (> (length tiles) 0)))
+                "v_term" (flag (cap "term"))
+                "v_gmore" (flag (and (> (length tiles) 4) (not (cap "badge")))))))
+      ;; An attachment's own (a post's, the viewer's): its picture or player as wide as the line
+      ;; (_fill), at a fixed size (_fix), in a terminal (_t), its recording's player, and View.
+      (defun item-flags (k)
+        (let ((term (cap "term")) (pics (cap "pics")) (media (cap "media")) (rich (cap "rich")))
+          (dict "v_img_fill" (flag (and rich (= k "image")))
+                "v_img_fix" (flag (and pics (not rich) (= k "image")))
+                "v_img_t" (flag (and pics term (= k "image")))
+                "v_vid_fill" (flag (and media rich (= k "video")))
+                "v_vid_fix" (flag (and media (not rich) (= k "video")))
+                "v_vid_t" (flag (and media term (= k "video")))
+                "v_aud" (flag (and media (= k "audio")))
+                "v_view" (flag (!= k "file")))))
       (defun counts-of (q)
         (str-concat "↩" (text (opt q "reply_count" 0)) " ⇄" (text (opt q "repost_count" 0))
                     " ♥" (text (opt q "reaction_count" 0)) " · " (text (opt q "view_count" 0))
@@ -656,7 +749,24 @@ on_tick: |
             (set viewable (> (length (collections.filter media
                                         (lambda (m) (and (!= (kind (text (opt m "mime_type" ""))) "file")
                                                          (!= (opt m "url" "") ""))))) 0))
-            (dict "id" (opt q "id" 0)
+            (set tiles (tiles-of media))
+            (set avpic (picture-only (picture-url (opt a "avatar_url" nil))))
+            ;; the first picture, shown inline where the host can
+            (set pic (let ((pics (collections.filter media
+                                   (lambda (m) (and (= (kind (text (opt m "mime_type" ""))) "image")
+                                                    (!= (opt m "url" "") ""))))))
+                       (if (= (length pics) 0) "" (picture-url (opt (nth pics 0) "url" nil)))))
+            (set vid (first-of media "video"))
+            (set au (first-of media "audio"))
+            (set only (only-visual media))
+            (set m0 (if (> (length media) 0)
+                      (if viewable (str-concat (pad (media-row (nth media 0)) (- CARDW 9)) " ")
+                        (clip (media-row (nth media 0)) CARDW))
+                      ""))
+            (collections.dict-merge
+             (collections.dict-merge (grid-fields tiles)
+                                     (card-flags avpic tags pic vid au tiles only m0 viewable))
+             (dict "id" (opt q "id" 0)
                   ;; the post the buttons act on: a repost's is the post it reposts
                   "pid" (opt p "id" (opt q "id" 0))
                   "liked" (if (opt p "user_has_reacted" nil) "1" "")
@@ -668,18 +778,15 @@ on_tick: |
                   "tag_pick" ""
                   "tagline" (clip (string.replace tags "|" "  ") CARDW)
                   "has_media" (if viewable "1" "")
+                  "only_visual" only
                   "avatar" ini
                   ;; a picture for the avatar slot; a video avatar keeps the initials
-                  "avatar_url" (picture-only (picture-url (opt a "avatar_url" nil)))
+                  "avatar_url" avpic
                   ;; beside the avatar (4 columns) and a space
                   "head" (clip (str-concat (author-name a) "  " (handle (text (opt a "username" "?"))))
                                (- CARDW 5))
                   "at" (posted-at (opt p "created_at" ""))
-                  ;; the first picture, shown inline where the host can
-                  "pic" (let ((pics (collections.filter media
-                                      (lambda (m) (and (= (kind (text (opt m "mime_type" ""))) "image")
-                                                       (!= (opt m "url" "") ""))))))
-                          (if (= (length pics) 0) "" (picture-url (opt (nth pics 0) "url" nil))))
+                  "pic" pic
                   "l0" (nth-or lines 0)
                   "l1" (nth-or lines 1)
                   "l2" (nth-or lines 2)
@@ -687,32 +794,21 @@ on_tick: |
                   "emoji" (collections.dict-merge (emoji-of (opt q "content_html" nil))
                                                   (emoji-of (opt p "content_html" nil)))
                   ;; with [ View ] (8 columns) after it, for a post with something to view
-                  "m0" (if (> (length media) 0)
-                         (if viewable (str-concat (pad (media-row (nth media 0)) (- CARDW 9)) " ")
-                           (clip (media-row (nth media 0)) CARDW))
-                         "")
+                  "m0" m0
                   "m0_url" (if (> (length media) 0) (picture-url (opt (nth media 0) "url" nil)) "")
                   "m0_kind" (if (> (length media) 0) (kind (text (opt (nth media 0) "mime_type" ""))) "")
                   "m1" (if (> (length media) 1) (clip (media-row (nth media 1)) CARDW) "")
                   "m1_url" (if (> (length media) 1) (picture-url (opt (nth media 1) "url" nil)) "")
                   "m1_kind" (if (> (length media) 1) (kind (text (opt (nth media 1) "mime_type" ""))) "")
-                  ;; the first video or recording, played in the card where the host can
-                  "av_url" (let ((avs (collections.filter media
-                                        (lambda (m) (and (or (= (kind (text (opt m "mime_type" ""))) "video")
-                                                             (= (kind (text (opt m "mime_type" ""))) "audio"))
-                                                         (!= (opt m "url" "") ""))))))
-                             (if (= (length avs) 0) "" (picture-url (opt (nth avs 0) "url" nil))))
-                  "av_kind" (let ((avs (collections.filter media
-                                         (lambda (m) (and (or (= (kind (text (opt m "mime_type" ""))) "video")
-                                                              (= (kind (text (opt m "mime_type" ""))) "audio"))
-                                                          (!= (opt m "url" "") ""))))))
-                              (if (= (length avs) 0) "" (kind (text (opt (nth avs 0) "mime_type" "")))))
+                  ;; the first video and the first recording, played in the card where the host can
+                  "vid_url" vid
+                  "au_url" au
                   "mmore" (if (> (length media) 2)
                             (str-concat "+" (text (- (length media) 2)) " more (Open shows them all)")
                             "")
                   ;; the buttons follow the counts: [ Open ][ Reply ][ Like ][ Repost ] take 35
                   ;; columns
-                  "counts" (pad (str-concat (counts-of q) (yours p)) (- CARDW 35))))))
+                  "counts" (pad (str-concat (counts-of q) (yours p)) (- CARDW 35)))))))
 
       ;; A page of the feed: Following is GET /social/timeline/home, Everyone the public one,
       ;; Friends /social/timeline/friends. mode=latest pages cleanly by before_id (the ranked
@@ -817,6 +913,27 @@ on_tick: |
                 (state-set "post.replies_more" "")
                 true)))))
 
+      ;; A post's attachments, each a row (with View, 8 columns, for what the viewer shows), its
+      ;; picture's URL and kind, and vi, its place among what the viewer shows.
+      (defun post-media (media)
+        (let ((out (list)) (vn 0))
+          (begin
+            (for m media
+              (begin
+                (set out (append out
+                           (collections.dict-merge
+                            (item-flags (kind (text (opt m "mime_type" ""))))
+                            (dict "row" (if (= (kind (text (opt m "mime_type" ""))) "file")
+                                          (clip (media-row m) WIDE)
+                                          (pad (media-row m) (- WIDE 8)))
+                                  "url" (picture-url (opt m "url" nil))
+                                  "kind" (kind (text (opt m "mime_type" "")))
+                                  "vi" (text vn)
+                                  "where" (clip (str-concat "  " (picture-url (opt m "url" nil))) WIDE)))))
+                (if (and (!= (kind (text (opt m "mime_type" ""))) "file") (!= (opt m "url" "") ""))
+                  (set vn (+ vn 1)))))
+            out)))
+
       ;; One post in full: GET /social/posts/{id}, which also has its reactions.
       (defun show-post (q)
         (let ((p (shown q)))
@@ -833,7 +950,13 @@ on_tick: |
                                                      (text (opt e "count" 0))))))
             (set parent (opt p "reply_to_id" nil))
             (set author (opt p "author" (dict)))
+            (set tiles (tiles-of media))
             (state-set-tree "post"
+             (collections.dict-merge
+              (collections.dict-merge
+               (grid-fields tiles)
+               (post-flags (picture-only (picture-url (opt (opt p "author" (dict)) "avatar_url" nil)))
+                           tiles))
               (dict "id" (opt q "id" 0)
                     ;; the post the buttons act on: a repost's is the post it reposts
                     "pid" (opt p "id" (opt q "id" 0))
@@ -858,15 +981,7 @@ on_tick: |
                     "lines" (if (= (length lines) 0) (list "(no text)") lines)
                     "emoji" (collections.dict-merge (emoji-of (opt q "content_html" nil))
                                                     (emoji-of (opt p "content_html" nil)))
-                    "media" (collections.map media
-                              ;; the row, and View (8 columns) for what the viewer shows
-                              (lambda (m) (dict "row" (if (= (kind (text (opt m "mime_type" ""))) "file")
-                                                        (clip (media-row m) WIDE)
-                                                        (pad (media-row m) (- WIDE 8)))
-                                                "url" (picture-url (opt m "url" nil))
-                                                "kind" (kind (text (opt m "mime_type" "")))
-                                                "where" (clip (str-concat "  " (picture-url (opt m "url" nil)))
-                                                              WIDE))))
+                    "media" (post-media media)
                     "counts" (str-concat (counts-of q) (yours p))
                     "reactions" (if (= (length reactions) 0) ""
                                   (clip (str-concat "Reactions: " (string.join reactions "  ")) WIDE))
@@ -876,7 +991,7 @@ on_tick: |
                                    (state-get "post.reply_text") "")
                     "replies" (list)
                     "replies_head" ""
-                    "replies_more" ""))
+                    "replies_more" "")))
             ;; who wrote the post it replies to
             (if (!= (type-of parent) "nil")
               (let ((pr (get-authed (str-concat "/social/posts/" (text parent)))))
@@ -1035,6 +1150,8 @@ on_tick: |
                 (state-set "viewer.i" k)
                 (state-set "viewer.url" (state-get (str-concat "viewer.items." (text k) ".url")))
                 (state-set "viewer.kind" (state-get (str-concat "viewer.items." (text k) ".kind")))
+                (state-set-tree "viewer.v"
+                  (item-flags (state-get (str-concat "viewer.items." (text k) ".kind"))))
                 (state-set "viewer.row" (state-get (str-concat "viewer.items." (text k) ".row")))
                 (state-set "viewer.where"
                   (str-concat "  " (text (+ k 1)) " of " (text items))))))))
