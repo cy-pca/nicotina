@@ -40,6 +40,7 @@ units:
 
   signin_window:
     window: Sign in to TX.WTF
+    bind: app.signin_title
     id: signin
     pos: [16, 32]
     visible_when: (= (state-get "ui.screen") "signin")

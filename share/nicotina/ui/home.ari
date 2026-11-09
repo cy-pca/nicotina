@@ -126,21 +126,31 @@ units:
         options: (if (= (state-get "prof.self") "1") (list "Posts" "Replies" "Balances") (list "Posts" "Replies"))
         on: (state-set "ui.cmd" "tab")
       - separator
-      # Posts and Replies: a page of five, newest first, a row each with Open.
+      # Posts and Replies, a page of them, newest first. In a window, cards (ui/card.ari), as the
+      # feed's; Like and Repost act on tab.items. (Kept shallow: a Windows host's 1 MB stack
+      # overflows on a deep enough tree, libcvc before the fix.)
+      - text: ""
+        bind: tab.empty
+        visible_when: (and (!= (state-get "ui.tab") "Balances") (!= (state-get "app.term") "1")
+                           (!= (state-get "tab.empty") ""))
+      - include: card_list
+        args: {list: tab.items}
+      # In a terminal, a row each with Open: a page of five fits 80x24.
+      - type: group
+        repeat: (state-get "tab.rows")
+        visible_when: (and (!= (state-get "ui.tab") "Balances") (= (state-get "app.term") "1"))
+        children:
+          - type: group
+            layout: {kind: horizontal}
+            children:
+              - text: ""
+                bind: tab.rows.{i}.line
+              - button: Open
+                on: (begin (state-set "post.want" (state-get "tab.rows.{i}.id")) (state-set "post.focus_reply" "") (state-set "ui.cmd" "open"))
+                visible_when: (!= (state-get "tab.rows.{i}.id") "")
       - type: group
         visible_when: (!= (state-get "ui.tab") "Balances")
         children:
-          - type: group
-            repeat: (state-get "tab.rows")
-            children:
-              - type: group
-                layout: {kind: horizontal}
-                children:
-                  - text: ""
-                    bind: tab.rows.{i}.line
-                  - button: Open
-                    on: (begin (state-set "post.want" (state-get "tab.rows.{i}.id")) (state-set "post.focus_reply" "") (state-set "ui.cmd" "open"))
-                    visible_when: (!= (state-get "tab.rows.{i}.id") "")
           - type: group
             layout: {kind: horizontal}
             children:
@@ -175,6 +185,7 @@ units:
   details_window:
     window: Details
     id: details
+    closable: true
     pos: [640, 32]
     visible_when: (and (= (state-get "ui.screen") "profile") (= (state-get "prof.self") "1")
                        (not (has? "term")))
