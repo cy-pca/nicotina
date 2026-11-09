@@ -96,8 +96,10 @@ units:
         bind: compose.note
         color: [0.6, 0.6, 0.6]
 
-  # A post's pictures and videos, one at a time, as wide as the window at their own shape where the
-  # host measures the line (image.fill), else 592 x 320 px (74 x 10 cells in a terminal). Prev and
+  # A post's pictures and videos, one at a time, as wide as the window at their own shape (at most
+  # 720 px tall) where the host measures the line (image.fill), else in a 592 x 720 px box (592 x
+  # 320, 74 x 10 cells, in a terminal). Where the host can (fullscreen: libcvc 3.7.13), a picture
+  # fills the screen when clicked and a video has a Full screen button; Esc comes back. Prev and
   # Next step through them; Back closes the viewer. A video here has its controls (the feed's and
   # the post's have none), loops, and starts with its sound on: opening it was the click a browser
   # wants first.
@@ -116,22 +118,40 @@ units:
             color: [0.6, 0.6, 0.6]
       - image: ""
         bind: viewer.url
+        fullscreen: true
         size: "100%"
-        max_height: 1400
+        max_height: 720
         visible_when: (= (state-get "viewer.v.v_img_fill") "1")
       - image: ""
         bind: viewer.url
+        fullscreen: true
+        size: [592, 720]
+        fit: contain
+        visible_when: (= (state-get "viewer.v.v_img_w") "1")
+      - image: ""
+        bind: viewer.url
+        fullscreen: true
         size: [592, 320]
         fit: contain
-        visible_when: (= (state-get "viewer.v.v_img_fix") "1")
+        visible_when: (= (state-get "viewer.v.v_img_t") "1")
       - video: video
         src: (state-get "viewer.url")
         size: "100%"
-        max_height: 1400
+        max_height: 720
         autoplay: true
         loop: true
         bind: viewer.player
+        fullscreen: true
         visible_when: (= (state-get "viewer.v.v_vid_fill") "1")
+      - video: video
+        src: (state-get "viewer.url")
+        size: [592, 720]
+        fit: contain
+        autoplay: true
+        loop: true
+        bind: viewer.player
+        fullscreen: true
+        visible_when: (= (state-get "viewer.v.v_vid_w") "1")
       - video: video
         src: (state-get "viewer.url")
         size: [592, 333]
@@ -139,7 +159,8 @@ units:
         autoplay: true
         loop: true
         bind: viewer.player
-        visible_when: (= (state-get "viewer.v.v_vid_fix") "1")
+        fullscreen: true
+        visible_when: (= (state-get "viewer.v.v_vid_t") "1")
       - audio: recording
         src: (state-get "viewer.url")
         bind: viewer.player

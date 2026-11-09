@@ -45,6 +45,10 @@ requires:
   - {name: image.url, optional: true}  # the account's pictures; without it, placeholders
   - {name: image.fill, optional: true}  # pictures and video as wide as the card; else a fixed size
   - {name: text.emoji, optional: true}  # a post's :emoji: drawn; without it, the shortcodes
+  - {name: ui.group_click, optional: true}  # a card, its icons and hashtags clickable; else buttons
+  - {name: clipboard-set, optional: true}  # Copy link; without it, the link as text
+  - {name: ui.fullscreen, optional: true}  # the viewer's Full screen; without it, the window
+  - {name: image.badge, optional: true}  # "+N" over the grid's last tile; else a line under it
   - json-parse
   - state-set-tree
 
@@ -93,6 +97,9 @@ init: |
   (state-set "app.media" (if (has? "media.player") "1" ""))
   (state-set "app.rich" (if (and (has? "image.url") (has? "image.fill") (not (has? "term"))) "1" ""))
   (state-set "app.badge" (if (has? "image.badge") "1" ""))
+  ;; clicks: a group's click is its own and its handlers see {i} (ui.group_click, libcvc 3.7.13)
+  (state-set "app.clicks" (if (has? "ui.group_click") "1" ""))
+  (state-set "app.clip" (if (has? "clipboard-set") "1" ""))
   (state-set-tree "feed" (dict "items" (list) "mode" "Following" "source" "home" "tag" "" "title" ""
                                "more" "" "before" "" "offset" 0 "empty" "" "tail" ""))
   (state-set-tree "post" (dict "lines" (list) "media" (list) "replies" (list) "tags" ""
@@ -654,8 +661,14 @@ on_tick: |
         (let ((rich (cap "rich")) (term (cap "term")) (pics (cap "pics")) (media (cap "media")))
           (dict "v_avpic" (flag (and pics (!= avpic "")))
                 "v_avtxt" (flag (not (and pics (!= avpic ""))))
+                ;; outside a terminal, where a click on a group is its own: the card opens its
+                ;; post, its count icons act, its hashtags are chips; elsewhere the buttons, and
+                ;; the hashtags a radio row (a line of them in a terminal)
+                "v_click" (flag (and (cap "clicks") (not term)))
+                "v_btns" (flag (not (and (cap "clicks") (not term))))
+                "v_chips" (flag (and (cap "clicks") (not term) (!= tags "")))
                 "v_tagline" (flag (and term (!= tags "")))
-                "v_tagrow" (flag (and (not term) (!= tags "")))
+                "v_tagrow" (flag (and (not term) (not (cap "clicks")) (!= tags "")))
                 ;; one picture or video, or a grid: as wide as the line where the host
                 ;; measures it (rich), else at fixed sizes; a terminal shows the first picture
                 ;; and the first video
@@ -668,10 +681,14 @@ on_tick: |
                 "v_rows" (flag (and (!= m0 "") (not (and pics (not term) (= only "1")))))
                 "v_viewbtn" (flag (and pics (not term) (= only "1") viewable))
                 "v_gmore" (flag (and (> (length tiles) 4) (not (cap "badge")))))))
-      (defun post-flags (avpic tiles)
-        (let ((pics (cap "pics")))
+      (defun post-flags (avpic tiles tags)
+        (let ((pics (cap "pics")) (click (and (cap "clicks") (not (cap "term")))))
           (dict "v_avpic" (flag (and pics (!= avpic "")))
                 "v_avtxt" (flag (not (and pics (!= avpic ""))))
+                "v_click" (flag click)
+                "v_btns" (flag (not click))
+                "v_chips" (flag (and click (!= tags "")))
+                "v_tagrow" (flag (and (not click) (!= tags "")))
                 "v_grid" (flag (and (cap "rich") (> (length tiles) 0)))
                 "v_fgrid" (flag (and pics (not (cap "rich")) (not (cap "term")) (> (length tiles) 0)))
                 "v_term" (flag (cap "term"))
@@ -682,12 +699,29 @@ on_tick: |
         (let ((term (cap "term")) (pics (cap "pics")) (media (cap "media")) (rich (cap "rich")))
           (dict "v_img_fill" (flag (and rich (= k "image")))
                 "v_img_fix" (flag (and pics (not rich) (= k "image")))
+                "v_img_w" (flag (and pics (not rich) (not term) (= k "image")))
                 "v_img_t" (flag (and pics term (= k "image")))
                 "v_vid_fill" (flag (and media rich (= k "video")))
                 "v_vid_fix" (flag (and media (not rich) (= k "video")))
+                "v_vid_w" (flag (and media (not rich) (not term) (= k "video")))
                 "v_vid_t" (flag (and media term (= k "video")))
                 "v_aud" (flag (and media (= k "audio")))
                 "v_view" (flag (!= k "file")))))
+      ;; Its hashtags as chips: t0..t5, and tmore for the rest.
+      (defun chip-fields (tags)
+        (let ((l (if (= tags "") (list) (string.split tags "|"))))
+          (dict "t0" (nth-or l 0) "t1" (nth-or l 1) "t2" (nth-or l 2)
+                "t3" (nth-or l 3) "t4" (nth-or l 4) "t5" (nth-or l 5)
+                "tmore" (if (> (length l) 6) (str-concat "+" (text (- (length l) 6))) ""))))
+      ;; Its counts as icons to press: reply, repost (green once you have), like (red once you
+      ;; have), and the views.
+      (defun icon-fields (q)
+        (dict "c_reply" (str-concat " ↩ " (text (opt q "reply_count" 0)) " ")
+              "c_repost" (str-concat " ⇄ " (text (opt q "repost_count" 0)) " ")
+              "c_like" (str-concat " ♥ " (text (opt q "reaction_count" 0)) " ")
+              "c_views" (str-concat "· " (text (opt q "view_count" 0)) " views")))
+      (defun merge4 (a b c d)
+        (collections.dict-merge (collections.dict-merge (collections.dict-merge a b) c) d))
       (defun counts-of (q)
         (str-concat "↩" (text (opt q "reply_count" 0)) " ⇄" (text (opt q "repost_count" 0))
                     " ♥" (text (opt q "reaction_count" 0)) " · " (text (opt q "view_count" 0))
@@ -764,8 +798,10 @@ on_tick: |
                         (clip (media-row (nth media 0)) CARDW))
                       ""))
             (collections.dict-merge
-             (collections.dict-merge (grid-fields tiles)
-                                     (card-flags avpic tags pic vid au tiles only m0 viewable))
+             (merge4 (grid-fields tiles)
+                     (card-flags avpic tags pic vid au tiles only m0 viewable)
+                     (chip-fields tags)
+                     (icon-fields q))
              (dict "id" (opt q "id" 0)
                   ;; the post the buttons act on: a repost's is the post it reposts
                   "pid" (opt p "id" (opt q "id" 0))
@@ -951,12 +987,15 @@ on_tick: |
             (set parent (opt p "reply_to_id" nil))
             (set author (opt p "author" (dict)))
             (set tiles (tiles-of media))
+            (set tags (tag-options q))
             (state-set-tree "post"
              (collections.dict-merge
-              (collections.dict-merge
+              (merge4
                (grid-fields tiles)
                (post-flags (picture-only (picture-url (opt (opt p "author" (dict)) "avatar_url" nil)))
-                           tiles))
+                           tiles tags)
+               (chip-fields tags)
+               (icon-fields q))
               (dict "id" (opt q "id" 0)
                     ;; the post the buttons act on: a repost's is the post it reposts
                     "pid" (opt p "id" (opt q "id" 0))
@@ -967,7 +1006,7 @@ on_tick: |
                     "author_id" (text (opt author "id" ""))
                     "parent" (if (= (type-of parent) "nil") "" (text parent))
                     "parent_note" "a post"
-                    "tags" (tag-options q)
+                    "tags" tags
                     "tag_pick" ""
                     "link" (clip (str-concat "Link: " (web-of p)) WIDE)
                     "web" (web-of p)
@@ -1425,6 +1464,7 @@ on_tick: |
             (if (= (text (state-get "user.want")) "") (say "No one to show.")
               (go (str-concat "profile|" (text (state-get "user.want"))))))
           (if (= cmd "tags") (go "tags"))
+          (if (= cmd "copied") (say "Link copied."))
           (if (= cmd "alerts") (go "alerts"))
           (if (= cmd "search-view") (go "search"))
           (if (= cmd "compose") (go "compose"))

@@ -764,6 +764,63 @@ units:
         options: (string.split (state-get "feed.items.{i}.tags") "|")
         on: (begin (state-set "tag.want" (state-get "feed.items.{i}.tag_pick")) (state-set "ui.cmd" "tag"))
         visible_when: (= (state-get "feed.items.{i}.v_tagrow") "1")
+      # Where a click on a group is its own, outside a terminal, each hashtag is a chip to click.
+      - type: group
+        layout: {kind: horizontal, col_widths: [auto, auto, auto, auto, auto, auto, auto]}
+        visible_when: (= (state-get "feed.items.{i}.v_chips") "1")
+        children:
+          - type: group
+            on_click: (if (has? "ui.group_click") (begin (state-set "tag.want" (state-get "feed.items.{i}.t0")) (state-set "ui.cmd" "tag")))
+            hover: highlight
+            visible_when: (!= (state-get "feed.items.{i}.t0") "")
+            children:
+              - text: ""
+                bind: feed.items.{i}.t0
+                color: [0.45, 0.65, 0.95]
+          - type: group
+            on_click: (if (has? "ui.group_click") (begin (state-set "tag.want" (state-get "feed.items.{i}.t1")) (state-set "ui.cmd" "tag")))
+            hover: highlight
+            visible_when: (!= (state-get "feed.items.{i}.t1") "")
+            children:
+              - text: ""
+                bind: feed.items.{i}.t1
+                color: [0.45, 0.65, 0.95]
+          - type: group
+            on_click: (if (has? "ui.group_click") (begin (state-set "tag.want" (state-get "feed.items.{i}.t2")) (state-set "ui.cmd" "tag")))
+            hover: highlight
+            visible_when: (!= (state-get "feed.items.{i}.t2") "")
+            children:
+              - text: ""
+                bind: feed.items.{i}.t2
+                color: [0.45, 0.65, 0.95]
+          - type: group
+            on_click: (if (has? "ui.group_click") (begin (state-set "tag.want" (state-get "feed.items.{i}.t3")) (state-set "ui.cmd" "tag")))
+            hover: highlight
+            visible_when: (!= (state-get "feed.items.{i}.t3") "")
+            children:
+              - text: ""
+                bind: feed.items.{i}.t3
+                color: [0.45, 0.65, 0.95]
+          - type: group
+            on_click: (if (has? "ui.group_click") (begin (state-set "tag.want" (state-get "feed.items.{i}.t4")) (state-set "ui.cmd" "tag")))
+            hover: highlight
+            visible_when: (!= (state-get "feed.items.{i}.t4") "")
+            children:
+              - text: ""
+                bind: feed.items.{i}.t4
+                color: [0.45, 0.65, 0.95]
+          - type: group
+            on_click: (if (has? "ui.group_click") (begin (state-set "tag.want" (state-get "feed.items.{i}.t5")) (state-set "ui.cmd" "tag")))
+            hover: highlight
+            visible_when: (!= (state-get "feed.items.{i}.t5") "")
+            children:
+              - text: ""
+                bind: feed.items.{i}.t5
+                color: [0.45, 0.65, 0.95]
+          - text: ""
+            bind: feed.items.{i}.tmore
+            color: [0.6, 0.6, 0.6]
+            visible_when: (!= (state-get "feed.items.{i}.tmore") "")
       # Its pictures and videos: one as wide as the card at its own shape, two or more a grid
       # (card_grid where the host measures the line, card_fgrid at fixed sizes elsewhere outside a
       # terminal). A terminal shows the first picture (192 x 112 px, 24 x 7 cells) and the first
@@ -820,11 +877,56 @@ units:
             bind: feed.items.{i}.mmore
             color: [0.6, 0.6, 0.6]
             visible_when: (!= (state-get "feed.items.{i}.mmore") "")
-      # The counts, then the buttons. Never disabled, and never hidden once shown: a terminal
-      # that loses the focused widget scrolls back to the top. The controller takes one command
-      # at a time, so a press while busy waits its turn.
+      # Where a click on a group is its own, outside a terminal: the counts are icons to press,
+      # reply (the post, its reply box focused), repost and like, green and red once you have;
+      # the card itself opens the post.
+      - type: group
+        layout: {kind: horizontal, col_widths: [auto, auto, auto, auto, auto]}
+        visible_when: (= (state-get "feed.items.{i}.v_click") "1")
+        children:
+          - type: group
+            on_click: (if (has? "ui.group_click") (begin (state-set "post.want" (state-get "feed.items.{i}.pid")) (state-set "post.focus_reply" "1") (state-set "ui.cmd" "open")))
+            hover: highlight
+            children:
+              - text: ""
+                bind: feed.items.{i}.c_reply
+                color: [0.6, 0.6, 0.6]
+          - type: group
+            on_click: (if (has? "ui.group_click") (begin (state-set "act.i" "{i}") (state-set "ui.cmd" "repost")))
+            hover: highlight
+            children:
+              - text: ""
+                bind: feed.items.{i}.c_repost
+                color: [0.4, 0.8, 0.5]
+                visible_when: (= (state-get "feed.items.{i}.reposted") "1")
+              - text: ""
+                bind: feed.items.{i}.c_repost
+                color: [0.6, 0.6, 0.6]
+                visible_when: (!= (state-get "feed.items.{i}.reposted") "1")
+          - type: group
+            on_click: (if (has? "ui.group_click") (begin (state-set "act.i" "{i}") (state-set "ui.cmd" "like")))
+            hover: highlight
+            children:
+              - text: ""
+                bind: feed.items.{i}.c_like
+                color: [0.95, 0.35, 0.4]
+                visible_when: (= (state-get "feed.items.{i}.liked") "1")
+              - text: ""
+                bind: feed.items.{i}.c_like
+                color: [0.6, 0.6, 0.6]
+                visible_when: (!= (state-get "feed.items.{i}.liked") "1")
+          - text: ""
+            bind: feed.items.{i}.c_views
+            color: [0.6, 0.6, 0.6]
+          - button: View
+            on: (begin (state-set "view.post" (state-get "feed.items.{i}.pid")) (state-set "view.i" 0) (state-set "ui.cmd" "view"))
+            visible_when: (= (state-get "feed.items.{i}.v_viewbtn") "1")
+      # Elsewhere the counts, then the buttons. Never disabled, and never hidden once shown: a
+      # terminal that loses the focused widget scrolls back to the top. The controller takes one
+      # command at a time, so a press while busy waits its turn.
       - type: group
         layout: {kind: horizontal}
+        visible_when: (= (state-get "feed.items.{i}.v_btns") "1")
         children:
           - text: ""
             bind: feed.items.{i}.counts
@@ -862,7 +964,17 @@ units:
       - type: group
         repeat: (state-get "feed.items")
         children:
-          - include: post_card
+          # Outside a terminal, where a click on a group is its own (ui.group_click), the whole
+          # card opens its post; a click on its pictures, icons or hashtags is theirs.
+          - type: group
+            visible_when: (= (state-get "feed.items.{i}.v_click") "1")
+            on_click: (if (has? "ui.group_click") (begin (state-set "post.want" (state-get "feed.items.{i}.id")) (state-set "post.focus_reply" "") (state-set "ui.cmd" "open")))
+            children:
+              - include: post_card
+          - type: group
+            visible_when: (= (state-get "feed.items.{i}.v_btns") "1")
+            children:
+              - include: post_card
       - type: group
         layout: {kind: horizontal}
         visible_when: (= (state-get "feed.empty") "")
@@ -920,10 +1032,67 @@ units:
           - text: ""
             bind: post.lines.{i}
             emoji: post.emoji
-      # Its hashtags: click one (outside a terminal), or pick one and Open tag (in a terminal).
+      # Its hashtags: chips to click where a click on a group is its own (outside a terminal);
+      # elsewhere a radio row, clicked (outside a terminal), or picked and Open tag (in one).
+      - type: group
+        layout: {kind: horizontal, col_widths: [auto, auto, auto, auto, auto, auto, auto]}
+        visible_when: (= (state-get "post.v_chips") "1")
+        children:
+          - type: group
+            on_click: (if (has? "ui.group_click") (begin (state-set "tag.want" (state-get "post.t0")) (state-set "ui.cmd" "tag")))
+            hover: highlight
+            visible_when: (!= (state-get "post.t0") "")
+            children:
+              - text: ""
+                bind: post.t0
+                color: [0.45, 0.65, 0.95]
+          - type: group
+            on_click: (if (has? "ui.group_click") (begin (state-set "tag.want" (state-get "post.t1")) (state-set "ui.cmd" "tag")))
+            hover: highlight
+            visible_when: (!= (state-get "post.t1") "")
+            children:
+              - text: ""
+                bind: post.t1
+                color: [0.45, 0.65, 0.95]
+          - type: group
+            on_click: (if (has? "ui.group_click") (begin (state-set "tag.want" (state-get "post.t2")) (state-set "ui.cmd" "tag")))
+            hover: highlight
+            visible_when: (!= (state-get "post.t2") "")
+            children:
+              - text: ""
+                bind: post.t2
+                color: [0.45, 0.65, 0.95]
+          - type: group
+            on_click: (if (has? "ui.group_click") (begin (state-set "tag.want" (state-get "post.t3")) (state-set "ui.cmd" "tag")))
+            hover: highlight
+            visible_when: (!= (state-get "post.t3") "")
+            children:
+              - text: ""
+                bind: post.t3
+                color: [0.45, 0.65, 0.95]
+          - type: group
+            on_click: (if (has? "ui.group_click") (begin (state-set "tag.want" (state-get "post.t4")) (state-set "ui.cmd" "tag")))
+            hover: highlight
+            visible_when: (!= (state-get "post.t4") "")
+            children:
+              - text: ""
+                bind: post.t4
+                color: [0.45, 0.65, 0.95]
+          - type: group
+            on_click: (if (has? "ui.group_click") (begin (state-set "tag.want" (state-get "post.t5")) (state-set "ui.cmd" "tag")))
+            hover: highlight
+            visible_when: (!= (state-get "post.t5") "")
+            children:
+              - text: ""
+                bind: post.t5
+                color: [0.45, 0.65, 0.95]
+          - text: ""
+            bind: post.tmore
+            color: [0.6, 0.6, 0.6]
+            visible_when: (!= (state-get "post.tmore") "")
       - type: group
         layout: {kind: horizontal}
-        visible_when: (!= (state-get "post.tags") "")
+        visible_when: (= (state-get "post.v_tagrow") "1")
         children:
           - radio_row: Tags
             bind: post.tag_pick
@@ -934,9 +1103,48 @@ units:
           - button: Open tag
             on: (begin (state-set "tag.want" (state-get "post.tag_pick")) (state-set "ui.cmd" "tag"))
             visible_when: (= (state-get "post.v_term") "1")
+      - type: group
+        layout: {kind: horizontal, col_widths: [auto, auto, auto, auto]}
+        visible_when: (= (state-get "post.v_click") "1")
+        children:
+          - type: group
+            on_click: (if (has? "ui.group_click") (state-set "post.focus_reply" "1"))
+            hover: highlight
+            children:
+              - text: ""
+                bind: post.c_reply
+                color: [0.6, 0.6, 0.6]
+          - type: group
+            on_click: (if (has? "ui.group_click") (state-set "ui.cmd" "post-repost"))
+            hover: highlight
+            children:
+              - text: ""
+                bind: post.c_repost
+                color: [0.4, 0.8, 0.5]
+                visible_when: (= (state-get "post.reposted") "1")
+              - text: ""
+                bind: post.c_repost
+                color: [0.6, 0.6, 0.6]
+                visible_when: (!= (state-get "post.reposted") "1")
+          - type: group
+            on_click: (if (has? "ui.group_click") (state-set "ui.cmd" "post-like"))
+            hover: highlight
+            children:
+              - text: ""
+                bind: post.c_like
+                color: [0.95, 0.35, 0.4]
+                visible_when: (= (state-get "post.liked") "1")
+              - text: ""
+                bind: post.c_like
+                color: [0.6, 0.6, 0.6]
+                visible_when: (!= (state-get "post.liked") "1")
+          - text: ""
+            bind: post.c_views
+            color: [0.6, 0.6, 0.6]
       - text: ""
         bind: post.counts
         color: [0.6, 0.6, 0.6]
+        visible_when: (= (state-get "post.v_btns") "1")
       - text: ""
         bind: post.reactions
         visible_when: (!= (state-get "post.reactions") "")
@@ -948,17 +1156,26 @@ units:
           # through the views, and a post shown again mustn't catch an Enter meant for Back.
           - button: Like
             on: (state-set "ui.cmd" "post-like")
+            visible_when: (= (state-get "post.v_btns") "1")
           - button: Repost
             on: (state-set "ui.cmd" "post-repost")
+            visible_when: (= (state-get "post.v_btns") "1")
           - button: Author
             on: (begin (state-set "user.want" (state-get "post.author_id")) (state-set "ui.cmd" "user"))
           - button: Delete
             on: (state-set "ui.cmd" "delete")
             visible_when: (= (state-get "post.mine") "1")
-      # Its address on the instance, to copy.
-      - text: ""
-        bind: post.link
-        color: [0.6, 0.6, 0.6]
+      # Its address on the instance, and Copy link where the host has a clipboard
+      # (clipboard-set: libcvc 3.7.13).
+      - type: group
+        layout: {kind: horizontal}
+        children:
+          - button: Copy link
+            on: (begin (clipboard-set (state-get "post.web")) (state-set "ui.cmd" "copied"))
+            visible_when: (= (state-get "app.clip") "1")
+          - text: ""
+            bind: post.link
+            color: [0.6, 0.6, 0.6]
       # Its pictures and videos, laid out as a card's are (post_grid, post_fgrid).
       - type: group
         visible_when: (= (state-get "post.v_grid") "1")
