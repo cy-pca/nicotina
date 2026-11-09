@@ -80,6 +80,10 @@ on TX.WTF is tracked as T-items in the TX.WTF repository.
     libcvc 3.7.13); videos in the feed and a post play muted and looping with no
     controls, the viewer has them, and a click pauses or plays one (L12). The bar and each view
     scope their widgets' IDs, so the search view's Search button is no longer the bar's.
+  - Drafted, for libcvc 3.7.13 (L12, L13, L14, L16): a card opens its post when clicked; its
+    counts are icons to press (reply, repost, like, coloured once you have); its hashtags are chips
+    to click; Copy link; the viewer's Full screen. A terminal and older hosts keep the buttons.
+    Hashtags clickable inside the text, and text that wraps as the window narrows, wait for L15.
   - Next, with L12-L20 (transfix/libcvc, the next release): a card and a picture clickable,
     Copy link, fullscreen video, hashtags and mentions clickable in the text, a live character
     count, "2h ago", attachments, wheel scrolling in a terminal. Then direct messages: plain
