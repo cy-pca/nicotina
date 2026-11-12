@@ -138,7 +138,8 @@ pictures=
 "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement image.url" || pictures=1
 # Whether this ari plays video and audio (media.player: ari-media and arigl with
 # transfix/libcvc#935): then a card's recording has a player, three Tab stops (Play, the seek
-# slider, Mute). Its video plays with no controls, so no stops: the viewer has them.
+# slider, Mute), and four where the player has a Loop box too (libcvc 3.7.13, #1079; the players'
+# snapshot below tells). Its video plays with no controls, so no stops: the viewer has them.
 media=
 "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement media.player" || media=1
 player_stops=0
@@ -504,6 +505,8 @@ else
   # (ari snapshot doesn't wait for a player whose URL comes from a reply, so not the durations)
   check "ari snapshot: the card's recording has a player" "$out/snap-feed-players.txt" \
     "[ Play ]" "Mute" "[video] engine.mp4 · 11 KB" "[audio] lecture.ogg · 5 KB"
+  # A player with a Loop box beside Mute (libcvc 3.7.13) has a fourth Tab stop.
+  grep -qF "] Loop" "$out/snap-feed-players.txt" && player_stops=4
   if [ "$(grep -c '\[ Play \]' "$out/snap-feed-players.txt")" -eq 1 ]; then
     pass "ari snapshot: ... and the video has no controls"
   else

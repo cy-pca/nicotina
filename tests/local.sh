@@ -280,8 +280,9 @@ admin_store=$admin_xdg/nicotina/credentials
 start ftxui "$admin_xdg" "$base" -- --user ada --start admin
 step "$t: the form" "Username: [ada"
 sign_in "$work/password"
+# (txwtf keeps an account of its own, __system__, beside the four tests/txwtf_local.py makes)
 step "$t: --start admin: the accounts, from the server" "Admin: (*) Users" \
-  "4 accounts, the newest first" "@eve  Eve Example" "@linus  Linus" "@grace  Grace Hopper"
+  "accounts, the newest first" "@eve  Eve Example" "@linus  Linus" "@grace  Grace Hopper"
 if grep -qE '@ada  Ada Lovelace +[0-9-]{10} +admin' \
   "$out/tmux-$(slug "$t: --start admin: the accounts, from the server").txt"; then
   pass "$t: ... ada's row says admin"
@@ -395,9 +396,17 @@ if has_route /invite/mode; then
 else
   skip "$t: invite codes (this txwtf has no /invite/mode)"
 fi
-admin_snap log-after admin:log
-check "$t: the system log has the changes" "$out/txwtf-admin-log-after.txt" "Group Create" \
-  "Group Delete"
+# The log has the changes. The server logs its background jobs every few seconds, so its first
+# page soon holds only those: pick the kind of event (Events: Group Create is the eighth after
+# All, Group Delete the ninth).
+start ftxui "$admin_xdg" "$base" -- --start admin:log
+step "$t: the system log, to find the changes" "(*) Log" "events, the newest first"
+for _ in $(seq 8); do keys Tab; done # the bar and the parts: Events
+for _ in $(seq 8); do keys Right; done
+step "$t: Events: Group Create: the group made here" ": Group Create, the newest first" \
+  "Group Create"
+keys Right
+step "$t: Events: Group Delete: and deleted" ": Group Delete, the newest first" "Group Delete"
 stop
 
 # --- the rate limit ----------------------------------------------------------------------------

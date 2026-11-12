@@ -28,9 +28,9 @@
 # refuses its admin routes too (txwtf answers 401 AccessDenied, which the client says plainly
 # rather than taking it for a session that ended).
 #
-# Laid out for an 80x24 terminal first, 74 columns wide: each list is rows of text with a button
-# at the end (a button's label is fixed in a document, so the row says what it acts on), a page
-# at a time with Prev and Next. A row's columns are cells of fixed widths (col_widths, in pixels:
+# Laid out for an 80x24 terminal first, within the window's 74 columns: each list is rows of text
+# with a button at the end (a button's label is fixed in a document, so the row says what it acts
+# on), a page at a time with Prev and Next. A row's columns are cells of fixed widths (col_widths, in pixels:
 # 8 a terminal column), so they line up in a window's proportional font as well as in a terminal;
 # each table stays within the width a browser window has by itself (about 560 px).
 #
