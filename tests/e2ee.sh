@@ -25,7 +25,8 @@ stop_stub() { [ -z "$stub_pid" ] || kill "$stub_pid" 2>/dev/null; }
 on_exit stop_stub
 
 why_not=
-"$ARI" --help 2>&1 | grep -q -- '--e2ee-store' || why_not="this ari has no --e2ee-store (libcvc 3.7.14)"
+ari_help=$("$ARI" --help 2>&1 || true) # whole: grep -q on a pipe can SIGPIPE ari under pipefail
+grep -q -- '--e2ee-store' <<<"$ari_help" || why_not="this ari has no --e2ee-store (libcvc 3.7.14)"
 command -v node >/dev/null || why_not="no node"
 [ -n "${TXWTF_JS:-}" ] && [ -f "$TXWTF_JS/e2ee.js" ] || why_not="TXWTF_JS names no txwtf/static/js"
 node -e "require('libsodium-wrappers-sumo')" 2>/dev/null || why_not="node has no libsodium-wrappers-sumo"
@@ -33,6 +34,7 @@ command -v tmux >/dev/null || why_not="no tmux"
 if [ -n "$why_not" ]; then
   skip "the encrypted round trip: $why_not"
   finish
+  exit
 fi
 
 python3 -I -B -c "

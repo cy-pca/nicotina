@@ -107,7 +107,8 @@ check "launcher: a host with --e2ee-store keeps the encryption keys beside the s
 launch launcher-e2ee-off NICOTINA_ARI="$work/fakebin/ari-e2ee" NICOTINA_E2EE=0 -- --terminal
 check_not "launcher: ... and NICOTINA_E2EE=0 leaves them out" "$out/launcher-e2ee-off.txt" \
   "--e2ee-store"
-if ! "$ARI" --help 2>/dev/null | grep -q -- '--e2ee-store'; then
+ari_help=$("$ARI" --help 2>&1 || true) # whole: grep -q on a pipe can SIGPIPE ari under pipefail
+if ! grep -q -- '--e2ee-store' <<<"$ari_help"; then
   check_not "launcher: a host without the flag gets none" "$out/launcher-nodisplay.txt" "--e2ee-store"
 fi
 launch launcher-bad -- --instance ftp://example.org
