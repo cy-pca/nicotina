@@ -85,11 +85,15 @@ launch launcher-nodisplay -- --instance "$base"
 check "launcher: no display gets ari" "$out/launcher-nodisplay.txt" "$ARI 'run' '--net'"
 launch launcher-ssh DISPLAY= SSH_CONNECTION="10.0.0.2 5000 10.0.0.1 22" -- --instance "$base"
 check "launcher: SSH without X forwarding gets ari" "$out/launcher-ssh.txt" "$ARI 'run'"
+# A host with --e2ee-store (libcvc 3.7.14) gets the key store beside the credentials.
+ari_help=$("$ARI" --help 2>&1 || true) # whole: grep -q on a pipe can SIGPIPE ari under pipefail
+keys_flag=
+grep -q -- '--e2ee-store' <<<"$ari_help" && keys_flag=" '--e2ee-store' '$work/xdg/nicotina/e2ee'"
 launch launcher-tvision DISPLAY=:0 XDG_CONFIG_HOME="$work/xdg" -- --backend tvision --fps 30 \
   -- --user ada
 check "launcher: --backend tvision, host flags before the document, document args after" \
   "$out/launcher-tvision.txt" "$ARI 'run' '--backend' 'tvision' '--net'" \
-  "'$work/xdg/nicotina/credentials' '--fps' '30' '$main' '--instance' 'https://tx.wtf' '--user' 'ada'"
+  "'$work/xdg/nicotina/credentials'$keys_flag '--fps' '30' '$main' '--instance' 'https://tx.wtf' '--user' 'ada'"
 # ari-media (ari with sound and video) is the terminal's ari where it is installed.
 mkdir -p "$work/fakebin" && printf '#!/bin/sh\n' >"$work/fakebin/ari-media" &&
   chmod +x "$work/fakebin/ari-media"
@@ -107,7 +111,6 @@ check "launcher: a host with --e2ee-store keeps the encryption keys beside the s
 launch launcher-e2ee-off NICOTINA_ARI="$work/fakebin/ari-e2ee" NICOTINA_E2EE=0 -- --terminal
 check_not "launcher: ... and NICOTINA_E2EE=0 leaves them out" "$out/launcher-e2ee-off.txt" \
   "--e2ee-store"
-ari_help=$("$ARI" --help 2>&1 || true) # whole: grep -q on a pipe can SIGPIPE ari under pipefail
 if ! grep -q -- '--e2ee-store' <<<"$ari_help"; then
   check_not "launcher: a host without the flag gets none" "$out/launcher-nodisplay.txt" "--e2ee-store"
 fi
