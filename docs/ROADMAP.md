@@ -41,7 +41,7 @@ on TX.WTF is tracked as T-items in the TX.WTF repository.
 | L18 | A file picker that hands the document a host-held file, read in chunks into TX.WTF's resumable upload: attachments | M2 |
 | L19 | `(time-now)`: the wall clock, for "2h ago" | M2 |
 | L20 | Wheel scrolling of a window in FTXUI and tvision | M2 |
-| L21 | End-to-end encrypted messaging in the host: TX.WTF's X3DH and Double Ratchet over libsodium (X25519, Ed25519, XChaCha20-Poly1305, BLAKE2b, Argon2id backup), wire-compatible with the web app, its keys held by the host as the session token is (never in state). Needs a libsodium package on cvcpkg | M2 |
+| L21 | End-to-end encrypted messaging in the host: TX.WTF's X3DH and Double Ratchet over libsodium (X25519, Ed25519, XChaCha20-Poly1305, BLAKE2b, Argon2id backup), wire-compatible with the web app, its keys held by the host as the session token is (never in state). Needs a libsodium package on cvcpkg. Drafted: cy-pca/cvcpkg#612 (libsodium), the libcvc E2EE PR (the `e2ee-*` verbs, `--e2ee-store`), and DMs here (ui/dm.ari) | M2 |
 | L22 | Loop as a player control: a Loop box beside Mute, and a `loop` key the document reads and writes, as `muted` | M2 |
 | L23 | `badge:` on `image:` and `video:`, a label drawn over the picture (the grid's "+N"), with a capability token (`image.badge`). Not `overlay:`, a widget type the loader would take it for | M2 |
 | L24 | A reactive expression the per-frame budget skipped is not the document's error: no warning (a big feed's first frame in wasm showed one) | M2 |

@@ -119,7 +119,7 @@ pictures=
 ada_card="(AL) Ada Lovelace"
 # The bar along the main window's top: its seven buttons are the first seven focus stops, and
 # each new view starts with the focus on Back (stop 1): Tab k times reaches stop k + 1.
-bar="[ Back ][ Home ][ Tags ][ Search ][ Alerts ][ Profile ][ Post ]"
+bar="[ Back ][ Home ][ Tags ][ Search ][ Alerts ][ Profile ][ Post ][ DMs ]"
 [ -n "$pictures" ] && ada_card=" Ada Lovelace"
 
 # --- the client --------------------------------------------------------------------------------

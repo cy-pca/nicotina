@@ -9,6 +9,7 @@
 #   search    posts and people
 #   compose   a new post
 #   viewer    a post's pictures and videos, one at a time, as wide as the window
+#   dms, dm   your direct messages, and one conversation (ui/dm.ari)
 #
 # Going to a view remembers the one it came from, and Back returns to it (main.ari's "back").
 # Home starts over at the feed. The window is the feed's width (74 columns in a terminal) and 86%
@@ -70,12 +71,16 @@ units:
       - button: "✏"
         on: (state-set "ui.cmd" "compose")
         tooltip: New post
+      - button: "✉"
+        on: (state-set "ui.cmd" "dms")
+        tooltip: Messages
       - text: ""
         bind: alerts.badge
         color: [0.95, 0.75, 0.3]
 
-  # In words. A terminal draws a button as its label in brackets, so the bar is 63 columns; the
+  # In words. A terminal draws a button as its label in brackets, so the bar is 70 columns; the
   # unread count follows it. (Forward is in the nicotina menu here: the bar has no room for it.)
+  # DMs comes last, so the buttons before it keep their places in the focus order.
   nav_words:
     type: group
     layout: {kind: horizontal}
@@ -95,6 +100,8 @@ units:
         on: (state-set "ui.cmd" "profile")
       - button: Post
         on: (state-set "ui.cmd" "compose")
+      - button: DMs
+        on: (state-set "ui.cmd" "dms")
       - text: ""
         bind: alerts.badge
         color: [0.95, 0.75, 0.3]
@@ -167,3 +174,13 @@ units:
         visible_when: (= (state-get "ui.screen") "viewer")
         children:
           - include: viewer_view
+      - type: group
+        id: v_dms
+        visible_when: (= (state-get "ui.screen") "dms")
+        children:
+          - include: dms_view
+      - type: group
+        id: v_dm
+        visible_when: (= (state-get "ui.screen") "dm")
+        children:
+          - include: dm_view

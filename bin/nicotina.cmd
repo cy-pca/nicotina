@@ -126,11 +126,19 @@ if defined TERMINAL (
 rem The session token, kept by the host across runs, owner-only.
 set "STORE="
 if defined APPDATA set "STORE=%APPDATA%\nicotina\credentials"
+rem The account's end-to-end encryption keys, kept by the host beside it (--e2ee-store, libcvc
+rem 3.7.14), for a host that has the flag. NICOTINA_E2EE=0 leaves them out.
+set "E2EE="
+if not defined APPDATA goto e2ee_done
+if "%NICOTINA_E2EE%"=="0" goto e2ee_done
+"%HOST%" --help 2>nul | findstr /c:"--e2ee-store" >nul && set "E2EE=%APPDATA%\nicotina\e2ee"
+:e2ee_done
 
 set CMDLINE="%HOST%" run%MODE%
 if /i "%BACKEND%"=="tvision" set CMDLINE=%CMDLINE% --backend tvision
 set CMDLINE=%CMDLINE% --net --net-allow "%ORIGIN%"
 if defined STORE set CMDLINE=%CMDLINE% --credential-store "%STORE%"
+if defined E2EE set CMDLINE=%CMDLINE% --e2ee-store "%E2EE%"
 set CMDLINE=%CMDLINE%%HOSTARGS% "%SHARE%\main.ari" --instance "%INSTANCE%"%DOCARGS%
 
 if defined DRYRUN (

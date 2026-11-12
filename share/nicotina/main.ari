@@ -50,6 +50,10 @@ menubar:
         on: (state-set "ui.cmd" "compose")
         enabled_when: (and (!= (state-get "ui.screen") "signin") (!= (state-get "ui.screen") "2fa")
                            (!= (state-get "ui.screen") "boot") (!= (state-get "ui.busy") "1"))
+      - menu_item: Messages
+        on: (state-set "ui.cmd" "dms")
+        enabled_when: (and (!= (state-get "ui.screen") "signin") (!= (state-get "ui.screen") "2fa")
+                           (!= (state-get "ui.screen") "boot") (!= (state-get "ui.busy") "1"))
       - menu_item: Your profile
         on: (state-set "ui.cmd" "profile")
         enabled_when: (and (!= (state-get "ui.screen") "signin") (!= (state-get "ui.screen") "2fa")

@@ -17,16 +17,22 @@
 # Sign in to an instance (username, password and the emailed second factor), then use it as the
 # TX.WTF web app is used, in one window: the feed and a hashtag's posts, a post with its replies,
 # profiles (yours and anyone's, with Follow), the hashtags, your notifications, search, a new
-# post, and a viewer for a post's pictures and videos. It never sends you to a web browser.
+# post, a viewer for a post's pictures and videos, and your direct messages, the end-to-end
+# encrypted ones too where the host keeps keys. It never sends you to a web browser.
 #
 # The terminal comes first: every window is laid out for an 80x24 terminal, and ImGui only adds
 # to it (the Details window). The sign-in windows are in ui/signin.ari; the main window and its
-# bar are in ui/app.ari, and its views in ui/feed.ari, ui/home.ari, ui/social.ari and ui/card.ari.
+# bar are in ui/app.ari, and its views in ui/feed.ari, ui/home.ari, ui/social.ari, ui/card.ari
+# and ui/dm.ari.
 #
 # The host holds the session token, never this document. Sign-in uses capture_auth, so the host
 # takes the token out of the reply and keeps it; every later request names the credential with
 # auth: and the host adds the header. Sign-out drops it with net-auth-forget. With
 # --credential-store the host keeps it across runs, and the next start signs in from it.
+#
+# End-to-end encrypted DMs work the same way: with --e2ee-store the host keeps this account's
+# keys and sessions (the e2ee-* verbs), seals what is sent and opens what comes, and this document
+# only names its handle. Without that, an encrypted conversation stays locked, saying why.
 
 meta:
   name: nicotina
@@ -49,6 +55,7 @@ requires:
   - {name: clipboard-set, optional: true}  # Copy link; without it, the link as text
   - {name: ui.fullscreen, optional: true}  # the viewer's Full screen; without it, the window
   - {name: image.badge, optional: true}  # "+N" over the grid's last tile; else a line under it
+  - {name: e2ee-seal, optional: true}  # end-to-end encrypted DMs; without it they stay locked
   - json-parse
   - state-set-tree
 
@@ -59,6 +66,7 @@ import:
   - ui/home.ari
   - ui/feed.ari
   - ui/social.ari
+  - ui/dm.ari
 
 init: |
   (set base (string.trim (state-get "args.instance")))
@@ -121,6 +129,10 @@ init: |
   (state-set-tree "compose" (dict "text" "" "visibility" "Public"
                                   "note" "Text only for now: attaching files comes later."))
   (state-set-tree "viewer" (dict "url" "" "kind" "" "where" "" "row" "" "i" 0))
+  (state-set-tree "dm" (dict "rows" (list) "head" "" "e2ee" "" "keys_line" "" "keys_note" ""
+                             "pass" "" "want" "" "lines" (list) "draft" "" "send" ""
+                             "conv" (dict "id" "" "title" "" "sub" "" "note" "" "can_send" ""
+                                          "can_encrypt" "" "encrypted" "")))
   (state-set "login.username" (if (state-exists "args.user") (state-get "args.user") ""))
   (state-set "login.password" "")
   (state-set "login.code" "")
@@ -157,6 +169,9 @@ init: |
 #   tags       every hashtag (GET /social/tags); alerts, your notifications (then marked read)
 #   search-view, compose: the search and the new-post views; view, a post's media (view.post,
 #            view.i) in the viewer
+#   dms      your conversations (GET /social/dm/conversations); dm-open, dm.want's (its messages,
+#            plaintext or opened by the host); dm-with, the one with the profile shown (POST
+#            /social/dm/conversations?other_user_id=, made if need be)
 #
 # And in a view:
 #   refresh  the view again (on your profile, GET /user/ too)
@@ -170,6 +185,9 @@ init: |
 #   follow, unfollow  the profile shown (POST /social/follow, DELETE /social/follow/{id})
 #   search   search.q (GET /search/search); hit-open and alert-open go where a row points
 #   view-prev, view-next  the viewer's other attachments
+#   dm-send  dm.send in the conversation shown (sealed by the host in an encrypted one);
+#            dm-encrypt turns its encryption on (POST /e2ee/dm/conversations/{id}/encrypt);
+#            dm-backup, dm-restore, dm-new-keys the keys (PUT and GET /e2ee/backup, POST /e2ee/keys)
 #   signout  POST /user/logout, then drop the credential
 #
 # After each, the unread count beside Alerts is asked for again (GET /notifications/count).
@@ -267,6 +285,10 @@ on_tick: |
           (state-set-tree "alerts" (dict "rows" (list) "head" "" "badge" ""))
           (state-set-tree "search" (dict "q" "" "rows" (list) "note" "Find posts and people."))
           (state-set "compose.text" "")
+          (state-set-tree "dm.rows" (list))
+          (state-set-tree "dm.lines" (list))
+          (state-set "dm.draft" "")
+          (state-set "dm.pass" "")
           (state-set "ui.screen" "signin")
           (if is-error (fail msg) (say msg))))
       ;; The host refused the token (it expired, or was signed out elsewhere), or holds none.
@@ -542,11 +564,11 @@ on_tick: |
               nil))))
       (defun load-me () (load-me-into nil))
       ;; Someone else's profile: GET /user/profile/{id}, and whether you follow them. Their tab
-      ;; can't be Balances. [ Unfollow ] takes 12 columns.
+      ;; can't be Balances. [ Unfollow ][ Message ] take 23 columns.
       (defun load-user (id)
         (let ((r (get-authed (str-concat "/user/profile/" (text id)))))
           (if (ok? r)
-            (let ((d (profile-of (reply-json r) 12))
+            (let ((d (profile-of (reply-json r) 23))
                   (f (get-authed (str-concat "/social/follow/check/" (text id)))))
               (begin
                 (state-set-tree "prof"
@@ -1304,6 +1326,10 @@ on_tick: |
               (if (= view "alerts")
                 (begin (say "Loading your notifications...") (set ok (load-alerts))))
               (if (= view "search") (set ok true))
+              (if (= view "dms")
+                (begin (say "Loading your messages...") (set ok (load-dms))))
+              (if (= view "dm")
+                (begin (say "Opening the conversation...") (set ok (load-dm arg))))
               (if (= view "compose") (set ok true))
               (if (= view "viewer")
                 (set ok (load-viewer arg (int (if (= (nth-or parts 2) "") "0" (nth-or parts 2))))))
@@ -1346,7 +1372,8 @@ on_tick: |
                 (if (= start "profile") (str-concat "profile|" (text (state-get "me.id")))
                   (if (string.starts-with start "user:") (str-concat "profile|" (string.substring start 5 (string.length start)))
                     (if (or (string.starts-with start "post:") (string.starts-with start "tag:")
-                            (= start "tags") (= start "alerts") (= start "search") (= start "compose"))
+                            (= start "tags") (= start "alerts") (= start "search") (= start "compose")
+                            (= start "dms") (string.starts-with start "dm:"))
                       (string.replace start ":" "|")
                       ;; view:ID or view:ID:N, the viewer at a post's Nth attachment; search:TEXT,
                       ;; the search view, searching for TEXT
@@ -1399,6 +1426,285 @@ on_tick: |
                   (if (or (= (status r) 400) (= (status r) 401))
                     (fail "Wrong username or password.")
                     (fail (str-concat "Sign-in failed (HTTP " (str (status r)) ").")))))))))
+
+      ;; --- direct messages (ui/dm.ari) ---------------------------------------------------
+      ;; The conversations: GET /social/dm/conversations, latest first. A conversation's other
+      ;; person comes from GET /user/profile/{id}, kept in dm.who for the run.
+      ;;
+      ;; An encrypted conversation (is_encrypted) goes through the host's e2ee-* verbs (libcvc
+      ;; 3.7.14, with --e2ee-store): the host keeps this account's keys and sessions, and this
+      ;; document names them by a handle, e2ee-handle, never holding a key. Its messages are
+      ;; GET /e2ee/dm/conversations/{id}/messages, opened in the order they were sent; a new one is
+      ;; sealed by the host and POSTed there. Where the host can't (no verbs, or its key store
+      ;; would not open), an encrypted conversation stays locked and says why.
+      (set DMPAGE 30)
+      (defun e2ee-here ()
+        (if (has? "e2ee-seal") (get-attr (e2ee-status) "ok") nil))
+      (defun e2ee-why ()
+        (if (has? "e2ee-status")
+          (let ((e (get-attr (e2ee-status) "error")))
+            (if (= e "") "the host's key store did not open" e))
+          "this host has no end-to-end encryption (libcvc 3.7.14 and --e2ee-store)"))
+      ;; The account's handle in the host's key store: txwtf.<host>.<user id>, in the characters
+      ;; a handle may have.
+      (defun e2ee-handle ()
+        (begin
+          (set s (str-concat "txwtf." (state-get "app.host") "." (text (state-get "me.id"))))
+          (set out "")
+          (set i 0)
+          (while (< i (string.length s))
+            (set c (string.char-at s i))
+            (set out (str-concat out (if (string.contains "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-" c) c "-")))
+            (set i (+ i 1)))
+          (if (> (string.length out) 64) (string.substring out 0 64) out)))
+      ;; Someone in a conversation: {username handle name}, asked once a run.
+      (defun dm-who (id)
+        (let ((key (str-concat "dm.who." (text id))))
+          (if (state-exists (str-concat key ".username"))
+            (dict "username" (state-get (str-concat key ".username"))
+                  "handle" (state-get (str-concat key ".handle"))
+                  "name" (state-get (str-concat key ".name")))
+            (let ((r (get-authed (str-concat "/user/profile/" (text id)))))
+              (let ((p (if (ok? r) (reply-json r) (dict))))
+                (let ((w (dict "username" (text (opt p "username" (str-concat "user " (text id))))
+                               "handle" (handle (text (opt p "username" (str-concat "user" (text id)))))
+                               "name" (one-line (opt p "name" "")))))
+                  (begin
+                    (if (ok? r) (state-set-tree key w))
+                    w)))))))
+      (defun dm-peer (c) ;; the other person's id in conversation c
+        (if (= (text (opt c "participant_1_id" "")) (text (state-get "me.id")))
+          (text (opt c "participant_2_id" "")) (text (opt c "participant_1_id" ""))))
+      (defun load-dms ()
+        (let ((r (get-query "/social/dm/conversations" (dict "limit" "50" "offset" "0"))))
+          (if (ok? r)
+            (let ((convs (reply-json r)))
+              (begin
+                (if (!= (type-of convs) "list") (set convs (list)))
+                (set rows (collections.map convs
+                            (lambda (c)
+                              (let ((w (if (opt c "is_group" nil)
+                                         (dict "handle" (str-concat "Group: " (one-line (opt c "name" ""))) "name" "")
+                                         (dm-who (dm-peer c)))))
+                                (dict "id" (text (opt c "id" ""))
+                                      "line" (pad (header (get-attr w "handle") (get-attr w "name")) (- WIDE 8))
+                                      "at" (str-concat "  " (posted-at (opt c "last_message_at" (opt c "created_at" "")))
+                                                       (if (opt c "is_encrypted" nil) "  · end-to-end encrypted" "")))))))
+                (state-set-tree "dm.rows" rows)
+                (state-set "dm.head" (pad (if (= (length rows) 0)
+                                            "No conversations yet: Message on a profile starts one."
+                                            (str-concat (text (length rows)) " conversations"))
+                                          (- WIDE 13)))
+                (load-dm-keys-line)
+                true))
+            (begin
+              (if (session-over? r) (session-over)
+                (if (= (status r) 0) (unreachable r)
+                  (fail (str-concat "Couldn't load your messages (HTTP " (str (status r)) ")."))))
+              nil))))
+      ;; Under the list: what the host does with encrypted conversations, and its key here.
+      (defun load-dm-keys-line ()
+        (if (e2ee-here)
+          (let ((mine (e2ee-identity (e2ee-handle))))
+            (begin
+              (state-set "dm.e2ee" "1")
+              (state-set "dm.keys_line"
+                (if (= (type-of mine) "nil")
+                  "Keys: none on this device yet (made when you first need them)."
+                  (str-concat "Your key: " (get-attr mine "fingerprint"))))
+              (state-set "dm.keys_note"
+                (if (get-attr (e2ee-status) "persistent")
+                  "Kept by this host, on this device. Back them up to read them elsewhere."
+                  "Kept by this host for this run only (no --e2ee-store file)."))))
+          (begin
+            (state-set "dm.e2ee" "")
+            (state-set "dm.keys_line" "Encrypted conversations stay locked here:")
+            (state-set "dm.keys_note" (clip (e2ee-why) WIDE)))))
+
+      ;; The account's keys at the instance (GET /e2ee/keys/me) against this host's: "ok", made
+      ;; and published first if neither has any; "elsewhere" when the instance has another
+      ;; device's (Restore from a backup, or New keys); nil, with the status line saying why.
+      (defun e2ee-keys ()
+        (let ((h (e2ee-handle)))
+          (let ((mine (e2ee-identity h)) (r (get-authed "/e2ee/keys/me")))
+            (if (= (status r) 404)
+              (let ((id (if (= (type-of mine) "nil") (e2ee-create h 20) mine)))
+                (let ((p (send-authed "POST" "/e2ee/keys" (get-attr id "publish"))))
+                  (if (ok? p) "ok" (begin (act-failed p "publish your encryption keys") nil))))
+              (if (ok? r)
+                (let ((pub (reply-json r)))
+                  (if (= (type-of mine) "nil") "elsewhere"
+                    (if (!= (text (opt pub "identity_key_ed25519" "")) (get-attr mine "identity_key_ed25519"))
+                      "elsewhere"
+                      (begin
+                        ;; fewer than five one-time prekeys left at the instance: twenty more
+                        (if (< (int (opt pub "available_one_time_prekeys" 0)) 5)
+                          (send-authed "POST" "/e2ee/keys/one-time" (e2ee-prekeys h 20)))
+                        "ok"))))
+                (begin (act-failed r "check your encryption keys") nil))))))
+
+      ;; One conversation: its person, its messages oldest first (the newest DMPAGE), and what
+      ;; can be done in it. dm.lines are lines of text, each message a header row and its words.
+      (defun dm-conversation (id)
+        (let ((r (get-query "/social/dm/conversations" (dict "limit" "100" "offset" "0"))))
+          (if (ok? r)
+            (let ((found (collections.filter (let ((l (reply-json r))) (if (= (type-of l) "list") l (list)))
+                           (lambda (c) (= (text (opt c "id" "")) (text id))))))
+              (if (= (length found) 0) (begin (fail "That conversation isn't yours.") nil) (car found)))
+            (begin
+              (if (session-over? r) (session-over)
+                (if (= (status r) 0) (unreachable r)
+                  (fail (str-concat "Couldn't open the conversation (HTTP " (str (status r)) ")."))))
+              nil))))
+      ;; A message as rows: when and who (dim), then its words, wrapped, indented two columns.
+      (defun dm-lines (who at txt dim)
+        (begin
+          (set rows (list (dict "text" (str-concat (posted-at at) "  " who) "dim" "1")))
+          (for l (wrap (one-line txt) (- WIDE 4))
+            (set rows (append rows (dict "text" (str-concat "  " l) "dim" dim))))
+          rows))
+      (defun dm-note (txt dim) (list (dict "text" txt "dim" dim)))
+      (defun load-dm (id)
+        (let ((c (dm-conversation id)))
+          (if (= (type-of c) "nil") nil
+            (let ((peer (dm-peer c)) (enc (opt c "is_encrypted" nil)))
+              (let ((w (dm-who peer)))
+                (begin
+                  (state-set-tree "dm.conv"
+                    (dict "id" (text id) "peer" peer "username" (get-attr w "username")
+                          "title" (header (get-attr w "handle") (get-attr w "name"))
+                          "sub" (if enc "End-to-end encrypted: the server sees ciphertext only."
+                                  "Not encrypted: the server can read these messages.")
+                          "encrypted" (if enc "1" "") "can_send" "" "can_encrypt" "" "note" ""))
+                  (set rows (if enc (load-dm-sealed id) (load-dm-plain id)))
+                  (if (= (type-of rows) "nil") nil
+                    (begin
+                      (state-set-tree "dm.lines" rows)
+                      (send-authed "POST" (str-concat "/social/dm/conversations/" (text id) "/read") (dict))
+                      true))))))))
+      (defun load-dm-plain (id)
+        (let ((r (get-query (str-concat "/social/dm/conversations/" (text id) "/messages")
+                            (dict "limit" (text DMPAGE)))))
+          (if (ok? r)
+            (let ((msgs (reply-json r)) (me (text (state-get "me.id"))))
+              (begin
+                (if (!= (type-of msgs) "list") (set msgs (list)))
+                (set out (list))
+                (for m (collections.reverse msgs)
+                  (for l (dm-lines (if (= (text (opt m "sender_id" "")) me) "you"
+                                     (get-attr (dm-who (opt m "sender_id" "")) "handle"))
+                                   (opt m "created_at" "") (opt m "content" "") "")
+                    (set out (append out l))))
+                (state-set "dm.conv.can_send" "1")
+                (state-set "dm.conv.can_encrypt" (if (e2ee-here) "1" ""))
+                (if (= (length msgs) 0) (dm-note "No messages yet." "1") out)))
+            (begin (act-failed r "load the messages") nil))))
+      (defun load-dm-sealed (id)
+        (if (not (e2ee-here))
+          (list (dict "text" "These messages are end-to-end encrypted, and stay locked here:" "dim" "")
+                (dict "text" (str-concat "  " (clip (e2ee-why) (- WIDE 2))) "dim" "1"))
+          (let ((keys (e2ee-keys)))
+            (if (= (type-of keys) "nil") nil
+              (if (= keys "elsewhere")
+                (begin
+                  (state-set "dm.conv.note" "Keys: on another device")
+                  (list (dict "text" "This account's encryption keys are on another device." "dim" "")
+                        (dict "text" "  Restore them from your backup under DMs, or make new ones." "dim" "1")))
+                (let ((r (get-query (str-concat "/e2ee/dm/conversations/" (text id) "/messages")
+                                    (dict "limit" (text DMPAGE)))))
+                  (if (ok? r)
+                    (let ((msgs (opt (reply-json r) "messages" (list))) (h (e2ee-handle)) (me (text (state-get "me.id"))))
+                      (begin
+                        (if (!= (type-of msgs) "list") (set msgs (list)))
+                        (set out (list))
+                        (for m (collections.reverse msgs)
+                          (let ((o (e2ee-open h (text id) m))
+                                (who (if (= (text (opt m "sender_id" "")) me) "you"
+                                       (get-attr (dm-who (opt m "sender_id" "")) "handle"))))
+                            (let ((st (get-attr o "status")))
+                              (for l (dm-lines who (opt m "created_at" "")
+                                               (if (get-attr o "ok") (get-attr o "text")
+                                                 (if (= st "own") "(sent from another device: its text is there)"
+                                                   (if (= st "no-session") "(encrypted on another device: read it there)"
+                                                     (if (= st "locked") "(locked: a paid message)"
+                                                       (str-concat "(could not be decrypted: " (get-attr o "error") ")")))))
+                                               (if (get-attr o "ok") "" "1"))
+                                (set out (append out l))))))
+                        ;; Send only from a session this host holds, or into a conversation with no
+                        ;; encrypted messages yet: a new session where another device holds one
+                        ;; would break the other person's copy of it.
+                        (if (or (e2ee-session? h (text id)) (= (length msgs) 0))
+                          (state-set "dm.conv.can_send" "1")
+                          (state-set "dm.conv.note"
+                            "Its session is on another device: write from there."))
+                        (if (= (length msgs) 0) (dm-note "No messages yet." "1") out)))
+                    (begin (act-failed r "load the encrypted messages") nil))))))))
+
+      ;; Send dm.send in the conversation shown: plaintext, or sealed by the host. True when sent.
+      (defun dm-send (txt)
+        (let ((id (state-get "dm.conv.id")) (peer (state-get "dm.conv.peer")))
+          (if (!= (state-get "dm.conv.encrypted") "1")
+            (let ((r (send-authed "POST" (str-concat "/social/dm/conversations/" id "/messages")
+                                  (dict "content" txt))))
+              (if (ok? r) true (begin (act-failed r "send it") nil)))
+            (let ((h (e2ee-handle)))
+              (let ((s (e2ee-seal h id (int peer) txt)))
+                (begin
+                  (if (get-attr s "need_bundle")
+                    (let ((b (get-authed (str-concat "/e2ee/keys/" (state-get "dm.conv.username")))))
+                      (if (ok? b)
+                        (set s (e2ee-seal h id (int peer) txt (reply-json b)))
+                        (set s (dict "ok" nil "need_bundle" nil "body" nil
+                                     "error" (if (= (status b) 409)
+                                               (str-concat (state-get "dm.conv.username") " has no encryption keys yet")
+                                               (str-concat "no keys (HTTP " (str (status b)) ")")))))))
+                  (if (get-attr s "ok")
+                    (let ((r (send-authed "POST" (str-concat "/e2ee/dm/conversations/" id "/messages")
+                                          (get-attr s "body"))))
+                      (if (ok? r)
+                        (begin (e2ee-sent h (int (opt (reply-json r) "id" 0)) txt) true)
+                        (begin (act-failed r "send it") nil)))
+                    (begin (fail (str-concat "Couldn't encrypt it: " (get-attr s "error"))) nil))))))))
+
+      ;; Keys: a passphrase backup of this host's (PUT /e2ee/backup), taking them from one (GET),
+      ;; or new keys in place of another device's.
+      (defun dm-pass ()
+        (let ((p (state-get "dm.pass"))) (begin (state-set "dm.pass" "") p)))
+      (defun dm-backup ()
+        (let ((p (dm-pass)) (h (e2ee-handle)))
+          (if (< (string.length p) 8) (fail "A backup passphrase is at least 8 characters.")
+            (if (= (type-of (e2ee-identity h)) "nil") (fail "There are no keys on this device to back up.")
+              (begin
+                (say "Backing up your keys (this takes a moment)...")
+                (let ((b (e2ee-backup h p)))
+                  (if (get-attr b "ok")
+                    (let ((r (send-authed "PUT" "/e2ee/backup" (get-attr b "body"))))
+                      (if (ok? r) (say "Your keys are backed up, under that passphrase.")
+                        (act-failed r "store the backup")))
+                    (fail (str-concat "Couldn't back them up: " (get-attr b "error"))))))))))
+      (defun dm-restore ()
+        (let ((p (dm-pass)) (h (e2ee-handle)))
+          (let ((r (get-authed "/e2ee/backup")))
+            (if (= (status r) 404) (fail "There is no backup of your keys at this instance.")
+              (if (not (ok? r)) (act-failed r "fetch the backup")
+                (begin
+                  (say "Restoring your keys (this takes a moment)...")
+                  (e2ee-forget h)
+                  (let ((k (e2ee-restore h (reply-json r) p)))
+                    (if (get-attr k "ok")
+                      (begin
+                        (send-authed "POST" "/e2ee/keys/one-time" (e2ee-prekeys h 20))
+                        (load-dm-keys-line)
+                        (say "Your keys are restored on this device."))
+                      (fail (str-concat "Couldn't restore them: " (get-attr k "error")))))))))))
+      (defun dm-new-keys ()
+        (let ((h (e2ee-handle)))
+          (begin
+            (e2ee-forget h)
+            (let ((p (send-authed "POST" "/e2ee/keys" (get-attr (e2ee-create h 20) "publish"))))
+              (if (ok? p)
+                (begin (load-dm-keys-line) (say "New keys published. Older encrypted messages stay unreadable here."))
+                (act-failed p "publish your new keys"))))))
 
       ;; --- doing things -----------------------------------------------------------------
       ;; A heart on post pid, or taken off (liked "1"); a repost of it, or yours taken back.
@@ -1629,6 +1935,35 @@ on_tick: |
           (if (= cmd "alert-open")
             (go (str-concat (if (= (state-get "alert.kind") "user") "profile|" "post|")
                             (text (state-get "alert.target")))))
+          (if (= cmd "dms") (go "dms"))
+          (if (= cmd "dm-open") (go (str-concat "dm|" (text (state-get "dm.want")))))
+          (if (= cmd "dm-with")
+            (let ((r (send-authed "POST" (str-concat "/social/dm/conversations?other_user_id="
+                                                     (text (state-get "prof.id"))) nil)))
+              (if (ok? r) (go (str-concat "dm|" (text (opt (reply-json r) "id" ""))))
+                (act-failed r "start the conversation"))))
+          (if (= cmd "dm-send")
+            (let ((txt (string.trim (text (state-get "dm.send")))))
+              (if (= txt "") (say "Write something first.")
+                (if (dm-send txt)
+                  (begin
+                    (state-set "dm.draft" "")
+                    (load-dm (state-get "dm.conv.id"))
+                    (new-view)
+                    (say "Sent."))))))
+          (if (= cmd "dm-encrypt")
+            (if (not (e2ee-here)) (fail (clip (e2ee-why) 60))
+              (let ((keys (e2ee-keys)))
+                (if (= keys "elsewhere") (fail "Your keys are on another device: restore them first.")
+                  (if (= keys "ok")
+                    (let ((r (send-authed "POST" (str-concat "/e2ee/dm/conversations/"
+                                                             (state-get "dm.conv.id") "/encrypt") nil)))
+                      (if (ok? r)
+                        (begin (load-dm (state-get "dm.conv.id")) (say "This conversation is end-to-end encrypted now."))
+                        (act-failed r "encrypt it"))))))))
+          (if (= cmd "dm-backup") (if (e2ee-here) (dm-backup) (fail (clip (e2ee-why) 60))))
+          (if (= cmd "dm-restore") (if (e2ee-here) (dm-restore) (fail (clip (e2ee-why) 60))))
+          (if (= cmd "dm-new-keys") (if (e2ee-here) (dm-new-keys) (fail (clip (e2ee-why) 60))))
           (if (= cmd "signout")
             (begin
               (http-request "POST" (str-concat (base) "/user/logout") (dict "auth" "txwtf"))

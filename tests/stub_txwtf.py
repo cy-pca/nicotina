@@ -32,6 +32,26 @@ and with the errors tx.wtf answers that the schema doesn't list:
                              tests/fixtures (engine.mp4, lecture.ogg); 404 for a path nothing
                              names
 
+Direct messages (ConversationResponse, DMResponse), and the end-to-end encrypted ones as
+txwtf/api/e2ee.py keeps them: opaque ciphertext and per-recipient wrapped keys, never a key
+it could open them with:
+
+  GET  /social/dm/conversations            Bearer -> the user's conversations, latest first
+  POST /social/dm/conversations?other_user_id=N
+                                           -> the 1:1 conversation with N, made if need be
+  GET  /social/dm/conversations/{id}/messages?limit=&before_id=
+                                           -> DMResponse list, newest first ([] once encrypted)
+  POST /social/dm/conversations/{id}/messages {content}  -> DMResponse (409 once encrypted)
+  POST /social/dm/conversations/{id}/read  -> {"message": ...}
+  POST /e2ee/keys, POST /e2ee/keys/one-time, GET /e2ee/keys/me, GET /e2ee/keys/{username}
+                                           the key directory (a bundle consumes a one-time key)
+  PUT, GET, DELETE /e2ee/backup            the passphrase-wrapped backup, opaque
+  POST /e2ee/dm/conversations/{id}/encrypt, POST and GET /e2ee/dm/conversations/{id}/messages
+
+ada's conversations: 900 with grace (plaintext, three messages), 901 with charles (encrypted on
+a device that isn't here: ciphertext with no envelope for ada), 902 with mary (encrypted, empty:
+a peer script, tests/e2ee_peer.js, writes in it).
+
 Accounts (password "correct horse" for all of them):
 
   ada    plain sign-in
@@ -74,7 +94,7 @@ from urllib.parse import parse_qs
 
 PASSWORD = "correct horse"
 TOP_LEVEL = ("/user/", "/billing/", "/social/", "/uploads/", "/static/", "/notifications",
-             "/search/", "/site/")
+             "/search/", "/site/", "/e2ee/")
 TWO_FACTOR_CODE = "123456"
 CHALLENGE = "Q9mUj4Z1x0bR7nVt2LcYw8sDp3HkGfA5"
 
@@ -376,6 +396,32 @@ REACTIONS = {312: [{"emoji": "thumbsup", "count": 12}, {"emoji": "heart", "count
              308: [{"emoji": "bug", "count": 30}, {"emoji": "laughing", "count": 3}]}
 
 
+# ada's direct messages, oldest first (DirectMessage), by conversation.
+CONVERSATIONS = [
+    {"id": 900, "a": "ada", "b": "grace", "encrypted": False, "created_at": "2026-10-20T10:00:00",
+     "messages": [
+         ("grace", "2026-10-31T08:58:00", "Ada, did you see Charles's engine post?"),
+         ("ada", "2026-10-31T09:02:00", "I did. The carry mechanism is lovely."),
+         ("grace", "2026-10-31T09:10:00", "Lunch on Thursday? I'll bring the compiler notes, "
+                                          "all three binders of them, and the bugs we found."),
+     ]},
+    {"id": 901, "a": "ada", "b": "charles", "encrypted": True, "created_at": "2026-10-22T10:00:00",
+     "messages": []},
+    {"id": 902, "a": "ada", "b": "mary", "encrypted": True, "created_at": "2026-10-25T10:00:00",
+     "messages": []},
+]
+# 901's encrypted messages, sealed on charles's and ada's other devices: opaque here, and with no
+# X3DH envelope a device without that session could start from.
+SEALED_ELSEWHERE = [
+    {"id": 7001, "sender": "charles", "at": "2026-10-29T12:00:00",
+     "ciphertext": "c3RhbmQtaW4gY2lwaGVydGV4dCwgbm90IGEgcmVhbCBvbmU=",
+     "wrapped_key": "c3RhbmQtaW4gd3JhcHBlZCBrZXk=",
+     "header": "eyJkaCI6IkFBRUNBd1FGQmdjSUNRb0xEQTBPRHhBUkVoTVVGUllYR0JrYUd4d2RIaDg9IiwicG4iOjAsIm4iOjB9"},
+    {"id": 7002, "sender": "ada", "at": "2026-10-29T12:05:00",
+     "ciphertext": "YW5vdGhlciBzdGFuZC1pbg==", "wrapped_key": None, "header": None},
+]
+
+
 # What the people signed in have done since the stub started: their likes, follows and posts.
 # main() makes it; post_response reads it for the viewer's own fields.
 LIVE = None
@@ -605,6 +651,23 @@ class State:
         self.deleted = set()
         self.next_id = 400
         self.viewed = set()  # notification ids marked viewed
+        # Direct messages: conversations by id, each with its plaintext and its sealed messages.
+        self.convs = {}
+        for c in CONVERSATIONS:
+            self.convs[c["id"]] = {
+                "id": c["id"], "a": c["a"], "b": c["b"], "encrypted": c["encrypted"],
+                "created_at": c["created_at"],
+                "plain": [{"id": 80000 + 10 * c["id"] + i, "sender": m[0], "at": m[1],
+                           "content": m[2]} for i, m in enumerate(c["messages"])],
+                "sealed": [dict(m, envelope=None, algorithm="dr-v1",
+                                keys={"ada": {"wrapped_key": m["wrapped_key"], "header": m["header"]}}
+                                if m["wrapped_key"] else {})
+                           for m in (SEALED_ELSEWHERE if c["id"] == 901 else [])],
+            }
+        self.next_conv = 950
+        self.next_dm = 90000
+        self.keys = {}     # username -> the published identity, signed prekey, one-time prekeys
+        self.backups = {}  # username -> the backup blob, as given
 
     def log(self, entry):
         if not self.log_path:
@@ -899,7 +962,174 @@ def make_handler(state):
                     self.reply(200, {"message": "Successfully logged out", "code": 1, "data": None}),
                     user,
                 )
+            if path.startswith("/social/dm/") or path.startswith("/e2ee/"):
+                return self.direct(method, path, query, user), user
             return self.reply(404, {"detail": "Not Found"}), user
+
+        # --- direct messages and the E2EE key directory -------------------------------------
+
+        def conv_response(self, c, user):
+            ids = {n: USERS.get(n, AUTHORS.get(n, {})).get("id") for n in (c["a"], c["b"])}
+            msgs = [m["at"] for m in c["plain"]] + [m["at"] for m in c["sealed"]]
+            return {"id": c["id"], "name": None, "is_group": False,
+                    "participant_1_id": ids[c["a"]], "participant_2_id": ids[c["b"]],
+                    "creator_id": ids[c["a"]], "last_message_at": max(msgs) if msgs else None,
+                    "created_at": c["created_at"], "default_message_ttl": None,
+                    "is_encrypted": c["encrypted"]}
+
+        def dm_response(self, c, m):
+            sid = USERS.get(m["sender"], AUTHORS.get(m["sender"], {})).get("id")
+            return {"id": m["id"], "conversation_id": c["id"], "sender_id": sid,
+                    "content": m["content"], "content_html": None, "created_at": m["at"],
+                    "attachments": None, "is_paid_content": False, "price_scrip": None,
+                    "is_locked": False, "unlock_count": 0, "reaction_count": 0, "reactions": None,
+                    "is_system": False}
+
+        def sealed_response(self, c, m, user):
+            """As txwtf/core/e2ee_dm.py's _serialize_message gives it to `user`."""
+            sid = USERS.get(m["sender"], AUTHORS.get(m["sender"], {})).get("id")
+            mine = m["sender"] == user
+            key = m["keys"].get(user)
+            return {"id": m["id"], "conversation_id": c["id"], "sender_id": sid,
+                    "algorithm": m["algorithm"], "envelope": m["envelope"],
+                    "is_paid_content": False, "price_scrip": None, "unlock_count": 0,
+                    "is_ephemeral": False, "expires_at": None, "reaction_count": 0,
+                    "is_sender": mine, "locked": False, "created_at": m["at"],
+                    "ciphertext": m["ciphertext"] if mine or key else None,
+                    "wrapped_key": key["wrapped_key"] if key and not mine else None,
+                    "header": key["header"] if key and not mine else None}
+
+        def direct(self, method, path, query, user):
+            parts = path.strip("/").split("/")
+            body = self.json_body() if method in ("POST", "PUT") else {}
+            if body is None:
+                return self.reply(422, {"detail": "Invalid body"})
+            with state.lock:
+                # the key directory
+                if parts[:2] == ["e2ee", "keys"]:
+                    return self.key_directory(method, parts[2:], body, user)
+                if parts == ["e2ee", "backup"]:
+                    if method == "PUT":
+                        state.backups[user] = body
+                        return self.reply(200, {"stored": True})
+                    if method == "DELETE":
+                        return self.reply(200, {"deleted": state.backups.pop(user, None) is not None})
+                    if user not in state.backups:
+                        return self.reply(404, {"detail": "No key backup (E2EEBackupNotFound)"})
+                    return self.reply(200, state.backups[user])
+                # conversations
+                if parts == ["social", "dm", "conversations"]:
+                    if method == "GET":
+                        mine = [c for c in state.convs.values() if user in (c["a"], c["b"])]
+                        out = [self.conv_response(c, user) for c in mine]
+                        out.sort(key=lambda c: c["last_message_at"] or c["created_at"], reverse=True)
+                        return self.reply(200, out)
+                    other = names_by_id().get(int((query.get("other_user_id") or ["0"])[0]))
+                    if other is None:
+                        return self.reply(404, {"detail": "User not found"})
+                    for c in state.convs.values():
+                        if {c["a"], c["b"]} == {user, other}:
+                            return self.reply(200, self.conv_response(c, user))
+                    c = {"id": state.next_conv, "a": user, "b": other, "encrypted": False,
+                         "created_at": "2026-11-01T10:00:00", "plain": [], "sealed": []}
+                    state.next_conv += 1
+                    state.convs[c["id"]] = c
+                    return self.reply(200, self.conv_response(c, user))
+                cid = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else None
+                c = state.convs.get(cid)
+                if c is None or user not in (c["a"], c["b"]):
+                    return self.reply(403 if c else 404, {"detail": "Conversation not found"})
+                other = c["b"] if user == c["a"] else c["a"]
+                rest = parts[4:]
+                if parts[:2] == ["social", "dm"] and rest == ["messages"]:
+                    if method == "GET":
+                        if c["encrypted"]:
+                            return self.reply(200, [])  # the legacy plaintext is hidden
+                        limit = int((query.get("limit") or ["50"])[0])
+                        return self.reply(200, [self.dm_response(c, m)
+                                                for m in reversed(c["plain"])][:limit])
+                    if c["encrypted"]:
+                        return self.reply(409, {"detail": "Conversation is end-to-end encrypted "
+                                                          "(E2EEConversationEncrypted)"})
+                    content = body.get("content") or ""
+                    if not content.strip() or len(content) > 4096:
+                        return self.reply(422, {"detail": "content: 1 to 4096 characters"})
+                    m = {"id": state.next_dm, "sender": user, "at": "2026-11-01T10:30:00",
+                         "content": content}
+                    state.next_dm += 1
+                    c["plain"].append(m)
+                    return self.reply(200, self.dm_response(c, m))
+                if parts[:2] == ["social", "dm"] and rest == ["read"]:
+                    return self.reply(200, {"message": "Marked read"})
+                if parts[:2] == ["e2ee", "dm"] and rest == ["encrypt"]:
+                    c["encrypted"] = True
+                    return self.reply(200, {"conversation_id": c["id"], "is_encrypted": True})
+                if parts[:2] == ["e2ee", "dm"] and rest == ["messages"]:
+                    if method == "GET":
+                        return self.reply(200, {"messages": [self.sealed_response(c, m, user)
+                                                             for m in reversed(c["sealed"])]})
+                    by = {}
+                    for k in body.get("recipient_keys") or []:
+                        r = k.get("recipient")
+                        name = names_by_id().get(r) if isinstance(r, int) else r
+                        by[name] = {"wrapped_key": k.get("wrapped_key"), "header": k.get("header")}
+                    if set(by) != {other} or not body.get("ciphertext"):
+                        return self.reply(400, {"detail": "recipient_keys must cover exactly the "
+                                                          "other participants (E2EERecipientKeyMissing)"})
+                    m = {"id": state.next_dm, "sender": user, "at": "2026-11-01T10:30:00",
+                         "ciphertext": body["ciphertext"],
+                         "algorithm": body.get("algorithm") or "dr-v1",
+                         "envelope": body.get("envelope"), "keys": by}
+                    state.next_dm += 1
+                    c["sealed"].append(m)
+                    c["encrypted"] = True
+                    return self.reply(200, {"id": m["id"], "conversation_id": c["id"],
+                                            "sender_id": USERS[user]["id"], "is_paid_content": False,
+                                            "is_ephemeral": False, "created_at": m["at"]})
+            return self.reply(404, {"detail": "Not Found"})
+
+        def key_directory(self, method, rest, body, user):
+            """POST /e2ee/keys[/one-time], GET /e2ee/keys/me, GET /e2ee/keys/{username}."""
+            if method == "POST" and rest == []:
+                old = state.keys.get(user)
+                same = old and old["identity_key_ed25519"] == body.get("identity_key_ed25519")
+                spk = body.get("signed_prekey") or {}
+                if not (isinstance(spk, dict) and spk.get("public_key") and spk.get("signature")
+                        and body.get("identity_key_ed25519") and body.get("identity_key_x25519")):
+                    return self.reply(400, {"detail": "Invalid key material (E2EEInvalidKeyMaterial)"})
+                # a new identity wipes the old one's prekeys, as txwtf's publish_identity does
+                opks = (old["opks"] if same else []) + list(body.get("one_time_prekeys") or [])
+                state.keys[user] = {"identity_key_ed25519": body["identity_key_ed25519"],
+                                    "identity_key_x25519": body["identity_key_x25519"],
+                                    "registration_id": body.get("registration_id") or 0,
+                                    "signed_prekey": spk, "opks": opks}
+                return self.reply(200, {"published": True, "available_one_time_prekeys": len(opks)})
+            if method == "POST" and rest == ["one-time"]:
+                k = state.keys.get(user)
+                if not k:
+                    return self.reply(404, {"detail": "No published keys (E2EEKeysNotFound)"})
+                added = list(body.get("one_time_prekeys") or [])
+                k["opks"] += added
+                return self.reply(200, {"added": len(added),
+                                        "available_one_time_prekeys": len(k["opks"])})
+            if method == "GET" and len(rest) == 1:
+                name = user if rest[0] == "me" else rest[0]
+                if name not in USERS and name not in AUTHORS:
+                    return self.reply(404, {"detail": "User not found"})
+                k = state.keys.get(name)
+                if not k:
+                    return self.reply(404 if rest[0] == "me" else 409,
+                                      {"detail": "No published keys (E2EEKeysNotFound)"})
+                out = {"user_id": USERS.get(name, AUTHORS.get(name, {})).get("id"), "username": name,
+                       "registration_id": k["registration_id"],
+                       "identity_key_ed25519": k["identity_key_ed25519"],
+                       "identity_key_x25519": k["identity_key_x25519"],
+                       "signed_prekey": k["signed_prekey"]}
+                if rest[0] != "me":  # a bundle for another user consumes one one-time prekey
+                    out["one_time_prekey"] = k["opks"].pop(0) if k["opks"] else None
+                out["available_one_time_prekeys"] = len(k["opks"])
+                return self.reply(200, out)
+            return self.reply(404, {"detail": "Not Found"})
 
         def create_post(self, user):
             """POST /social/posts (PostCreate): a post, a reply (reply_to_id) or a repost."""
@@ -987,6 +1217,9 @@ def make_handler(state):
 
         def do_DELETE(self):
             self.run("DELETE")
+
+        def do_PUT(self):
+            self.run("PUT")
 
     return Handler
 
