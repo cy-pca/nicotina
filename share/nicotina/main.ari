@@ -19,7 +19,7 @@ args:
   instance: {type: string, default: "https://tx.wtf", help: "The TX.WTF instance (its base URL)"}
   user: {type: string, help: "Fill in this username on the sign-in form"}
   start: {type: string, default: feed,
-          help: "The first view once signed in: feed, profile, tags, alerts, search, compose, post:ID, tag:NAME, user:ID, view:ID[:N] or search:TEXT"}
+          help: "The first view once signed in: feed, profile, tags, alerts, search, compose, post:ID, tag:NAME, user:ID, view:ID[:N] or search:TEXT; for an administrator also admin[:users|groups|invites|site|log], auser:ID, agroup:ID or agperm:ID"}
 
 # Without --net (or --net-allow) the host has no http-request and keeps no credentials, and the
 # load fails here, naming what is missing. (nicotina.ari lists the rest.)
@@ -54,6 +54,10 @@ menubar:
         on: (state-set "ui.cmd" "profile")
         enabled_when: (and (!= (state-get "ui.screen") "signin") (!= (state-get "ui.screen") "2fa")
                            (!= (state-get "ui.screen") "boot") (!= (state-get "ui.busy") "1"))
+      # The instance's administration: for the accounts it makes administrators (ui.admin).
+      - menu_item: Admin
+        on: (state-set "ui.cmd" "admin")
+        enabled_when: (and (= (state-get "ui.admin") "1") (!= (state-get "ui.busy") "1"))
       - menu_item: Refresh
         on: (state-set "ui.cmd" "refresh")
         enabled_when: (and (!= (state-get "ui.screen") "signin") (!= (state-get "ui.screen") "2fa")
