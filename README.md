@@ -186,9 +186,10 @@ ARI=$NICOTINA_ARI ARIGL=$NICOTINA_ARIGL tests/run.sh
   it); an instance that doesn't answer.
 - `arigl snapshot`, as text (`--terminal`) and as a PNG.
 - In tmux: sign in to the home feed; a post opened whole and back; Load more; Everyone; the
-  profile's tabs (Replies, Balances) and an older page of posts; start again still signed in,
-  sign out; a wrong password; the emailed code, wrong and then right; an account that must
-  change its password first; the whole feed and profile in an 80x24 pane.
+  profile's tabs (Replies, Balances) and an older page of posts; a post with a picture attached
+  (the Open file window, then the upload, which the stub must get whole), where the host can;
+  start again still signed in, sign out; a wrong password; the emailed code, wrong and then right;
+  an account that must change its password first; the whole feed and profile in an 80x24 pane.
 
 **`tests/local.sh`: a real txwtf instance it starts itself** (about 70 s). It uses txwtf's
 own server from a cvcpkg prefix, on a fresh SQLite database.
@@ -239,7 +240,10 @@ The client uses only an instance's public API:
   `GET /social/timeline/home` and `/social/timeline/public` (the feed, `mode=latest`, paged by
   `before_id`), `GET /social/posts/{id}` (a post opened whole, with its reactions),
   `GET /social/timeline/user/{id}` (the profile's Posts and Replies tabs),
-  `GET /billing/scrip/balance` and `POST /user/logout`. The stub in `tests/` follows
+  `GET /billing/scrip/balance` and `POST /user/logout`. A new post's files go up as the web
+  app sends them: `POST /social/files` (multipart), or for one over 8 MiB the resumable upload
+  (`POST /social/files/resumable`, a `PATCH` per chunk at its `Upload-Offset`, then
+  `POST .../complete`), and the post names them in `attachment_ids`. The stub in `tests/` follows
   [tx.wtf's schema](https://tx.wtf/openapi.json) (txwtf 0.4.0), and the errors tx.wtf
   answers that the schema doesn't list (401 `Not authenticated` without a token);
 - from M1, the `/ws/events` WebSocket for live updates, and OIDC sign-in (instances
@@ -278,6 +282,12 @@ The client uses only an instance's public API:
   yet, so the whole window scrolls.
 - "In browser" (open a post in the web app) needs libcvc's `open-url` (libcvc 3.7.6 and later).
   Without it, the post's URL is shown instead.
+- Attach on a new post needs libcvc's `file-pick` and `http-upload` (transfix/libcvc#1190,
+  not released yet). The file is the host's: the document holds a handle and the host reads and
+  sends the file, so its bytes never pass through the document's state. `arigl` asks with the
+  system's file dialog, a browser page with its own picker, and `ari` (FTXUI and tvision) with
+  an Open file window in the terminal: type a name or a path, then Enter. Without them a post
+  is text only, and the view says so.
 
 ## Layout
 
