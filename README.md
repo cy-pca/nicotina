@@ -183,12 +183,17 @@ ARI=$NICOTINA_ARI ARIGL=$NICOTINA_ARIGL tests/run.sh
 - `ari snapshot`, FTXUI and tvision: the sign-in form; a stored session resumed (the home feed,
   and the profile); every kind of card (pictures, a video, a recording, a PDF, a repost, a paid
   post, rich text); an empty feed; an expired session (back to the form, and the host forgets
-  it); an instance that doesn't answer.
+  it); an instance that doesn't answer. The Admin view's parts, an account and a group, as ada,
+  the stub's administrator, and none of it for anyone else.
 - `arigl snapshot`, as text (`--terminal`) and as a PNG.
 - In tmux: sign in to the home feed; a post opened whole and back; Load more; Everyone; the
   profile's tabs (Replies, Balances) and an older page of posts; start again still signed in,
   sign out; a wrong password; the emailed code, wrong and then right; an account that must
-  change its password first; the whole feed and profile in an 80x24 pane.
+  change its password first; the whole feed and profile in an 80x24 pane. And the Admin view:
+  an account disabled (its sign-in refused), enabled and made an administrator; a group's
+  members and its permissions; a group made and deleted; sign-up and invite codes; the site's
+  title; the log; an administrator whose rights went, refused by the instance but still signed
+  in.
 
 **`tests/local.sh`: a real txwtf instance it starts itself** (about 70 s). It uses txwtf's
 own server from a cvcpkg prefix, on a fresh SQLite database.
@@ -199,7 +204,10 @@ signs in with the code from the real email. It also checks:
 
 - that the server refuses a token after sign-out;
 - the 429 txwtf answers once its login rate limit is used up;
-- a server that has gone away.
+- a server that has gone away;
+- the Admin view against the server's own admin routes: an account disabled (the server refuses
+  its sign-in) and enabled, a group made, a member added and removed, a permission granted and
+  revoked, the group deleted, an invite code made and turned off, the system log.
 
 ```bash
 # once, from a txwtf checkout (atx-crypto-club/txwtf):
@@ -239,8 +247,10 @@ The client uses only an instance's public API:
   `GET /social/timeline/home` and `/social/timeline/public` (the feed, `mode=latest`, paged by
   `before_id`), `GET /social/posts/{id}` (a post opened whole, with its reactions),
   `GET /social/timeline/user/{id}` (the profile's Posts and Replies tabs),
-  `GET /billing/scrip/balance` and `POST /user/logout`. The stub in `tests/` follows
-  [tx.wtf's schema](https://tx.wtf/openapi.json) (txwtf 0.4.0), and the errors tx.wtf
+  `GET /billing/scrip/balance` and `POST /user/logout`. For an administrator, the Admin view uses
+  `GET /user/list`, `PUT /user/update`, `PUT /group/user/sysadmin`, `/group/...`, `/perms/...`,
+  `/invite/...`, `/site/...` and `GET /logs/` (see [ui/admin.ari](share/nicotina/ui/admin.ari)).
+  The stub in `tests/` follows [tx.wtf's schema](https://tx.wtf/openapi.json) (txwtf 0.4.0), and the errors tx.wtf
   answers that the schema doesn't list (401 `Not authenticated` without a token);
 - from M1, the `/ws/events` WebSocket for live updates, and OIDC sign-in (instances
   support public PKCE clients and loopback redirects).

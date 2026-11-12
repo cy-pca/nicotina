@@ -5,11 +5,13 @@ Run it with the Python of a txwtf install (a cvcpkg prefix with txwtf-cp312), af
 server runs, so the accounts are what the API would make:
 
   ada    plain sign-in; a description, 1234.56789 SCRIP minted to her, two posts and a
-         reply to the first (txwtf's create_post), for the profile's Posts and Replies tabs
+         reply to the first (txwtf's create_post), for the profile's Posts and Replies tabs;
+         the instance's administrator (is_admin, which txwtf gives its first account too)
   grace  a verified email and the emailed second factor turned on
   linus  force_password_change set
+  eve    plain sign-in: the account the Admin view's tests disable and enable
 
-All three take the password given with --password. It also points the instance's email.smtp
+All four take the password given with --password. It also points the instance's email.smtp
 settings at a local SMTP server (tests/smtp_sink.py), without TLS, so the sign-in code
 email can be read back, and turns off the email deliverability check.
 
@@ -37,9 +39,11 @@ ACCOUNTS = {
         # oldest first; a post that starts with "> " replies to the one before it
         "posts": ["Hello from the analytical engine.", "> Note G is the long one.",
                   "Bernoulli numbers, step by step."],
+        "admin": True,
     },
     "grace": {"name": "Grace Hopper", "email": "grace@example.org", "two_factor": True},
     "linus": {"name": "Linus", "email": "linus@example.org", "force_password_change": True},
+    "eve": {"name": "Eve Example", "email": "eve@example.org"},
 }
 
 
@@ -76,6 +80,8 @@ async def provision(db_url, password, smtp_port):
                 user.login_2fa_email_enabled = True
             if a.get("force_password_change"):
                 user.force_password_change = True
+            if a.get("admin") and hasattr(user, "is_admin"):
+                user.is_admin = True
             session.add(user)
             await session.commit()
             if a.get("scrip"):
