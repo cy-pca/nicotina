@@ -131,11 +131,19 @@ pictures=
 "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement image.url" || pictures=1
 # Whether this ari plays video and audio (media.player: ari-media and arigl with
 # transfix/libcvc#935): then a card's recording has a player, three Tab stops (Play, the seek
-# slider, Mute). Its video plays with no controls, so no stops: the viewer has them.
+# slider, Mute), and from libcvc 3.7.13 a fourth, the Loop box beside Mute (transfix/libcvc#1079,
+# which no capability names: the version says). Its video plays with no controls, so no stops:
+# the viewer has them.
 media=
 "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement media.player" || media=1
 player_stops=0
-[ -n "$media" ] && player_stops=3
+if [ -n "$media" ]; then
+  player_stops=3
+  libcvc=$("$ARI" info 2>&1 | sed -n '1s/.*libcvc \([0-9][0-9.]*\).*/\1/p')
+  if [ -n "$libcvc" ] && [ "$(printf '%s\n' 3.7.13 "$libcvc" | sort -V | head -n 1)" = 3.7.13 ]; then
+    player_stops=4
+  fi
+fi
 # Whether this ari draws a post's :emoji: (text.emoji, transfix/libcvc#1052): a standard one's
 # shortcode becomes its character; a custom one stays its :name: in a terminal, which can't put
 # a picture in a line of text.
