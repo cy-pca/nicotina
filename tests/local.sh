@@ -123,7 +123,7 @@ pictures=
 ada_card="(AL) Ada Lovelace"
 # The bar along the main window's top: its seven buttons are the first seven focus stops, and
 # each new view starts with the focus on Back (stop 1): Tab k times reaches stop k + 1.
-bar="[ Back ][ Home ][ Tags ][ Search ][ Alerts ][ Profile ][ Post ]"
+bar="[ Back ][ Home ][ Tags ][ Search ][ Alerts ][ Profile ][ Post ][ DMs ]"
 [ -n "$pictures" ] && ada_card=" Ada Lovelace"
 
 # --- the client --------------------------------------------------------------------------------
@@ -143,18 +143,18 @@ for backend in ftxui tvision; do
   # She follows no one, so her home feed is empty, as txwtf's is then.
   step "$t: ada signs in: her home feed, empty" "$bar" "Show: (*) Following" \
     "Your feed is empty. Follow people, or Show: Everyone." "Signed in to 127.0.0.1"
-  for _ in $(seq 7); do keys Tab; done
+  for _ in $(seq 8); do keys Tab; done
   keys Right # past the bar to Show: Everyone
   step "$t: Everyone: the public timeline, a card a post" "(*) Everyone" \
     "$ada_card  @ada@127.0.0.1:$port" "│Bernoulli numbers, step by step." \
     "│Hello from the analytical engine." "[ Open ]"
-  keys BTab; keys BTab; keys Enter # back past Post to Profile
+  keys BTab; keys BTab; keys BTab; keys Enter # back past DMs and Post to Profile
   step "$t: her profile" "@ada@127.0.0.1:$port  Ada Lovelace" \
     "Writes notes on the analytical engine. Prefers punched cards t..." "Joined " \
     "Show: (*) Posts" "  Bernoulli numbers, step by step." "  Hello from the analytical engine."
   check_not "$t: ... her posts, not her reply" "$out/tmux-$(slug "$t: her profile").txt" \
     "Note G is the long one."
-  for _ in $(seq 10); do keys Tab; done
+  for _ in $(seq 11); do keys Tab; done
   keys Right # past the bar, Refresh, Sign out and Admin (she is the administrator): Replies
   step "$t: the Replies tab: her reply" "(*) Replies" "  Note G is the long one."
   keys Right
@@ -191,13 +191,13 @@ for backend in ftxui tvision; do
   keys Enter
   step "$t: posted: the post, with its hashtag" "Posted." \
     "Hello from nicotina on $backend. #nicotina" "Tags: (*) #nicotina" "[ Delete ]"
-  for _ in $(seq 8); do keys Tab; done
+  for _ in $(seq 9); do keys Tab; done
   keys Enter # Open tag
   step "$t: the hashtag's posts, from the server" "#nicotina  ·  1 post" \
     "Hello from nicotina on $backend. #nicotina"
   keys Enter # Back
   step "$t: Back: the post" "Hello from nicotina on $backend. #nicotina" "[ Delete ]"
-  for _ in $(seq 12); do keys Tab; done
+  for _ in $(seq 13); do keys Tab; done
   keys Enter # Delete
   step "$t: deleted: back to the feed" "Deleted." "Show: (*) Following"
   # The notifications, the hashtags and search, as the server answers them.
@@ -216,7 +216,7 @@ for backend in ftxui tvision; do
   for _ in $(seq 5); do keys Tab; done
   keys Enter # Profile
   step "$t: her profile, to sign out" "@ada@127.0.0.1:$port  Ada Lovelace" "[ Sign out ]"
-  for _ in $(seq 8); do keys Tab; done
+  for _ in $(seq 9); do keys Tab; done
   keys Enter # past the bar and Refresh to Sign out
   step "$t: ada signs out" "Signed out." "Username: [ada"
   if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: sign-out drops the session"; else
@@ -249,7 +249,7 @@ for backend in ftxui tvision; do
   for _ in $(seq 5); do keys Tab; done
   keys Enter # Profile
   step "$t: grace's profile" "@grace@127.0.0.1:$port  Grace Hopper" "No posts yet."
-  for _ in $(seq 9); do keys Tab; done
+  for _ in $(seq 10); do keys Tab; done
   keys Right; keys Right # the tabs: Balances
   step "$t: grace's balance: nothing minted" "(*) Balances" "SCRIP    0" "Value    \$0.00"
   keys BTab; keys Enter # back from the tabs to Sign out
@@ -311,7 +311,7 @@ check "$t: Admin: an account, from the server" "$out/txwtf-admin-user.txt" \
 
 # eve: found, disabled, refused at sign-in, enabled, signed in.
 find_eve() { # from the Admin view's start: Find user, eve, her Open
-  for _ in $(seq 8); do keys Tab; done
+  for _ in $(seq 9); do keys Tab; done
   type_text eve
   keys Enter
   step "$t: Find user: eve ($1)" "1 account with \"eve\" in the username" "@eve  Eve Example"
@@ -323,7 +323,7 @@ step "$t: the Admin view" "Admin: (*) Users"
 find_eve "to disable"
 check "$t: ... as the server has it" "$out/tmux-$(slug "$t: eve's account (to disable)").txt" \
   "Account: active · Administrator: no · Two-step sign-in: off" "[ Disable ][ Make admin ][ Profile ]"
-for _ in $(seq 7); do keys Tab; done
+for _ in $(seq 8); do keys Tab; done
 keys Enter # Disable
 step "$t: Disable: the server disables her" "@eve is disabled: signed out, and can't sign in." \
   "Account: disabled" "[ Enable ]"
@@ -335,7 +335,7 @@ step "$t: the server refuses a disabled account" \
 start ftxui "$admin_xdg" "$base" -- --start admin
 step "$t: the Admin view, to enable her" "Admin: (*) Users"
 find_eve "to enable"
-for _ in $(seq 7); do keys Tab; done
+for _ in $(seq 8); do keys Tab; done
 keys Enter # Enable
 step "$t: Enable" "@eve can sign in again." "Account: active"
 start ftxui "$work/xdg-eve" "$base" -- --user eve
@@ -348,23 +348,23 @@ tokens_from "$work/xdg-eve/nicotina/credentials"
 groups=$(grep -c '\[ Open \]' "$out/txwtf-admin-groups.txt")
 start ftxui "$admin_xdg" "$base" -- --start admin:groups
 step "$t: the groups, to make one" "(*) Groups" "[ Create ]"
-for _ in $(seq $((8 + groups))); do keys Tab; done # the bar, the parts, each group's Open
+for _ in $(seq $((9 + groups))); do keys Tab; done # the bar, the parts, each group's Open
 type_text "nicotina-tests"; keys Tab; type_text "Made by tests/local.sh"; keys Tab; keys Enter
 step "$t: Create: the server makes the group" "Created the group nicotina-tests." \
   "nicotina-tests      Made by tests/local.sh"
 keys BTab; keys BTab; keys BTab; keys Enter # its Open, the last, before the two fields
 step "$t: its Open: no members" "nicotina-tests  ·  0 members" "Made by tests/local.sh"
-for _ in $(seq 8); do keys Tab; done # the bar and Permissions: Add member
+for _ in $(seq 9); do keys Tab; done # the bar and Permissions: Add member
 type_text eve
 keys Tab; keys Enter # Add
 step "$t: Add member: eve" "Added @eve to nicotina-tests." "nicotina-tests  ·  1 member" \
   "@eve  Eve Example"
 keys BTab; keys BTab; keys Enter # her Remove, before the field
 step "$t: her Remove" "@eve is out of nicotina-tests." "nicotina-tests  ·  0 members"
-for _ in $(seq 8); do keys Tab; done
-keys Enter # Permissions: nothing had the focus, so Tab 8 reaches stop 8
+for _ in $(seq 9); do keys Tab; done
+keys Enter # Permissions: nothing had the focus, so Tab 9 reaches stop 9
 step "$t: its permissions: none yet" "nicotina-tests: 0 permissions, what its members may do"
-for _ in $(seq 8); do keys Tab; done # the bar and Find permission: Permission
+for _ in $(seq 9); do keys Tab; done # the bar and Find permission: Permission
 type_text "SocialHashtagRead"; keys Tab; keys Enter # the Grant button
 step "$t: Grant: the server grants it" "nicotina-tests grants SocialHashtagRead now." \
   "nicotina-tests: 1 permission" "SocialHashtagRead"
@@ -373,7 +373,7 @@ step "$t: Revoke: the server takes it back" "nicotina-tests no longer grants Soc
   "nicotina-tests: 0 permissions"
 keys Tab; keys Enter # Back (Revoke went, so nothing had the focus: Tab reaches Back)
 step "$t: Back: the group" "nicotina-tests  ·  0 members" "[ Delete group ]"
-for _ in $(seq 10); do keys Tab; done
+for _ in $(seq 11); do keys Tab; done
 keys Enter # Delete group: past the bar, Permissions, Add member and Add
 step "$t: Delete group asks" "Delete nicotina-tests? Its members' accounts stay."
 keys Tab; keys Enter # Yes, delete it
@@ -385,12 +385,12 @@ if has_route /invite/mode; then
     "Sign-up: (*) Open  ( ) Invite only" "You have no codes."
   start ftxui "$admin_xdg" "$base" -- --start admin:invites
   step "$t: the invite codes, to make one" "(*) Invites" "[ New code ]"
-  for _ in $(seq 9); do keys Tab; done # the bar, the parts and Sign-up: Uses
+  for _ in $(seq 10); do keys Tab; done # the bar, the parts and Sign-up: Uses
   type_text 3; keys Tab; type_text "local.sh"; keys Tab; keys Enter # New code
   step "$t: New code: the server makes one" "New code: " "0 of 3 used  on"
   start ftxui "$admin_xdg" "$base" -- --start admin:invites
   step "$t: the codes again" "(*) Invites" "[ Turn off ]"
-  for _ in $(seq 9); do keys Tab; done
+  for _ in $(seq 10); do keys Tab; done
   keys Enter # its Turn off, past the bar, the parts and Sign-up
   step "$t: Turn off" "That code is off: it signs no one up now." "0 of 3 used  off"
 else
@@ -401,7 +401,7 @@ fi
 # All, Group Delete the ninth).
 start ftxui "$admin_xdg" "$base" -- --start admin:log
 step "$t: the system log, to find the changes" "(*) Log" "events, the newest first"
-for _ in $(seq 8); do keys Tab; done # the bar and the parts: Events
+for _ in $(seq 9); do keys Tab; done # the bar and the parts: Events
 for _ in $(seq 8); do keys Right; done
 step "$t: Events: Group Create: the group made here" ": Group Create, the newest first" \
   "Group Create"

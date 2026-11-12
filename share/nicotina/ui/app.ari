@@ -9,6 +9,7 @@
 #   search    posts and people
 #   compose   a new post
 #   viewer    a post's pictures and videos, one at a time, as wide as the window
+#   dms, dm   your direct messages, and one conversation (ui/dm.ari)
 #   admin     for the instance's administrators: its users, groups, invite codes, settings and
 #             system log; auser, agroup and agperm, one account, one group and its permissions
 #             (ui/admin.ari)
@@ -73,6 +74,9 @@ units:
       - button: "✏"
         on: (state-set "ui.cmd" "compose")
         tooltip: New post
+      - button: "✉"
+        on: (state-set "ui.cmd" "dms")
+        tooltip: Messages
       - button: "🛠"
         on: (state-set "ui.cmd" "admin")
         tooltip: Admin
@@ -81,9 +85,11 @@ units:
         bind: alerts.badge
         color: [0.95, 0.75, 0.3]
 
-  # In words. A terminal draws a button as its label in brackets, so the bar is 63 columns; the
-  # unread count follows it. (Forward is in the nicotina menu here: the bar has no room for it,
-  # nor for Admin, which an administrator finds on their profile and in the menu.)
+  # In words. A terminal draws a button as its label in brackets, so the bar is 70 columns; the
+  # unread count follows it as a bare number (" 2"), so the row stays within the window's 74
+  # columns, its scroll bar beside them. (Forward is in the nicotina menu here: the bar has no
+  # room for it, nor for Admin, which an administrator finds on their profile and in the menu.)
+  # DMs comes last, so the buttons before it keep their places in the focus order.
   nav_words:
     type: group
     layout: {kind: horizontal}
@@ -103,8 +109,10 @@ units:
         on: (state-set "ui.cmd" "profile")
       - button: Post
         on: (state-set "ui.cmd" "compose")
+      - button: DMs
+        on: (state-set "ui.cmd" "dms")
       - text: ""
-        bind: alerts.badge
+        bind: alerts.badge_n
         color: [0.95, 0.75, 0.3]
 
   # The window, titled by the site it is signed in to (app.title: GET /site/title, else its host).
@@ -175,6 +183,16 @@ units:
         visible_when: (= (state-get "ui.screen") "viewer")
         children:
           - include: viewer_view
+      - type: group
+        id: v_dms
+        visible_when: (= (state-get "ui.screen") "dms")
+        children:
+          - include: dms_view
+      - type: group
+        id: v_dm
+        visible_when: (= (state-get "ui.screen") "dm")
+        children:
+          - include: dm_view
       - type: group
         id: v_admin
         visible_when: (= (state-get "ui.screen") "admin")

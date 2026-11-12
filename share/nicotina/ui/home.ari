@@ -102,7 +102,7 @@ units:
                     color: [0.6, 0.6, 0.6]
           # The groups, and the action bar at the end of the card: on your own profile Refresh
           # and Sign out, and Admin for an instance's administrator (ui/admin.ari); on another's
-          # Follow or Unfollow.
+          # Follow or Unfollow, then Message (a direct message).
           - type: group
             layout: {kind: horizontal}
             children:
@@ -123,6 +123,9 @@ units:
               - button: Unfollow
                 on: (state-set "ui.cmd" "unfollow")
                 visible_when: (and (!= (state-get "prof.self") "1") (= (state-get "prof.following") "1"))
+              - button: Message
+                on: (state-set "ui.cmd" "dm-with")
+                visible_when: (!= (state-get "prof.self") "1")
       # The tabs. Choosing one loads it (main.ari's "tab"). A terminal host draws a radio row's
       # label even when it is empty (a lone ":"), so it has one.
       - radio_row: Show
