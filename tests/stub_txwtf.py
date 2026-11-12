@@ -26,6 +26,8 @@ and with the errors tx.wtf answers that the schema doesn't list:
   GET  /social/posts/{id}    Bearer -> PostResponse, with its reactions_summary
   GET  /social/emojis/12/image
                              no auth: the custom emoji :gear:'s picture
+  GET  /site/title, /site/description, ... (public); the admin routes (users, groups, invite
+                             codes, site settings, the system log) are in tests/stub_admin.py
   GET  /uploads/..., /static/img/...
                              no auth (as txwtf's /uploads mount): a small PNG drawn here, the
                              same picture for the same path, or a recording from
@@ -65,6 +67,13 @@ Accounts (password "correct horse" for all of them):
          a brokered account, named as txwtf names one: <user>@<home domain>. Like a real
          one it has no password here (resumed only)
 
+  eve, ivy
+         the emailed second factor too (codes 654321 and 765432): the accounts the admin tests
+         disable, enable and turn two-step sign-in off for, one for each terminal backend (no
+         API turns the second factor back on)
+
+ada is the instance's administrator (is_admin): the admin routes answer her alone.
+
 The instance may sit below a path (--instance http://host:port/txwtf): a route matches from
 the first of its known top-level segments (/user/, /billing/, /social/, /uploads/, /static/).
 
@@ -90,13 +99,20 @@ import threading
 import time
 import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, unquote
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # python -I leaves it out
+import stub_admin  # noqa: E402
 
 PASSWORD = "correct horse"
 TOP_LEVEL = ("/user/", "/billing/", "/social/", "/uploads/", "/static/", "/notifications",
-             "/search/", "/site/", "/e2ee/")
+             "/search/", "/site/", "/group/", "/invite/", "/logs/", "/perms/", "/e2ee/")
 TWO_FACTOR_CODE = "123456"
 CHALLENGE = "Q9mUj4Z1x0bR7nVt2LcYw8sDp3HkGfA5"
+# Each account with the second factor: its challenge and its emailed code.
+CHALLENGES = {"grace": (CHALLENGE, TWO_FACTOR_CODE),
+              "eve": ("Ev7nTq2LmW9xKc4RbY1sZd8HgJ3pFa6U", "654321"),
+              "ivy": ("Iv4wPn8QaT2mZr6YcB9kLd3HsX7gFj1E", "765432")}
 
 # JWT-shaped, as txwtf's are. Tests import these to scan output for them.
 TOKENS = {
@@ -106,6 +122,8 @@ TOKENS = {
     "mary": "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjo0LCJ1dWlkIjoibWFyeSJ9.c3R1Yi1zaWctbWFyeS1uaWNvdGluYQ",
     "bob@peer.example": "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjo1LCJ1dWlkIjoiYm9iIn0.c3R1Yi1zaWctYm9iLXBlZXItZXhhbXA",
     "slowpoke": "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjo2LCJ1dWlkIjoic2xvdyJ9.c3R1Yi1zaWctc2xvd3Bva2UtbmljbwA",
+    "eve": "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjo5LCJ1dWlkIjoiZXZlIn0.c3R1Yi1zaWctZXZlLW5pY290aW5hLWFk",
+    "ivy": "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoxMCwidXVpZCI6Iml2eSJ9.c3R1Yi1zaWctaXZ5LW5pY290aW5hLWFk",
 }
 # A well-formed token this server never issued: a session that has expired.
 STALE_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoxLCJ1dWlkIjoib2xkIn0.c3R1Yi1zaWctZXhwaXJlZC10b2tlbg"
@@ -192,6 +210,34 @@ USERS = {
         "shadow": True,
         # a video avatar, which txwtf's web app plays as a muted loop
         "avatar_url": "/uploads/u5/avatar-loop.mp4",
+        "balance": "0E-10",
+        "runway_days": None,
+        "cents": 0,
+        "groups": ["users"],
+    },
+    "eve": {
+        "id": 9,
+        "name": "Eve Example",
+        "email": "eve@example.org",
+        "description": None,
+        "post_count": 0,
+        "created_time": "2026-04-01T08:00:00",
+        "login_2fa_email_enabled": True,
+        "force_password_change": False,
+        "balance": "0E-10",
+        "runway_days": None,
+        "cents": 0,
+        "groups": ["users"],
+    },
+    "ivy": {
+        "id": 10,
+        "name": "Ivy Lane",
+        "email": "ivy@example.org",
+        "description": None,
+        "post_count": 0,
+        "created_time": "2026-04-02T08:00:00",
+        "login_2fa_email_enabled": True,
+        "force_password_change": False,
         "balance": "0E-10",
         "runway_days": None,
         "cents": 0,
@@ -425,6 +471,9 @@ SEALED_ELSEWHERE = [
 # What the people signed in have done since the stub started: their likes, follows and posts.
 # main() makes it; post_response reads it for the viewer's own fields.
 LIVE = None
+# The admin side (tests/stub_admin.py): accounts disabled, admins, groups, invite codes, the
+# site's settings, the system log. main() makes it.
+ADMIN = None
 
 
 def all_posts():
@@ -708,7 +757,7 @@ DEFAULT_AVATAR = "/static/img/atxcf_logo_small.jpg"
 
 def profile_response(username):
     u = USERS[username]
-    return {
+    body = {
         "id": u["id"],
         "username": username,
         "email": u["email"],
@@ -743,10 +792,15 @@ def profile_response(username):
             for i, g in enumerate(u["groups"])
         ],
     }
+    return ADMIN.patch_profile(username, body) if ADMIN else body
 
 
 def names_by_id():
     return {v["id"]: n for n, v in list(USERS.items()) + list(AUTHORS.items())}
+
+
+def names_to_id(username):
+    return (USERS.get(username) or AUTHORS[username])["id"]
 
 
 def public_profile(user_id):
@@ -756,13 +810,14 @@ def public_profile(user_id):
             return profile_response(n)
     for n, a in AUTHORS.items():
         if a["id"] == user_id:
-            return {"id": a["id"], "username": n, "name": a["name"],
+            body = {"id": a["id"], "username": n, "name": a["name"],
                     "avatar_url": a.get("avatar_url", DEFAULT_AVATAR), "header_image_url": None,
                     "card_image_url": None, "profile_bg_url": None, "description": None,
                     "created_time": "2025-01-01T00:00:00", "last_login_country": a.get("country"),
                     "view_count": 10, "post_count": sum(1 for p in all_posts() if p["author"] == n),
                     "status": a.get("status", "offline"), "is_admin": False, "emblems": [],
                     "groups": [], "enabled": True}
+            return ADMIN.patch_profile(n, body) if ADMIN else body
     return None
 
 
@@ -790,7 +845,13 @@ def make_handler(state):
                 return None, "Not authenticated"
             with state.lock:
                 user = state.live.get(token)
+            if user and ADMIN and ADMIN.disabled(user):  # an admin disabled the account
+                return None, f"Disabled user {user}({names_to_id(user)}) (DisabledUser)"
             return (user, None) if user else (None, "Invalid token (InvalidTokenSignature)")
+
+        def profile_of(self, username):
+            """GET /user/profile/{id}'s answer for an account (stub_admin's routes reply with it)."""
+            return public_profile(names_to_id(username))
 
         def json_body(self):
             n = int(self.headers.get("Content-Length") or 0)
@@ -831,9 +892,13 @@ def make_handler(state):
                 gear = png(32, 32, lambda x, y: (120, 120, 130) if 64 <= (x - 16) ** 2 + (y - 16) ** 2
                            <= 196 else (250, 200, 60))
                 return self.reply_bytes(200, gear, "image/png"), None
-            if method == "GET" and path == "/site/title":
-                # the site's name, public as txwtf's: the client's window is titled by it
-                return self.reply(200, "TX.WTF"), None
+            if method == "GET" and path.startswith("/site/"):
+                # the site's settings, public as txwtf's: the client's window is titled by
+                # /site/title; the Admin view's Site section shows the rest
+                value = ADMIN.site_value(path[len("/site/"):]) if ADMIN else None
+                if value is None:
+                    return self.reply(404, {"detail": "Not Found"}), None
+                return self.reply(200, value), None
             if method == "GET" and (path.startswith("/uploads/") or path.startswith("/static/")):
                 # no auth, as txwtf serves them
                 mime, source = FILES.get(path, ("image/png", None))
@@ -848,6 +913,10 @@ def make_handler(state):
             user, refused = self.bearer_user()
             if refused:
                 return self.reply(401, {"detail": refused}), None
+            if ADMIN:
+                done = ADMIN.handle(self, method, unquote(path), query, user)
+                if done:
+                    return done[0], user
             if method == "GET" and path == "/user/":
                 time.sleep(USERS[user].get("profile_delay", 0))  # a slow instance, for the spinner
                 return self.reply(200, profile_response(user)), user
@@ -1155,6 +1224,10 @@ def make_handler(state):
             return self.reply(201, post_response(made, user))
 
         def sign_in(self, username):
+            if ADMIN and ADMIN.disabled(username):
+                # as txwtf's authorized_session_launch refuses it (after the code too, for one
+                # disabled while its code was out)
+                return self.reply(400, {"detail": f"Disabled user {USERS[username]['id']} (DisabledUser)"})
             with state.lock:
                 state.live[TOKENS[username]] = username
             return self.reply(200, login_response(username))
@@ -1175,13 +1248,17 @@ def make_handler(state):
                 return self.reply(400, {"detail": "Access denied! (UserPasswordIncorrect)"})
             if body["password"] != PASSWORD:
                 return self.reply(400, {"detail": "Access denied! (UserPasswordIncorrect)"})
-            if USERS[username]["login_2fa_email_enabled"]:
+            # The emailed code, where the account has it (an administrator may have turned it
+            # off: stub_admin). A disabled account gets none, as txwtf's execute_login: it is
+            # refused here (sign_in), after the password.
+            uses_code = ADMIN.uses_code(username) if ADMIN else USERS[username]["login_2fa_email_enabled"]
+            if uses_code and not (ADMIN and ADMIN.disabled(username)):
                 return self.reply(
                     200,
                     {
                         "two_factor_required": True,
                         "method": "email",
-                        "challenge": CHALLENGE,
+                        "challenge": CHALLENGES[username][0],
                         "expires_in": 300,
                     },
                 )
@@ -1189,8 +1266,9 @@ def make_handler(state):
 
         def login_2fa(self):
             body = self.json_body() or {}
-            if body.get("challenge") == CHALLENGE and body.get("code") == TWO_FACTOR_CODE:
-                return self.sign_in("grace")
+            for username, (challenge, code) in CHALLENGES.items():
+                if body.get("challenge") == challenge and body.get("code") == code:
+                    return self.sign_in(username)
             return self.reply(
                 400, {"detail": "Invalid or expired verification code (LoginChallengeInvalid)"}
             )
@@ -1239,9 +1317,14 @@ def main():
     )
     args = ap.parse_args()
 
-    global LIVE
+    global LIVE, ADMIN
     state = State(args.log)
     LIVE = state
+    ADMIN = stub_admin.Admin(
+        {**USERS, **AUTHORS},
+        avatar_of=lambda n: (USERS.get(n) or AUTHORS[n]).get("avatar_url", DEFAULT_AVATAR),
+        posts_of=lambda n: USERS[n]["post_count"] if n in USERS
+        else sum(1 for p in all_posts() if p["author"] == n))
     for user in args.signed_in:
         state.live[TOKENS[user]] = user
     server = ThreadingHTTPServer((args.host, args.port), make_handler(state))

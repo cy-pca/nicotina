@@ -101,7 +101,8 @@ units:
                     bind: prof.stats
                     color: [0.6, 0.6, 0.6]
           # The groups, and the action bar at the end of the card: on your own profile Refresh
-          # and Sign out; on another's Follow or Unfollow, then Message (a direct message).
+          # and Sign out, and Admin for an instance's administrator (ui/admin.ari); on another's
+          # Follow or Unfollow, then Message (a direct message).
           - type: group
             layout: {kind: horizontal}
             children:
@@ -113,6 +114,9 @@ units:
               - button: Sign out
                 on: (state-set "ui.cmd" "signout")
                 visible_when: (= (state-get "prof.self") "1")
+              - button: Admin
+                on: (state-set "ui.cmd" "admin")
+                visible_when: (and (= (state-get "prof.self") "1") (= (state-get "ui.admin") "1"))
               - button: Follow
                 on: (state-set "ui.cmd" "follow")
                 visible_when: (and (!= (state-get "prof.self") "1") (!= (state-get "prof.following") "1"))

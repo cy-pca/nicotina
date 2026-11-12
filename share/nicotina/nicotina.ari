@@ -67,6 +67,7 @@ import:
   - ui/feed.ari
   - ui/social.ari
   - ui/dm.ari
+  - ui/admin.ari
 
 init: |
   (set base (string.trim (state-get "args.instance")))
@@ -133,6 +134,22 @@ init: |
                              "pass" "" "want" "" "lines" (list) "draft" "" "send" ""
                              "conv" (dict "id" "" "title" "" "sub" "" "note" "" "can_send" ""
                                           "can_encrypt" "" "encrypted" "")))
+  ;; The Admin view (ui/admin.ari): ui.admin is "1" for an account the instance makes an
+  ;; administrator (is_admin, from GET /user/), where main.ari's menu reads it too.
+  (state-set "ui.admin" "")
+  (state-set-tree "admin" (dict "tab" "Users" "uq" "" "uoff" 0 "ioff" 0 "loff" 0 "log_event" 0
+                                "users" (list) "groups" (list) "invites" (list) "log" (list)
+                                "users_head" "" "groups_head" "" "invites_head" "" "log_head" ""
+                                "signup" "Open" "gname" "" "gdesc" "" "iuses" "" "inote" ""
+                                "prev" "" "next" "" "page" ""))
+  (state-set-tree "auser" (dict "id" "" "header" "" "state" "" "email" "" "seen" "" "counts" ""
+                                "groups" "" "note" "" "self" "" "enabled" "" "admin" "" "tfa" ""))
+  (state-set-tree "agroup" (dict "id" "" "name" "" "head" "" "about" "" "members" (list)
+                                 "add" "" "pick" "" "confirm" ""))
+  (state-set-tree "site" (dict "title" "" "about" "" "tz" "" "was_title" "" "was_about" ""
+                               "was_tz" "" "groups" "" "pw" ""))
+  (state-set-tree "agperm" (dict "id" "" "name" "" "head" "" "q" "" "grant" "" "off" 0
+                                 "rows" (list) "pick" "" "pick_name" ""))
   (state-set "login.username" (if (state-exists "args.user") (state-get "args.user") ""))
   (state-set "login.password" "")
   (state-set "login.code" "")
@@ -190,6 +207,15 @@ init: |
 #            dm-backup, dm-restore, dm-new-keys the keys (PUT and GET /e2ee/backup, POST /e2ee/keys)
 #   signout  POST /user/logout, then drop the credential
 #
+# For an administrator (ui.admin, the account's is_admin), the Admin view (ui/admin.ari):
+#   admin    the view, at the part admin.tab names; admin-tab another part, in place; admin-find,
+#            admin-prev, admin-next, admin-log-filter its list again
+#   auser, agroup  one account, one group; auser-disable, -enable, -admin, -unadmin, -2fa-off
+#            change the account; group-create, agroup-add, -remove, -lead, -unlead, -delete
+#            (which asks: agroup-delete-yes, agroup-keep) the groups; agperm a group's
+#            permissions, agperm-find, -grant, -revoke them; invite-mode, invite-new,
+#            invite-off, invite-on the sign-up setting and the codes; site-save the settings
+#
 # After each, the unread count beside Alerts is asked for again (GET /notifications/count).
 on_tick: |
   (if (and (!= (state-get "ui.cmd") "") (!= (state-get "ui.busy") "1"))
@@ -214,6 +240,13 @@ on_tick: |
         (if (= (type-of d) "dict")
           (try (let ((v (get-attr d k))) (if (= (type-of v) "nil") dflt v)) (catch (e) dflt))
           dflt))
+      ;; Whether d has k and it is false. JSON's false reads as nil here, so (opt d k true) can't
+      ;; tell a false from a missing key: an account's "enabled" needs this.
+      (defun off? (d k)
+        (if (and (= (type-of d) "dict")
+                 (> (length (collections.filter (collections.dict-keys d) (lambda (x) (= x k)))) 0))
+          (not (get-attr d k))
+          nil))
       ;; str quotes a string, so only non-strings go through it.
       (defun text (v) (if (is-string v) v (str v)))
       (defun reply-json (r) (try (json-parse (get-attr r "body")) (catch (e) (dict))))
@@ -289,6 +322,10 @@ on_tick: |
           (state-set-tree "dm.lines" (list))
           (state-set "dm.draft" "")
           (state-set "dm.pass" "")
+          ;; the next account to sign in may not be an administrator
+          (state-set "ui.admin" "")
+          (state-set "admin.uq" "")
+          (state-set "admin.tab" "Users")
           (state-set "ui.screen" "signin")
           (if is-error (fail msg) (say msg))))
       ;; The host refused the token (it expired, or was signed out elsewhere), or holds none.
@@ -426,7 +463,7 @@ on_tick: |
             (for e (opt p "emblems" (list))
               (set badges (append badges (text (opt e "name" (opt e "emblem_type" "emblem"))))))
             (if (!= (text (opt p "status" "")) "") (set badges (append badges (text (opt p "status" "")))))
-            (if (= (opt p "enabled" true) false) (set badges (append badges "disabled")))
+            (if (off? p "enabled") (set badges (append badges "disabled")))
             ;; The counts row: where they last signed in from, joined, posts, views.
             (set stats (list))
             (if (!= (text (opt p "last_login_country" "")) "")
@@ -469,13 +506,17 @@ on_tick: |
                                        (- WIDE bar))
                     "groups" groups))))
       ;; Yours: kept in me.* (the Details window, the sign-in form after signing out), and shown
-      ;; in the profile view as prof.*. [ Refresh ][ Sign out ] take 23 columns.
+      ;; in the profile view as prof.*. [ Refresh ][ Sign out ] take 23 columns, and an
+      ;; administrator's [ Admin ] 9 more. Whether you are one is ui.admin (the Admin view's way
+      ;; in, and main.ari's menu).
       (defun show-profile (p)
-        (let ((d (profile-of p 23)))
-          (begin
-            (state-set "login.username" (text (opt p "username" "")))
-            (state-set-tree "me" d)
-            d)))
+        (let ((admin (if (opt p "is_admin" nil) true nil)))
+          (let ((d (profile-of p (if admin 32 23))))
+            (begin
+              (state-set "login.username" (text (opt p "username" "")))
+              (state-set "ui.admin" (if admin "1" ""))
+              (state-set-tree "me" d)
+              d))))
       (defun show-balance (b)
         (state-set-tree "scrip"
           (dict "symbol" (opt b "symbol" "SCRIP")
@@ -1274,6 +1315,380 @@ on_tick: |
                   (fail (str-concat "Couldn't open the post (HTTP " (str (status r)) ")."))))
               nil))))
 
+      ;; --- the instance's administration (ui/admin.ari) ----------------------------------
+      ;; For an administrator (ui.admin): the accounts, the groups, invite codes, the site's
+      ;; settings and the system log. txwtf answers a missing permission with 401 and a detail
+      ;; ending in (AccessDenied), so those 401s are a refusal here, not a session that ended.
+      (set USERPAGE 6)
+      (set LISTPAGE 10)
+      ;; JSON's false for a request's body: the literal false reads as nil (json-encode: null,
+      ;; which txwtf takes for "leave it as it is"); (not true) is the bool.
+      (set NO (not true))
+      (defun admin? () (= (state-get "ui.admin") "1"))
+      (defun refused? (r)
+        (if (= (status r) 401)
+          (string.contains (text (opt (reply-json r) "detail" "")) "AccessDenied")
+          nil))
+      (defun admin-load-failed (r what)
+        (if (refused? r) (fail (str-concat "This account may not see " what " here."))
+          (if (session-over? r) (session-over)
+            (if (= (status r) 0) (unreachable r)
+              (fail (str-concat "Couldn't load " what " (HTTP " (str (status r)) ")."))))))
+      (defun admin-failed (r what)
+        (if (refused? r) (fail (str-concat "This account may not " what " here."))
+          (act-failed r what)))
+      ;; A request that changes something: true when the instance took it.
+      (defun admin-send (method path payload what)
+        (let ((r (send-authed method path payload)))
+          (if (ok? r) true (begin (admin-failed r what) nil))))
+      (defun left (s n) (let ((s (text s))) (if (> (string.length s) n) (string.substring s 0 n) s)))
+      (defun plural (n one many) (str-concat (text n) " " (if (= (int n) 1) one many)))
+      ;; Prev, Next and "Page 2 of 3" for a list at offset off of total, per to a page.
+      (defun pager (off per total)
+        (begin
+          (state-set "admin.prev" (if (> off 0) "1" ""))
+          (state-set "admin.next" (if (< (+ off per) total) "1" ""))
+          (state-set "admin.page"
+            (if (<= total per) ""
+              (str-concat "  Page " (text (+ 1 (int (/ off per)))) " of "
+                          (text (int (/ (+ total (- per 1)) per))))))))
+      (defun no-pager () (begin (state-set "admin.prev" "") (state-set "admin.next" "")
+                                (state-set "admin.page" "")))
+
+      ;; Users: GET /user/list, newest first, the usernames with admin.uq in them. A row is
+      ;; @user and name, when they joined, and what they are (cells 35, 11 and 14 columns wide:
+      ;; ui/admin.ari's col_widths, which a browser window's natural width holds), then Open.
+      (defun user-flags (u)
+        (let ((f (list)))
+          (begin
+            (if (opt u "is_admin" nil) (set f (append f "admin")))
+            (if (off? u "enabled") (set f (append f "disabled")))
+            (string.join f " "))))
+      (defun user-row (u)
+        (dict "id" (text (opt u "id" ""))
+              "who" (clip (str-concat "@" (text (opt u "username" "")) "  " (text (opt u "name" "")))
+                          33)
+              "joined" (left (opt u "created_time" "") 10)
+              "flags" (clip (user-flags u) 14)))
+      (defun load-admin-users ()
+        (let ((q (string.trim (text (state-get "admin.uq"))))
+              (off (int (state-get "admin.uoff"))))
+          (let ((r (get-query "/user/list"
+                     (collections.dict-merge
+                      (dict "limit" (text USERPAGE) "offset" (text off)
+                            "order_by" "created_time" "order_desc" "true")
+                      (if (= q "") (dict) (dict "username" q))))))
+            (if (ok? r)
+              (let ((b (reply-json r)))
+                (let ((users (opt b "users" (list))) (total (int (opt b "total_count" 0))))
+                  (begin
+                    (state-set-tree "admin.users" (collections.map users user-row))
+                    (state-set "admin.users_head"
+                      (if (= total 0)
+                        (if (= q "") "No accounts." (str-concat "No username has \"" q "\" in it."))
+                        (str-concat (plural total "account" "accounts")
+                                    (if (= q "") ", the newest first"
+                                      (str-concat " with \"" q "\" in the username")))))
+                    (pager off USERPAGE total)
+                    true)))
+              (begin (admin-load-failed r "the accounts") nil)))))
+
+      ;; One account: GET /user/profile/{id}, which shows an administrator its email and state.
+      (defun load-auser (id)
+        (let ((r (get-authed (str-concat "/user/profile/" (text id)))))
+          (if (ok? r)
+            (let ((p (reply-json r)))
+              (let ((mine (= (text (opt p "id" "")) (text (state-get "me.id"))))
+                    (enabled (not (off? p "enabled")))
+                    (admin (if (opt p "is_admin" nil) true nil))
+                    (tfa (if (opt p "login_2fa_email_enabled" nil) true nil))
+                    (groups (collections.map (opt p "groups" (list))
+                              (lambda (g) (str-concat (text (opt g "group_name" ""))
+                                                      (if (opt g "is_group_admin" nil) " (its admin)" ""))))))
+                (begin
+                  (set email (text (opt p "email" "")))
+                  (set seen (list (str-concat "Joined " (left (opt p "created_time" "") 10))))
+                  (if (!= (text (opt p "last_login" "")) "")
+                    (set seen (append seen (str-concat "last signed in " (posted-at (opt p "last_login" ""))))))
+                  (if (!= (text (opt p "last_login_country" "")) "")
+                    (set seen (append seen (str-concat "from " (text (opt p "last_login_country" ""))))))
+                  (state-set-tree "auser"
+                    (dict "id" (text (opt p "id" ""))
+                          "username" (text (opt p "username" ""))
+                          "header" (clip (str-concat (handle (text (opt p "username" ""))) "  "
+                                                     (text (opt p "name" "")))
+                                         WIDE)
+                          "state" (str-concat "Account: " (if enabled "active" "disabled")
+                                              " · Administrator: " (if admin "yes" "no")
+                                              " · Two-step sign-in: " (if tfa "on" "off"))
+                          "email" (clip (str-concat "Email: "
+                                                    ;; a brokered account's is a placeholder
+                                                    (if (string.ends-with email ".invalid")
+                                                      "- (signs in at its home instance)"
+                                                      (if (= email "") "-"
+                                                        (str-concat email (if (opt p "email_verified" nil)
+                                                                            ", verified" ", not verified")))))
+                                        WIDE)
+                          "seen" (clip (string.join seen " · ") WIDE)
+                          "counts" (str-concat (plural (opt p "post_count" 0) "post" "posts") " · "
+                                               (plural (opt p "view_count" 0) "view" "views"))
+                          "groups" (clip (str-concat "Groups: " (if (= (length groups) 0) "none"
+                                                                  (string.join groups ", ")))
+                                         WIDE)
+                          "note" (if mine "Your own account: Disable and Remove admin aren't offered." "")
+                          "self" (flag mine)
+                          "enabled" (flag enabled)
+                          "admin" (flag admin)
+                          "tfa" (flag tfa)))
+                  true)))
+            (begin (admin-load-failed r "that account") nil))))
+
+      ;; Groups: GET /group/all. A row is its name and what it is for (cells 20 and 38 columns
+      ;; wide), then Open.
+      (defun load-admin-groups ()
+        (let ((r (get-authed "/group/all")))
+          (if (ok? r)
+            (let ((gs (reply-json r)))
+              (begin
+                (if (!= (type-of gs) "list") (set gs (list)))
+                (state-set-tree "admin.groups"
+                  (collections.map gs
+                    (lambda (g)
+                      (dict "id" (text (opt g "id" ""))
+                            "name" (clip (text (opt g "name" "")) 18)
+                            "about" (clip (one-line (opt g "desc" "")) 38)))))
+                (state-set "admin.groups_head"
+                  (if (= (length gs) 0) "No groups yet." (plural (length gs) "group" "groups")))
+                (no-pager)
+                true))
+            (begin (admin-load-failed r "the groups") nil))))
+      ;; One group: GET /group/?group_id= for its name, GET /group/members for who is in it.
+      ;; A member's row is @user and name (and "group admin"), a cell 44 columns wide, then its
+      ;; two buttons (24 columns).
+      (defun load-agroup (id)
+        (let ((g (get-query "/group/" (dict "group_id" (text id)))))
+          (if (ok? g)
+            (let ((m (get-query "/group/members" (dict "group_id" (text id)))))
+              (if (ok? m)
+                (let ((members (reply-json m)) (name (text (opt (reply-json g) "name" ""))))
+                  (begin
+                    (if (!= (type-of members) "list") (set members (list)))
+                    (state-set-tree "agroup"
+                      (dict "id" (text id)
+                            "name" name
+                            "head" (clip (str-concat name "  ·  " (plural (length members) "member" "members"))
+                                         WIDE)
+                            "about" (let ((d (one-line (opt (reply-json g) "desc" ""))))
+                                      (clip (if (= d "") "No description." d) WIDE))
+                            "members"
+                            (collections.map members
+                              (lambda (u)
+                                (dict "uid" (text (opt u "user_id" ""))
+                                      "handle" (str-concat "@" (text (opt u "username" "")))
+                                      "lead" (flag (opt u "is_group_admin" nil))
+                                      "line" (clip (str-concat "@" (text (opt u "username" "")) "  "
+                                                               (text (opt u "name" ""))
+                                                               (if (opt u "is_group_admin" nil) "  · group admin" ""))
+                                                   44))))
+                            "add" (if (= (text (state-get "agroup.id")) (text id)) (state-get "agroup.add") "")
+                            "pick" ""
+                            "confirm" ""))
+                    true))
+                (begin (admin-load-failed m "that group's members") nil)))
+            (begin (admin-load-failed g "that group") nil))))
+      ;; The @username of the group's member uid, as its row has it.
+      (defun member-handle (uid)
+        (begin
+          (set found "a member")
+          (set i 0)
+          (while (< i (int (state-get "agroup.members")))
+            (if (= (text (state-get (str-concat "agroup.members." (text i) ".uid"))) (text uid))
+              (set found (state-get (str-concat "agroup.members." (text i) ".handle"))))
+            (set i (+ i 1)))
+          found))
+
+      ;; Invites: who may sign up (GET /invite/mode), then your codes, the used-up and turned-off
+      ;; ones too. A row is the code, its uses, its state and its note (cells 13, 13, 17 and 13
+      ;; columns wide), then Turn off or Turn on.
+      (defun invite-row (c)
+        (let ((most (opt c "max_uses" nil)) (used (text (opt c "use_count" 0))))
+          (dict "id" (text (opt c "id" ""))
+                "active" (flag (opt c "is_active" nil))
+                "code" (clip (text (opt c "code" "")) 12)
+                "uses" (clip (if (= (type-of most) "nil") (str-concat used " used")
+                               (str-concat used " of " (text most) " used"))
+                             12)
+                "state" (if (opt c "is_active" nil)
+                          (if (= (text (opt c "expires_at" "")) "") "on"
+                            (str-concat "until " (left (opt c "expires_at" "") 10)))
+                          "off")
+                "note" (clip (one-line (opt c "note" "")) 13))))
+      (defun load-admin-invites ()
+        (let ((m (get-authed "/invite/mode")))
+          (if (ok? m)
+            (let ((off (int (state-get "admin.ioff"))))
+              (begin
+                (state-set "admin.signup" (if (opt (reply-json m) "invite_only" nil) "Invite only" "Open"))
+                (let ((r (get-query "/invite/codes" (dict "include_inactive" "true"
+                                                          "limit" (text LISTPAGE) "offset" (text off)))))
+                  (if (ok? r)
+                    (let ((codes (opt (reply-json r) "codes" (list)))
+                          (total (int (opt (reply-json r) "total_count" 0))))
+                      (begin
+                        (state-set-tree "admin.invites" (collections.map codes invite-row))
+                        (state-set "admin.invites_head"
+                          (str-concat (if (= (state-get "admin.signup") "Open")
+                                        "Anyone may sign up. " "Signing up takes an invite code. ")
+                                      (if (= total 0) "You have no codes."
+                                        (str-concat "Your " (plural total "code" "codes") ":"))))
+                        (pager off LISTPAGE total)
+                        true))
+                    (begin (admin-load-failed r "your invite codes") nil)))))
+            (begin (admin-load-failed m "the sign-up setting") nil))))
+
+      ;; Site: GET /site/... (title, description and time zone to change; the groups new accounts
+      ;; and administrators are in, and the password rules, to read).
+      (defun site-get (k dflt)
+        (let ((r (get-authed (str-concat "/site/" k))))
+          (if (ok? r)
+            (let ((v (reply-json r))) (if (or (= (type-of v) "dict") (= (type-of v) "nil")) dflt v))
+            dflt)))
+      (defun on? (v) (= (text v) "1"))
+      (defun load-admin-site ()
+        (let ((r (get-authed "/site/title")))
+          (if (ok? r)
+            (begin
+              (set title (text (reply-json r)))
+              (set about (text (site-get "description" "")))
+              (set tz (text (site-get "timezone" "")))
+              (set rules (list))
+              (if (on? (site-get "password/min_length_enabled" 0))
+                (set rules (append rules (str-concat (text (site-get "password/min_length" 8))
+                                                     " characters or more"))))
+              (for k (list (list "digit" "a digit") (list "upper" "a capital letter")
+                           (list "lower" "a small letter") (list "special_symbols" "a symbol"))
+                (if (on? (site-get (str-concat "password/" (car k) "_enabled") 0))
+                  (set rules (append rules (nth k 1)))))
+              (state-set-tree "site"
+                (dict "title" title "about" about "tz" tz
+                      "was_title" title "was_about" about "was_tz" tz
+                      "groups" (clip (str-concat "New accounts join "
+                                                 (text (site-get "default_user_group" "-"))
+                                                 "; the administrators' group is "
+                                                 (text (site-get "admin_group" "-")) ".")
+                                     WIDE)
+                      "pw" (clip (str-concat "Passwords: "
+                                             (if (= (length rules) 0) "anything goes"
+                                               (string.join rules ", ")) ".")
+                                 WIDE)))
+              (no-pager)
+              true)
+            (begin (admin-load-failed r "the site's settings") nil))))
+
+      ;; Log: GET /logs/, newest first, a page of ten, one kind of event (admin.log_event) or all.
+      ;; A row is when, who, the event's name (as the web app names them) and what it says (cells
+      ;; 17, 13, 19 and 17 columns wide).
+      (set EVENTS (list "" "User Login" "User Create" "User Update" "User Logout" "Setting Change"
+                        "Deactivate Session" "Launch Session" "Group Create" "Group Delete"
+                        "Group Add User" "Group Remove User" "Group Add Permission"
+                        "Group Remove Permission" "Group Update Description" "Stats Job Started"
+                        "Stats Job Completed" "Stats Job Failed" "Retention Job Started"
+                        "Retention Job Completed" "Retention Job Failed" "Job Started"
+                        "Job Completed" "Job Failed" "Notification Email Job Started"
+                        "Notification Email Job Completed" "Notification Email Job Failed"
+                        "Email Verification Sent" "Email Verified"))
+      (defun event-name (c)
+        (let ((n (int c)))
+          (if (and (> n 0) (< n (length EVENTS))) (nth EVENTS n) (str-concat "Event " (text n)))))
+      (defun log-row (e)
+        (dict "at" (posted-at (opt e "event_time" ""))
+              "who" (let ((u (text (opt e "username" "")))) (if (= u "") "-" (clip u 12)))
+              "what" (clip (event-name (opt e "event_code" 0)) 18)
+              "desc" (clip (one-line (opt e "event_desc" "")) 17)))
+      (defun load-admin-log ()
+        (let ((off (int (state-get "admin.loff"))) (ev (int (state-get "admin.log_event"))))
+          (let ((r (get-query "/logs/"
+                     (collections.dict-merge
+                      (dict "limit" (text LISTPAGE) "offset" (text off) "order_desc" "true")
+                      (if (= ev 0) (dict) (dict "event_code" (text ev)))))))
+            (if (ok? r)
+              (let ((entries (opt (reply-json r) "entries" (list)))
+                    (total (int (opt (reply-json r) "total_count" 0))))
+                (begin
+                  (state-set-tree "admin.log" (collections.map entries log-row))
+                  (state-set "admin.log_head"
+                    (if (= total 0) "Nothing logged."
+                      (str-concat (plural total "event" "events")
+                                  (if (= ev 0) "" (str-concat ": " (event-name ev)))
+                                  ", the newest first")))
+                  (pager off LISTPAGE total)
+                  true))
+              (begin (admin-load-failed r "the system log") nil)))))
+
+      ;; The part of the Admin view a key names (users, groups, invites, site, log).
+      (defun admin-key (tab) (string.lower tab))
+      (defun load-admin-part (key)
+        (begin
+          (state-set "admin.tab" (if (= key "groups") "Groups" (if (= key "invites") "Invites"
+                                   (if (= key "site") "Site" (if (= key "log") "Log" "Users")))))
+          (say (str-concat "Loading the " (if (= key "groups") "groups" (if (= key "invites") "invite codes"
+                                            (if (= key "site") "site's settings"
+                                              (if (= key "log") "system log" "accounts"))))
+                           "..."))
+          (if (= key "groups") (load-admin-groups)
+            (if (= key "invites") (load-admin-invites)
+              (if (= key "site") (load-admin-site)
+                (if (= key "log") (load-admin-log) (load-admin-users)))))))
+      (defun not-admin () (begin (fail "That's for the instance's administrators.") nil))
+
+      ;; One group's permissions: GET /group/perms (their codes), named by GET /perms/codes (every
+      ;; permission's name and code), sorted by name, those with agperm.q in their name, a page of
+      ;; ten from agperm.off.
+      (defun load-agperm (gid)
+        (let ((g (get-query "/group/" (dict "group_id" (text gid))))
+              (r (get-query "/group/perms" (dict "group_id" (text gid))))
+              (c (get-authed "/perms/codes")))
+          (if (and (ok? g) (ok? r) (ok? c))
+            (let ((codes (reply-json c)) (have (reply-json r))
+                  (q (string.lower (string.trim (text (state-get "agperm.q")))))
+                  (off (int (state-get "agperm.off")))
+                  (name (text (opt (reply-json g) "name" ""))))
+              (begin
+                (set names (dict)) ;; a code (as text) -> its name
+                (for k (collections.dict-keys codes) (set-attr names (text (get-attr codes k)) k))
+                (if (!= (type-of have) "list") (set have (list)))
+                (set found (list))
+                (for code have
+                  (let ((n (opt names (text code) (str-concat "Permission " (text code)))))
+                    (if (or (= q "") (string.contains (string.lower n) q))
+                      (set found (append found n)))))
+                (set found (collections.sort found))
+                (set total (length found))
+                (if (>= off total) (set off 0))
+                (state-set-tree "agperm"
+                  (dict "id" (text gid)
+                        "name" name
+                        "head" (clip (str-concat name ": "
+                                                 (if (= q "")
+                                                   (str-concat (plural (length have) "permission" "permissions")
+                                                               ", what its members may do")
+                                                   (str-concat (text total) " of " (plural (length have) "permission" "permissions")
+                                                               " with \"" (string.trim (text (state-get "agperm.q")))
+                                                               "\" in the name")))
+                                     WIDE)
+                        "q" (state-get "agperm.q")
+                        "grant" (state-get "agperm.grant")
+                        "off" off
+                        "rows" (collections.map (slice found off (if (> (+ off LISTPAGE) total) total (+ off LISTPAGE)))
+                                 (lambda (n) (dict "name" n "code" (text (opt codes n 0)))))
+                        "pick" ""
+                        "pick_name" ""))
+                (pager off LISTPAGE total)
+                true))
+            (begin
+              (admin-load-failed (if (ok? g) (if (ok? r) c r) g) "that group's permissions")
+              nil))))
+
       ;; --- going between views --------------------------------------------------------
       ;; Where the window is: an entry, a view and what it shows (feed, tag|engines, post|312,
       ;; profile|7, tags, alerts, search, compose, viewer|312|0). ui.back holds the entries
@@ -1337,6 +1752,15 @@ on_tick: |
               (if (= view "compose") (set ok true))
               (if (= view "viewer")
                 (set ok (load-viewer arg (int (if (= (nth-or parts 2) "") "0" (nth-or parts 2))))))
+              ;; the Admin view (admin|users ...), one account (auser|7), one group (agroup|2)
+              (if (= view "admin")
+                (set ok (if (admin?) (load-admin-part (if (= arg "") "users" arg)) (not-admin))))
+              (if (= view "auser")
+                (set ok (if (admin?) (begin (say "Loading the account...") (load-auser arg)) (not-admin))))
+              (if (= view "agroup")
+                (set ok (if (admin?) (begin (say "Loading the group...") (load-agroup arg)) (not-admin))))
+              (if (= view "agperm")
+                (set ok (if (admin?) (begin (say "Loading its permissions...") (load-agperm arg)) (not-admin))))
               (if ok
                 (begin
                   (show-screen (if (= view "tag") "feed" view))
@@ -1364,7 +1788,8 @@ on_tick: |
 
       ;; After signing in: who it is, then the feed, the first view (as the web app's home), or
       ;; the first time, the view --start names (profile, tags, alerts, search, compose, post:ID,
-      ;; tag:NAME, user:ID, view:ID[:N], search:TEXT); a view that won't load leaves the feed.
+      ;; tag:NAME, user:ID, view:ID[:N], search:TEXT; for an administrator admin[:PART],
+      ;; auser:ID, agroup:ID); a view that won't load leaves the feed.
       (defun load-home ()
         (if (load-me)
           (let ((start (state-get "ui.start")))
@@ -1377,7 +1802,10 @@ on_tick: |
                   (if (string.starts-with start "user:") (str-concat "profile|" (string.substring start 5 (string.length start)))
                     (if (or (string.starts-with start "post:") (string.starts-with start "tag:")
                             (= start "tags") (= start "alerts") (= start "search") (= start "compose")
-                            (= start "dms") (string.starts-with start "dm:"))
+                            (= start "dms") (string.starts-with start "dm:")
+                            (= start "admin") (string.starts-with start "admin:")
+                            (string.starts-with start "auser:") (string.starts-with start "agroup:")
+                            (string.starts-with start "agperm:"))
                       (string.replace start ":" "|")
                       ;; view:ID or view:ID:N, the viewer at a post's Nth attachment; search:TEXT,
                       ;; the search view, searching for TEXT
@@ -1423,13 +1851,19 @@ on_tick: |
                 (fail (str-concat "The server sent no session: " (get-attr r "error")))))
             (if (= (status r) 0) (unreachable r)
               (if (= (status r) 429) (fail "Too many attempts. Wait a minute, then try again.")
-                (if (= (state-get "ui.screen") "2fa")
+                ;; an administrator turned the account off (txwtf's DisabledUser): after the
+                ;; password, or after the emailed code
+                (if (string.contains (text (opt b "detail" "")) "DisabledUser")
                   (begin
-                    (state-set "login.code" "")
-                    (fail "That code didn't work. Try again, or go Back."))
-                  (if (or (= (status r) 400) (= (status r) 401))
-                    (fail "Wrong username or password.")
-                    (fail (str-concat "Sign-in failed (HTTP " (str (status r)) ").")))))))))
+                    (if (= (state-get "ui.screen") "2fa") (to-signin "" nil))
+                    (fail "This account is disabled. Ask the site's administrators."))
+                  (if (= (state-get "ui.screen") "2fa")
+                    (begin
+                      (state-set "login.code" "")
+                      (fail "That code didn't work. Try again, or go Back."))
+                    (if (or (= (status r) 400) (= (status r) 401))
+                      (fail "Wrong username or password.")
+                      (fail (str-concat "Sign-in failed (HTTP " (str (status r)) ")."))))))))))
 
       ;; --- direct messages (ui/dm.ari) ---------------------------------------------------
       ;; The conversations: GET /social/dm/conversations, latest first. A conversation's other
@@ -1973,6 +2407,216 @@ on_tick: |
               (http-request "POST" (str-concat (base) "/user/logout") (dict "auth" "txwtf"))
               (net-auth-forget "txwtf")
               (to-signin "Signed out." nil)))
+
+          ;; --- the Admin view (ui/admin.ari), for an administrator ---------------------------
+          (if (= cmd "admin") ;; the part last shown, from its first page
+            (if (admin?)
+              (begin
+                (state-set "admin.uoff" 0) (state-set "admin.ioff" 0) (state-set "admin.loff" 0)
+                (go (str-concat "admin|" (admin-key (state-get "admin.tab")))))
+              (not-admin)))
+          (if (= cmd "admin-tab") ;; another part, in place (as a profile's tab)
+            (let ((e (str-concat "admin|" (admin-key (state-get "admin.tab")))))
+              (begin
+                (state-set "admin.uoff" 0) (state-set "admin.ioff" 0) (state-set "admin.loff" 0)
+                (if (show-entry e) (state-set "ui.here" e)))))
+          (if (= cmd "admin-find")
+            (begin (state-set "admin.uoff" 0) (if (load-admin-users) (say ""))))
+          (if (= cmd "admin-log-filter")
+            (begin (state-set "admin.loff" 0) (if (load-admin-log) (say ""))))
+          (if (or (= cmd "admin-prev") (= cmd "admin-next"))
+            (let ((tab (if (= (state-get "ui.screen") "agperm") "agperm" (state-get "admin.tab"))))
+              (let ((k (if (= tab "Users") "admin.uoff" (if (= tab "Invites") "admin.ioff"
+                         (if (= tab "agperm") "agperm.off" "admin.loff"))))
+                    (per (if (= tab "Users") USERPAGE LISTPAGE)))
+                (begin
+                  (state-set k (if (= cmd "admin-next") (+ (int (state-get k)) per)
+                                 (math.max 0 (- (int (state-get k)) per))))
+                  (if (if (= tab "agperm") (load-agperm (state-get "agperm.id"))
+                        (load-admin-part (admin-key tab)))
+                    (say ""))))))
+          ;; A group's permissions: from its view, from their first page; found; granted by name;
+          ;; revoked.
+          (if (= cmd "agperm")
+            (begin
+              (state-set "agperm.q" "") (state-set "agperm.grant" "") (state-set "agperm.off" 0)
+              (go (str-concat "agperm|" (text (state-get "agroup.id"))))))
+          (if (= cmd "agperm-find")
+            (begin (state-set "agperm.off" 0) (if (load-agperm (state-get "agperm.id")) (say ""))))
+          (if (= cmd "agperm-grant")
+            (let ((want (string.trim (text (state-get "agperm.grant"))))
+                  (gid (int (state-get "agperm.id"))))
+              (if (= want "") (say "Type a permission's name first.")
+                (let ((c (get-authed "/perms/codes")))
+                  (if (ok? c)
+                    (let ((hits (collections.filter (collections.dict-keys (reply-json c))
+                                  (lambda (k) (= (string.lower k) (string.lower want))))))
+                      (if (= (length hits) 0) (fail (str-concat "No permission is called " want "."))
+                        (if (admin-send "POST" "/perms/"
+                                        (dict "group_id" gid
+                                              "permission_codes" (list (get-attr (reply-json c) (nth hits 0))))
+                                        "grant permissions")
+                          (begin
+                            (state-set "agperm.grant" "")
+                            (if (load-agperm gid)
+                              (say (str-concat (state-get "agperm.name") " grants " (nth hits 0) " now.")))))))
+                    (admin-load-failed c "the permissions"))))))
+          (if (= cmd "agperm-revoke")
+            (let ((gid (int (state-get "agperm.id"))) (what (text (state-get "agperm.pick_name"))))
+              (if (admin-send "DELETE" (str-concat "/perms/?group_id=" (text gid))
+                              (list (int (state-get "agperm.pick")))
+                              "revoke permissions")
+                (if (load-agperm gid)
+                  (say (str-concat (state-get "agperm.name") " no longer grants " what "."))))))
+          (if (= cmd "auser") (go (str-concat "auser|" (text (state-get "auser.want")))))
+          (if (= cmd "agroup") (go (str-concat "agroup|" (text (state-get "agroup.want")))))
+          ;; One account: the change, then the account as the instance has it now.
+          (if (or (= cmd "auser-disable") (= cmd "auser-enable") (= cmd "auser-admin")
+                  (= cmd "auser-unadmin") (= cmd "auser-2fa-off"))
+            (let ((id (int (state-get "auser.id")))
+                  (who (str-concat "@" (state-get "auser.username"))))
+              (if (if (or (= cmd "auser-admin") (= cmd "auser-unadmin"))
+                    (admin-send "PUT" "/group/user/sysadmin"
+                                (dict "user_id" id "is_admin" (if (= cmd "auser-admin") true NO))
+                                "change who is an administrator")
+                    (admin-send "PUT" "/user/update"
+                                (if (= cmd "auser-2fa-off")
+                                  (dict "user_id" id "login_2fa_email_enabled" NO)
+                                  (dict "user_id" id "enabled" (if (= cmd "auser-enable") true NO)))
+                                "change that account"))
+                (if (load-auser id)
+                  (say (str-concat who
+                         (if (= cmd "auser-disable") " is disabled: signed out, and can't sign in."
+                           (if (= cmd "auser-enable") " can sign in again."
+                             (if (= cmd "auser-admin") " is an administrator now."
+                               (if (= cmd "auser-unadmin") " is no longer an administrator."
+                                 " signs in without two-step sign-in now."))))))))))
+          ;; Groups: a new one; one group's members added, removed, made its admins or not; and
+          ;; the group deleted, once Delete group has asked.
+          (if (= cmd "group-create")
+            (let ((name (string.trim (text (state-get "admin.gname"))))
+                  (about (string.trim (text (state-get "admin.gdesc")))))
+              (if (= name "") (say "Name the group first.")
+                (if (admin-send "POST" "/group/"
+                                (if (= about "") (dict "group_name" name)
+                                  (dict "group_name" name "description" about))
+                                "create groups")
+                  (begin
+                    (state-set "admin.gname" "")
+                    (state-set "admin.gdesc" "")
+                    (if (load-admin-groups) (say (str-concat "Created the group " name "."))))))))
+          (if (= cmd "agroup-add")
+            (let ((who (string.trim (text (state-get "agroup.add")))))
+              (begin
+                (if (string.starts-with who "@") (set who (string.substring who 1 (- (string.length who) 1))))
+                (if (= who "") (say "Type a username first.")
+                  ;; the account by its exact username: GET /user/list finds the usernames with
+                  ;; the text in them
+                  (let ((u (get-query "/user/list" (dict "username" who "limit" "50" "offset" "0"))))
+                    (if (ok? u)
+                      (let ((hits (collections.filter (opt (reply-json u) "users" (list))
+                                    (lambda (x) (= (string.lower (text (opt x "username" "")))
+                                                   (string.lower who))))))
+                        (if (= (length hits) 0) (fail (str-concat "No account is called " who "."))
+                          (if (admin-send "POST" "/group/user"
+                                          (dict "group_id" (int (state-get "agroup.id"))
+                                                "user_id" (int (opt (nth hits 0) "id" 0))
+                                                "is_group_admin" NO)
+                                          "add members")
+                            (begin
+                              (state-set "agroup.add" "")
+                              (if (load-agroup (state-get "agroup.id"))
+                                (say (str-concat "Added @" who " to " (state-get "agroup.name") ".")))))))
+                      (admin-load-failed u "the accounts")))))))
+          (if (or (= cmd "agroup-remove") (= cmd "agroup-lead") (= cmd "agroup-unlead"))
+            (let ((gid (int (state-get "agroup.id")))
+                  (uid (int (state-get "agroup.pick")))
+                  (who (member-handle (state-get "agroup.pick"))))
+              (if (if (= cmd "agroup-remove")
+                    (admin-send "DELETE" "/group/user" (dict "group_id" gid "user_id" uid)
+                                "remove members")
+                    (admin-send "PUT" "/group/user/admin"
+                                (dict "group_id" gid "user_id" uid
+                                      "is_group_admin" (if (= cmd "agroup-lead") true NO))
+                                "change a group's admins"))
+                (if (load-agroup gid)
+                  (say (str-concat who
+                         (if (= cmd "agroup-remove") (str-concat " is out of " (state-get "agroup.name") ".")
+                           (if (= cmd "agroup-lead") (str-concat " is an admin of " (state-get "agroup.name") ".")
+                             (str-concat " is no longer an admin of " (state-get "agroup.name") ".")))))))))
+          (if (= cmd "agroup-delete")
+            (begin
+              (state-set "agroup.confirm" "1")
+              (say (str-concat "Delete " (state-get "agroup.name") "? Its members' accounts stay."))))
+          (if (= cmd "agroup-keep")
+            (begin (state-set "agroup.confirm" "") (say "Kept it.")))
+          (if (= cmd "agroup-delete-yes")
+            (let ((name (state-get "agroup.name")))
+              (let ((r (http-request "DELETE" (str-concat (base) "/group/")
+                         (dict "auth" "txwtf" "headers" (dict "Accept" "application/json")
+                               "query" (dict "group_name" name)))))
+                (if (ok? r)
+                  (let ((entry (pop-back)))
+                    (begin
+                      (state-set "agroup.confirm" "")
+                      (if (= entry "") (set entry "admin|groups"))
+                      (if (show-entry entry) (begin (state-set "ui.here" entry) (new-view)))
+                      (say (str-concat "Deleted the group " name "."))))
+                  (admin-failed r "delete groups")))))
+          ;; Invites: who may sign up, and your codes.
+          (if (= cmd "invite-mode")
+            (let ((only (= (state-get "admin.signup") "Invite only")))
+              (if (admin-send "PUT" "/invite/mode" (dict "invite_only" (if only true NO))
+                              "change who may sign up")
+                (if (load-admin-invites)
+                  (say (if only "Signing up takes an invite code now." "Anyone may sign up now.")))
+                (load-admin-invites)))) ;; refused: the choice back to what the instance says
+          (if (= cmd "invite-new")
+            (let ((uses (string.trim (text (state-get "admin.iuses"))))
+                  (note (string.trim (text (state-get "admin.inote")))))
+              (let ((n (if (= uses "") 0 (try (int uses) (catch (e) 0)))))
+                (if (and (!= uses "") (< n 1))
+                  (fail "Uses is a number, 1 or more; blank for no limit.")
+                  (let ((r (send-authed "POST" "/invite/codes"
+                             (collections.dict-merge (if (= uses "") (dict) (dict "max_uses" n))
+                                                     (if (= note "") (dict) (dict "note" note))))))
+                    (if (ok? r)
+                      (begin
+                        (state-set "admin.iuses" "")
+                        (state-set "admin.inote" "")
+                        (state-set "admin.ioff" 0)
+                        (if (load-admin-invites)
+                          (say (str-concat "New code: " (text (opt (reply-json r) "code" ""))))))
+                      (admin-failed r "make invite codes")))))))
+          (if (or (= cmd "invite-off") (= cmd "invite-on"))
+            (let ((id (text (state-get "invite.want"))))
+              (if (admin-send (if (= cmd "invite-off") "DELETE" "POST")
+                              (str-concat "/invite/codes/" id (if (= cmd "invite-off") "" "/reactivate"))
+                              nil
+                              (if (= cmd "invite-off") "turn invite codes off" "turn invite codes on"))
+                (if (load-admin-invites)
+                  (say (if (= cmd "invite-off") "That code is off: it signs no one up now."
+                         "That code is on again."))))))
+          ;; Site: what has changed of the title, description and time zone, saved.
+          (if (= cmd "site-save")
+            (begin
+              (set saved (list))
+              (set saving true)
+              (for f (list (list "title" "title") (list "about" "description") (list "tz" "timezone"))
+                (if saving
+                  (let ((now (string.trim (text (state-get (str-concat "site." (car f))))))
+                        (was (text (state-get (str-concat "site.was_" (car f))))))
+                    (if (!= now was)
+                      (if (admin-send "PUT" (str-concat "/site/" (nth f 1)) (dict (nth f 1) now)
+                                      "change the site's settings")
+                        (set saved (append saved (nth f 1)))
+                        (set saving nil))))))
+              (if saving
+                (if (= (length saved) 0) (say "Nothing to save: nothing has changed.")
+                  (begin
+                    (load-site-title) ;; the window's title, if that was it
+                    (if (load-admin-site)
+                      (say (str-concat "Saved the " (string.join saved ", ") "."))))))))
           ;; Signed in still: the unread count again.
           (if (and (!= (state-get "ui.screen") "signin") (!= (state-get "ui.screen") "2fa")
                    (!= (state-get "ui.screen") "boot") (!= cmd "alerts"))
