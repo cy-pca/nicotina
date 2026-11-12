@@ -416,6 +416,18 @@ units:
               - text: ""
                 bind: "{list}.{i}.at"
                 color: [0.6, 0.6, 0.6]
+      # Its text, where the host draws rich text (text.runs, transfix/libcvc#1180): bold,
+      # italic and code as the post has them, and its mentions, hashtags and URLs links, each
+      # followed in the app (main.ari's open-link: a profile, a hashtag's posts, a post) or
+      # copied. Three lines of the card's text width (70 columns, 8 px each), the last ending
+      # in an ellipsis. Elsewhere its first three lines, plain.
+      - text: ""
+        runs: "{list}.{i}.runs"
+        emoji: "{list}.{i}.emoji"
+        max_lines: 3
+        size: 560
+        on_link: (begin (state-set "link.href" (get-attr event "href")) (state-set "ui.cmd" "link"))
+        visible_when: (= (state-get "{list}.{i}.v_runs") "1")
       - text: ""
         bind: "{list}.{i}.l0"
         emoji: "{list}.{i}.emoji"

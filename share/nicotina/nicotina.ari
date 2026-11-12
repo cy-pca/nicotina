@@ -45,6 +45,7 @@ requires:
   - {name: image.url, optional: true}  # the account's pictures; without it, placeholders
   - {name: image.fill, optional: true}  # pictures and video as wide as the card; else a fixed size
   - {name: text.emoji, optional: true}  # a post's :emoji: drawn; without it, the shortcodes
+  - {name: text.runs, optional: true}  # a post's text rich, its links followed; else plain lines
   - {name: ui.group_click, optional: true}  # a card, its icons and hashtags clickable; else buttons
   - {name: clipboard-set, optional: true}  # Copy link; without it, the link as text
   - {name: ui.fullscreen, optional: true}  # the viewer's Full screen; without it, the window
@@ -105,6 +106,9 @@ init: |
   ;; clicks: a group's click is its own and its handlers see {i} (ui.group_click, libcvc 3.7.13)
   (state-set "app.clicks" (if (has? "ui.group_click") "1" ""))
   (state-set "app.clip" (if (has? "clipboard-set") "1" ""))
+  ;; runs: a post's text as rich text, its mentions, hashtags and URLs links (text.runs,
+  ;; transfix/libcvc#1180); elsewhere its lines, plain
+  (state-set "app.runs" (if (has? "text.runs") "1" ""))
   ;; icons: the bar's buttons and the feed's choices as symbols (a back arrow, a house, ...),
   ;; where a window draws emoji (text.emoji: libcvc 3.7.13); elsewhere words
   (state-set "app.icons" (if (and (has? "text.emoji") (not (has? "term"))) "1" ""))
@@ -170,6 +174,8 @@ init: |
 #   follow, unfollow  the profile shown (POST /social/follow, DELETE /social/follow/{id})
 #   search   search.q (GET /search/search); hit-open and alert-open go where a row points
 #   view-prev, view-next  the viewer's other attachments
+#   link     link.href, a link in a post's text: a hashtag's posts, a profile or a post here;
+#            anything else copied (open-link)
 #   signout  POST /user/logout, then drop the credential
 #
 # After each, the unread count beside Alerts is asked for again (GET /notifications/count).
@@ -368,6 +374,155 @@ on_tick: |
                   (let ((ch (car (string.split (nth pieces 1) "<"))))
                     (if (!= ch "") (set-attr m (string.lower name) ch))))))
             m)))
+      ;; A post's text as rich text runs (text.runs: transfix/libcvc#1180), read from the same
+      ;; content_html: <strong> and <b> bold, <em> and <i> italic, <code> and <pre> code, an <a>
+      ;; a link to its href (txwtf's mention is /user/NAME, its hashtag /tag/NAME, a URL itself),
+      ;; </p>, <br> and an item a new line, a custom emoji its :name: (the text's emoji: draws
+      ;; it). A run is a string, or {text, style, href}: what a text's runs: takes. Without
+      ;; content_html (a reposted post's brief, a locked post), the plain text, its @names,
+      ;; #tags and URLs linked as txwtf links them.
+      (defun unescape (s)
+        (begin
+          (for e (list (list "&nbsp;" " ") (list "&lt;" "<") (list "&gt;" ">")
+                       (list "&quot;" "\"") (list "&#39;" "'") (list "&#x27;" "'") (list "&amp;" "&"))
+            (set s (string.replace s (car e) (car (cdr e)))))
+          s))
+      (defun run-style (b i c)
+        (string.trim (str-concat (if (> b 0) "bold " "") (if (> i 0) "italic " "")
+                                 (if (> c 0) "code" ""))))
+      ;; (text style href) pieces, in order, as runs: neighbours alike joined, a plain one a
+      ;; string, the paragraph's leading and trailing line breaks dropped.
+      (defun merge-runs (parts)
+        (begin
+          (set out (list))
+          (set txt "")
+          (set st "")
+          (set hr "")
+          (for p parts
+            (if (!= (car p) "")
+              (if (and (= (nth p 1) st) (= (nth p 2) hr))
+                (set txt (str-concat txt (car p)))
+                (begin
+                  (if (!= txt "") (set out (append out (run-item txt st hr))))
+                  (set txt (car p))
+                  (set st (nth p 1))
+                  (set hr (nth p 2))))))
+          (while (string.ends-with txt "\n")
+            (set txt (string.substring txt 0 (- (string.length txt) 1))))
+          (if (!= txt "") (set out (append out (run-item txt st hr))))
+          out))
+      (defun run-item (txt st hr)
+        (if (= hr "")
+          (if (= st "") txt (dict "text" txt "style" st))
+          (if (= st "") (dict "text" txt "href" hr) (dict "text" txt "style" st "href" hr))))
+      (defun html-runs (h)
+        (begin
+          (set parts (list))
+          (set b 0)
+          (set i 0)
+          (set c 0)
+          (set href "")
+          (set lead true) ;; nothing written yet: a line break here is dropped
+          ;; each piece a tag and the text after it; the text before the first tag has none
+          (set split (string.split h "<"))
+          (set pieces (list (str-concat ">" (car split))))
+          (for pc (cdr split) (set pieces (append pieces pc)))
+          (for piece pieces
+            (begin
+              (set gt (string.split piece ">"))
+              (set tag (string.trim (car gt)))
+              (set after (string.join (cdr gt) ">"))
+              (set name (string.lower (car (string.split tag " "))))
+              (if (string.ends-with name "/")
+                (set name (string.substring name 0 (- (string.length name) 1))))
+              (if (or (= name "strong") (= name "b")) (set b (+ b 1)))
+              (if (or (= name "/strong") (= name "/b")) (set b (math.max 0 (- b 1))))
+              (if (or (= name "em") (= name "i")) (set i (+ i 1)))
+              (if (or (= name "/em") (= name "/i")) (set i (math.max 0 (- i 1))))
+              (if (or (= name "code") (= name "pre")) (set c (+ c 1)))
+              (if (or (= name "/code") (= name "/pre")) (set c (math.max 0 (- c 1))))
+              (if (= name "a") (set href (unescape (attr tag "href"))))
+              (if (= name "/a") (set href ""))
+              (if (and (not lead)
+                       (string.contains "|br|/p|/div|/h1|/h2|/h3|/h4|/h5|/h6|/blockquote|/pre|/li|"
+                                        (str-concat "|" name "|")))
+                (set parts (append parts (list "\n" "" ""))))
+              (if (= name "li") (set parts (append parts (list "• " "" ""))))
+              (if (and (= name "img") (string.contains tag "custom-emoji"))
+                (set parts (append parts (list (attr tag "alt") (run-style b i c) href))))
+              ;; the text after the tag: entities decoded, the source's line breaks spaces
+              ;; (outside code)
+              (set after (unescape after))
+              (if (= c 0)
+                (set after (string.replace (string.replace (string.replace after "\r" "") "\n" " ")
+                                           "\t" " ")))
+              (if (= c 0)
+                (while (and lead (string.starts-with after " "))
+                  (set after (string.substring after 1 (- (string.length after) 1)))))
+              (if (!= after "") (set lead nil))
+              (if (and (= name "img") (string.contains tag "custom-emoji")) (set lead nil))
+              (set parts (append parts (list after (run-style b i c) href)))))
+          (merge-runs parts)))
+      ;; A word of plain text as txwtf links it: a URL (its trailing punctuation too, as txwtf's
+      ;; pattern takes it), or a #tag or @name without its trailing punctuation.
+      (defun word-parts (w)
+        (if (or (string.starts-with w "https://") (string.starts-with w "http://"))
+          (list (list w "" w))
+          (if (and (> (string.length w) 1)
+                   (or (string.starts-with w "#") (string.starts-with w "@")))
+            (begin
+              (set core w)
+              (set tail "")
+              (set going true)
+              (while going
+                (if (> (string.length core) 2)
+                  (let ((ch (string.substring core (- (string.length core) 1) 1)))
+                    (if (string.contains ".,;:!?)'\"" ch)
+                      (begin
+                        (set tail (str-concat ch tail))
+                        (set core (string.substring core 0 (- (string.length core) 1))))
+                      (set going nil)))
+                  (set going nil)))
+              (list (list core ""
+                          (str-concat (if (string.starts-with core "#") "/tag/" "/user/")
+                                      (string.substring core 1 (- (string.length core) 1))))
+                    (list tail "" "")))
+            (list (list w "" "")))))
+      (defun plain-runs (s)
+        (begin
+          (set parts (list))
+          (set first-line true)
+          (for line (string.split (string.replace (text s) "\r" "") "\n")
+            (begin
+              (if (not first-line) (set parts (append parts (list "\n" "" ""))))
+              (set first-line nil)
+              (set first-word true)
+              (for w (string.split line " ")
+                (begin
+                  (if (not first-word) (set parts (append parts (list " " "" ""))))
+                  (set first-word nil)
+                  (for p (word-parts w) (set parts (append parts p)))))))
+          (merge-runs parts)))
+      ;; Whether a post's text is drawn as rich text here (app.runs, asked once at start).
+      (defun rich? () (= (state-get "app.runs") "1"))
+      (defun runs-of (html plain)
+        (let ((h (text (if (= (type-of html) "nil") "" html))))
+          (if (= (string.trim h) "") (plain-runs (text (if (= (type-of plain) "nil") "" plain)))
+            (html-runs h))))
+      ;; A post's runs as a card or the post's view shows them: a repost's own words (a quote)
+      ;; before the post it reposts, " | " between, as body-of does.
+      (defun post-runs (q)
+        (let ((p (shown q))
+              (own (runs-of (opt q "content_html" nil) (opt q "content" ""))))
+          (if (= (type-of (opt q "reposted_post" nil)) "dict")
+            (let ((orig (runs-of (opt p "content_html" nil) (opt p "content" ""))))
+              (if (= (length own) 0) orig
+                (begin
+                  (set all own)
+                  (set all (append all " | "))
+                  (for r orig (set all (append all r)))
+                  all)))
+            own)))
       ;; Whether a picture URL is a video, as txwtf's web app decides (isVideoMediaUrl): it plays
       ;; .mp4, .webm, .mov and .m4v avatars, banners and backgrounds as muted loops. Until the
       ;; host has a video widget, those keep their placeholder: image: can't draw them.
@@ -853,9 +1008,13 @@ on_tick: |
                                (- CARDW 5))
                   "at" (posted-at (opt p "created_at" ""))
                   "pic" pic
-                  "l0" (nth-or lines 0)
-                  "l1" (nth-or lines 1)
-                  "l2" (nth-or lines 2)
+                  ;; its text: rich text where the host draws it (three lines of the card's
+                  ;; width, ui/card.ari), else its first three lines, plain
+                  "v_runs" (if (rich?) "1" "")
+                  "runs" (if (rich?) (post-runs q) (list))
+                  "l0" (if (rich?) "" (nth-or lines 0))
+                  "l1" (if (rich?) "" (nth-or lines 1))
+                  "l2" (if (rich?) "" (nth-or lines 2))
                   ;; the emoji in its text (a repost's quote and the post it reposts)
                   "emoji" (collections.dict-merge (emoji-of (opt q "content_html" nil))
                                                   (emoji-of (opt p "content_html" nil)))
@@ -946,8 +1105,14 @@ on_tick: |
                                           "  " (posted-at (opt q "created_at" ""))
                                           "  ↩" (text (opt q "reply_count" 0)))
                               (- WIDE 8))
-                  "l0" (if (= (length lines) 0) "(no text)" (nth lines 0))
-                  "l1" (nth-or lines 1)
+                  ;; two lines of it: rich text where the host draws it, else plain
+                  "v_runs" (if (rich?) "1" "")
+                  "runs" (if (rich?)
+                           (let ((rs (runs-of (opt q "content_html" nil) (opt q "content" ""))))
+                             (if (= (length rs) 0) (list "(no text)") rs))
+                           (list))
+                  "l0" (if (rich?) "" (if (= (length lines) 0) "(no text)" (nth lines 0)))
+                  "l1" (if (rich?) "" (nth-or lines 1))
                   "emoji" (emoji-of (opt q "content_html" nil))))))
       ;; The post's replies (GET /social/posts/{id}/replies), oldest first: the first page, or the
       ;; next one added below.
@@ -1047,7 +1212,12 @@ on_tick: |
                                              (handle (text (opt (opt p "author" (dict)) "username" "?"))))
                                  (- WIDE 6))
                     "at" (posted-at (opt p "created_at" ""))
-                    "lines" (if (= (length lines) 0) (list "(no text)") lines)
+                    ;; its text: rich text where the host draws it, else its lines, plain
+                    "v_runs" (if (rich?) "1" "")
+                    "runs" (if (rich?)
+                             (let ((rs (post-runs q))) (if (= (length rs) 0) (list "(no text)") rs))
+                             (list))
+                    "lines" (if (rich?) (list) (if (= (length lines) 0) (list "(no text)") lines))
                     "emoji" (collections.dict-merge (emoji-of (opt q "content_html" nil))
                                                     (emoji-of (opt p "content_html" nil)))
                     "media" (post-media media)
@@ -1331,6 +1501,44 @@ on_tick: |
           (state-set "ui.fwd" "")
           (state-set "ui.here" "")
           (go "feed")))
+      ;; A link in a post's text (text.runs), followed in the app where it leads somewhere the
+      ;; app shows: a hashtag's posts (/tag/NAME), a person's profile (/user/NAME, the account
+      ;; GET /user/by-username/{name} names), a post or a profile by id (/app/post/ID,
+      ;; /app/profile/ID), on this instance whether the href is a path or a whole URL. nicotina
+      ;; never opens a browser: any other link is copied (Copy link), or shown where the host
+      ;; has no clipboard.
+      (defun copy-link (url)
+        (if (= (state-get "app.clip") "1")
+          (begin (clipboard-set url) (say (str-concat "Link copied: " url)))
+          (say (str-concat "Link: " url))))
+      (defun open-link (href)
+        (let ((h (text href)))
+          (begin
+            (set path h)
+            (for pre (list (base) (state-get "app.origin"))
+              (if (and (!= pre "") (string.starts-with path (str-concat pre "/")))
+                (set path (string.substring path (string.length pre)
+                                            (- (string.length path) (string.length pre))))))
+            (if (string.starts-with path "/app/")
+              (set path (string.substring path 4 (- (string.length path) 4))))
+            (set seg (if (string.starts-with path "/")
+                       (string.split (car (string.split (car (string.split path "?")) "#")) "/")
+                       (list)))
+            (set kind (if (= (length seg) 3) (nth seg 1) ""))
+            (set arg (if (= (length seg) 3) (nth seg 2) ""))
+            (if (and (= kind "tag") (!= arg ""))
+              (go (str-concat "tag|" (string.lower arg)))
+              (if (and (= kind "user") (!= arg ""))
+                (let ((r (get-authed (str-concat "/user/by-username/" arg))))
+                  (if (ok? r)
+                    (go (str-concat "profile|" (text (opt (reply-json r) "id" ""))))
+                    (if (session-over? r) (session-over)
+                      (if (= (status r) 0) (unreachable r)
+                        (fail (str-concat "Couldn't find @" arg " (HTTP " (str (status r)) ")."))))))
+                (if (and (or (= kind "post") (= kind "profile")) (!= arg ""))
+                  (go (str-concat kind "|" arg))
+                  (copy-link (if (string.starts-with h "/") (str-concat (state-get "app.origin") h)
+                               h))))))))
 
       ;; After signing in: who it is, then the feed, the first view (as the web app's home), or
       ;; the first time, the view --start names (profile, tags, alerts, search, compose, post:ID,
@@ -1524,6 +1732,8 @@ on_tick: |
           (if (= cmd "show-window")
             (begin (state-set "tree.app.open" 1) (state-set "tree.app.raise" "1")))
           (if (= cmd "copied") (say "Link copied."))
+          ;; a link in a post's text: link.href (open-link)
+          (if (= cmd "link") (open-link (state-get "link.href")))
           (if (= cmd "alerts") (go "alerts"))
           (if (= cmd "search-view") (go "search"))
           (if (= cmd "compose") (go "compose"))

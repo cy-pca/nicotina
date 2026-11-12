@@ -141,6 +141,15 @@ player_stops=0
 # a picture in a line of text.
 emoji=
 "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement text.emoji" || emoji=1
+# Whether this ari draws a post's text as rich text (text.runs, transfix/libcvc#1180): its
+# mentions, hashtags and URLs are links then, and in a terminal each link is a Tab stop, before
+# its card's buttons. The first card has two (#engines, #brass), and the feed's first page five
+# (with post 306's @ada and URL, and post 303's #engines).
+runs=
+"$ARI" check --net "$main" 2>&1 | grep -q "optional requirement text.runs" || runs=1
+card1_links=0
+page1_links=0
+[ -n "$runs" ] && card1_links=2 page1_links=5
 # The bar along the window's top, in every view.
 bar="[ Back ][ Home ][ Tags ][ Search ][ Alerts ][ Profile ][ Post ]"
 # The first card's counts and buttons, and View on its first attachment's row (it has a picture
@@ -248,6 +257,25 @@ check "ari snapshot: ... its replies, oldest first, and the reply box" "$out/sna
   "Reply: [Write a reply (Enter sends it)"
 check_not "ari snapshot: ... not someone else's Delete, nor a reply's reply" \
   "$out/snap-view-post.txt" "[ Delete ]" "Thirty-one"
+view mention post:306
+check "ari snapshot: a post with a mention and a URL, wrapped at the window's width" \
+  "$out/snap-view-mention.txt" "Can machines think? Ask @ada, or read" \
+  "https://example.org/computing-machinery"
+if [ -n "$runs" ]; then
+  # In colour: the links underlined (SGR 4) where the rest is not.
+  "$ARI" snapshot --ansi --width 80 --height 60 --net-allow "$base" --credential-store "$store" \
+    "$main" --instance "$base" --start post:306 >"$out/snap-view-mention-ansi.txt" 2>&1
+  if grep -qP '\e\[4m(\e\[[0-9;]*m)*@ada' "$out/snap-view-mention-ansi.txt" &&
+    grep -qP '\e\[4m(\e\[[0-9;]*m)*https://example\.org' "$out/snap-view-mention-ansi.txt" &&
+    ! grep -qP '\e\[4m(\e\[[0-9;]*m)*Can machines' "$out/snap-view-mention-ansi.txt"; then
+    pass "ari snapshot: ... the mention and the URL are links, underlined"
+  else
+    fail "ari snapshot: ... the mention and the URL are links, underlined" \
+      "$out/snap-view-mention-ansi.txt"
+  fi
+else
+  skip "ari snapshot: a post's links (this ari has no text.runs: transfix/libcvc#1180)"
+fi
 view reply post:315
 check "ari snapshot: a reply: the post it replies to, and your own post's Delete" \
   "$out/snap-view-reply.txt" "[ In reply to ]" "Grace Hopper: Splendid. How many digits?" \
@@ -330,15 +358,23 @@ check "ari snapshot: a default port is left out of the host" "$out/snap-handle-p
 seed_store "$store" ada
 "$ARI" snapshot --width 80 --height 200 --net-allow "$base" --credential-store "$store" "$main" \
   --instance "$base" >"$out/snap-feed-tall.txt" 2>&1
+# A card's text as rich text (text.runs) keeps the rich editor's paragraphs on lines of their own
+# and ends a cut one in the host's ellipsis; as plain lines it is one line of words, cut with
+# "...".
+if [ -n "$runs" ]; then
+  long_end="│is to get permission, and the most dangerous phrase in the language…"
+  moth=("│Found a moth in relay 70." "│First actual case of bug being found.")
+else
+  long_end="│is to get permission, and the most dangerous phrase in the language..."
+  moth=("Found a moth in relay 70. First actual case of bug being found.")
+fi
 check "ari snapshot: the feed's first page: attachments, a repost, a paid post, rich text" \
   "$out/snap-feed-tall.txt" "[audio] lecture.ogg · 5 KB · Lecture, part one" \
   "[image] engine-diagram.png · 47 KB · The engine, from the ..." "[video] engine.mp4 · 11 KB" \
   "│⇄ Charles Babbage reposted" " Ada Lovelace  @ada@$hostport" " 2026-10-30 09:15" \
   " Alan Turing  @alan@peer.example" " 2026-10-30 19:30" \
   "│A ship in port is safe, but that's not what ships are built for. Sail" \
-  "│is to get permission, and the most dangerous phrase in the language..." \
-  "Found a moth in relay 70. First actual case of bug being found." \
-  "[image] moth.png · 29 KB · The moth, taped into the log book" \
+  "$long_end" "${moth[@]}" "[image] moth.png · 29 KB · The moth, taped into the log book" \
   "🔒 This post is locked. Pay 5 scrip to unlock." "[file] cobol-notes.pdf · 2 KB" \
   "[image] relay-70.png · 30 KB" "+1 more (Open shows them all)" "[ Load more ]  10 posts" \
   "│↩12 ⇄8 ♥64 · 900 views             [ Open ][ Reply ][ Like ][ Repost ]" \
@@ -543,8 +579,8 @@ else
     # The feed: a card's Open shows the whole post; Back; Load more adds the next page.
     start "$backend" "$xdg" "$base"
     step "$t: started again, still signed in: the feed" "$bar" " Charles Babbage"
-    # past the bar, Show and the first card's View to its Open
-    for _ in $(seq 9); do keys Tab; done
+    # past the bar, Show, the first card's links (where its text has them) and View to its Open
+    for _ in $(seq $((9 + card1_links))); do keys Tab; done
     keys Enter
     # (Its replies are below the fold here: the 80x60 snapshot of post:312 has them.)
     step "$t: Open: the whole post, its hashtags, reactions and attachments" \
@@ -556,16 +592,17 @@ else
     step "$t: Back to the feed" "Show: (*) Following" " Charles Babbage"
     # Back keeps the focus. Load more is stop 53: the bar and Show (8), then ten cards' buttons
     # (Open, Reply, Like, Repost, and View on the four with something to view: 44), and the
-    # recording's player more.
-    for _ in $(seq $((52 + player_stops))); do keys Tab; done
+    # recording's player more, and the links in the cards' text more.
+    for _ in $(seq $((52 + player_stops + page1_links))); do keys Tab; done
     keys Enter
     step "$t: Load more: the next page, below the first" "13 posts; no more" \
       "Good morning, TX.WTF."
 
-    # Like: the first card's Like (View, Open, Reply, Like), its count and mark; again, taken back.
+    # Like: the first card's Like (its links, View, Open, Reply, Like), its count and mark; again,
+    # taken back.
     start "$backend" "$xdg" "$base"
     step "$t: the feed, to like a post" "$bar" " Charles Babbage"
-    for _ in $(seq 11); do keys Tab; done
+    for _ in $(seq $((11 + card1_links))); do keys Tab; done
     keys Enter
     # (The view scrolls to keep Like in sight, the status line above it out of sight.)
     step "$t: Like: liked, the count one up" "↩5 ⇄3 ♥22 · 310 views · liked"
@@ -577,7 +614,7 @@ else
     # radio's choice there), then Open tag. Back, and Back again.
     keys BTab; keys BTab; keys Enter # Open, two stops before Like
     step "$t: the post again" "Tags: (*) #engines  ( ) #brass  [ Open tag ]"
-    for _ in $(seq 7); do keys Tab; done
+    for _ in $(seq $((7 + card1_links))); do keys Tab; done # past the bar and its text's links
     keys Right
     step "$t: Tags: #brass picked" "( ) #engines  (*) #brass"
     keys Tab; keys Enter # Open tag
@@ -590,6 +627,30 @@ else
     step "$t: Back: the post" "Reactions: :thumbsup: 12  :heart: 9"
     keys Enter # Back again: it keeps the focus
     step "$t: Back again: the feed" "Show: (*) Following" " Charles Babbage"
+
+    # A post's links, where its text is rich (text.runs): a hashtag opens its posts, a mention
+    # its account's profile (GET /user/by-username/{name}), and a URL elsewhere is copied, never
+    # opened. The bar and Show are the first eight stops; the first card's #engines is next.
+    if [ -n "$runs" ]; then
+      start "$backend" "$xdg" "$base"
+      step "$t: the feed, to follow a link" "$bar" " Charles Babbage"
+      for _ in $(seq 8); do keys Tab; done
+      keys Enter # #engines, in the first card's text
+      step "$t: a hashtag link: its posts" "#engines  ·  3 posts" "Nanoseconds, in wire. #engines"
+      start "$backend" "$xdg" "$base" -- --start post:306
+      step "$t: a post with a mention and a URL" "Can machines think? Ask @ada, or read"
+      for _ in $(seq 7); do keys Tab; done
+      keys Enter # @ada, past the bar
+      step "$t: a mention: the profile" "@ada@$hostport  Ada Lovelace"
+      keys Enter # Back: a view just opened has the focus there
+      step "$t: Back: the post" "Can machines think? Ask @ada, or read"
+      for _ in $(seq 8); do keys Tab; done
+      keys Enter # the URL
+      step "$t: a URL elsewhere: copied, not opened" \
+        "Link copied: https://example.org/computing-machinery"
+      start "$backend" "$xdg" "$base"
+      step "$t: started again, for a new post" "$bar" " Charles Babbage"
+    fi
 
     # A new post: Post, type, Enter. It opens, yours; Delete takes it away again, back to the feed.
     for _ in $(seq 6); do keys Tab; done
@@ -606,8 +667,8 @@ else
       "Posted from $backend"
 
     # A reply: the second card's Reply opens the post with the reply box focused.
-    for _ in $(seq 14); do keys Tab; done
-    keys Enter # past the bar, Show, the first card's five, and Open: Reply
+    for _ in $(seq $((14 + card1_links))); do keys Tab; done
+    keys Enter # past the bar, Show, the first card's five (and links), and Open: Reply
     step "$t: Reply: the post, and the reply box" "A ship in port is safe" "Reply: ["
     type_text "Aye, from $backend."
     keys Enter
@@ -634,8 +695,8 @@ else
       step "$t: the feed, with a player: its video has no controls" "$bar" " Charles Babbage"
       check_not "$t: ... none" \
         "$out/tmux-$(slug "$t: the feed, with a player: its video has no controls").txt" "[x] Mute"
-      for _ in $(seq 8); do keys Tab; done
-      keys Enter # View: past the bar and Show
+      for _ in $(seq $((8 + card1_links))); do keys Tab; done
+      keys Enter # View: past the bar, Show and the first card's links
       step "$t: View: the viewer, at the post's picture" "1 of 2" "[ Prev ][ Next ]"
       for _ in $(seq 8); do keys Tab; done
       keys Enter # Next: past the bar and Prev

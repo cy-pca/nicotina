@@ -31,7 +31,11 @@
 # 592 px across. A terminal shows the first picture and the first video, small. A post's emoji
 # (text.emoji, transfix/libcvc#1056) come from its content_html: a custom one is drawn as its
 # picture in the line (a terminal keeps its :name:), a standard one's shortcode becomes its
-# character.
+# character. Where the host draws rich text (text.runs, transfix/libcvc#1180) the text is read
+# from content_html too: bold, italic and code, its paragraphs, and its mentions, hashtags and
+# URLs links (main.ari's open-link follows one: a hashtag's posts, a profile, a post here; any
+# other link is copied), each a Tab stop in a terminal. A card shows three lines of it, cut with
+# an ellipsis; elsewhere a card shows its first three lines, plain.
 #
 # What a card or a post shows (its avatar, its picture, its player, its rows) the controller
 # decides once, as it builds the card (main.ari's card-flags, post-flags and item-flags, from the
@@ -121,6 +125,14 @@ units:
               - text: ""
                 bind: post.at
                 color: [0.6, 0.6, 0.6]
+      # Its text: rich text where the host draws it (text.runs), the window's text width (74
+      # columns, 8 px each), its links followed as a card's are; elsewhere its lines, plain.
+      - text: ""
+        runs: post.runs
+        emoji: post.emoji
+        size: 592
+        on_link: (begin (state-set "link.href" (get-attr event "href")) (state-set "ui.cmd" "link"))
+        visible_when: (= (state-get "post.v_runs") "1")
       - type: group
         repeat: (state-get "post.lines")
         children:
@@ -331,8 +343,16 @@ units:
               - button: Open
                 on: (begin (state-set "post.want" (state-get "post.replies.{i}.id")) (state-set "post.focus_reply" "") (state-set "ui.cmd" "open"))
           - text: ""
+            runs: post.replies.{i}.runs
+            emoji: post.replies.{i}.emoji
+            max_lines: 2
+            size: 592
+            on_link: (begin (state-set "link.href" (get-attr event "href")) (state-set "ui.cmd" "link"))
+            visible_when: (= (state-get "post.replies.{i}.v_runs") "1")
+          - text: ""
             bind: post.replies.{i}.l0
             emoji: post.replies.{i}.emoji
+            visible_when: (!= (state-get "post.replies.{i}.l0") "")
           - text: ""
             bind: post.replies.{i}.l1
             emoji: post.replies.{i}.emoji
