@@ -917,7 +917,7 @@ else
     # The log: the changes just made at its top; one kind of event; the next page.
     start "$backend" "$xdg" "$base" -- --start admin:log
     step "$t: --start admin:log: the changes at its top" "(*) Log" \
-      "ada          Setting Change     site title chan..." "Page 1 of "
+      "ada          Setting Change     site title cha..." "Page 1 of "
     for _ in $(seq 8); do keys Tab; done
     keys Right # Events, past the bar and the parts: User Login
     step "$t: Events: sign-ins alone" "4 events: User Login, the newest first"
