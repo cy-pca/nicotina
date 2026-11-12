@@ -41,7 +41,7 @@ on TX.WTF is tracked as T-items in the TX.WTF repository.
 | L18 | A file picker that hands the document a host-held file, read in chunks into TX.WTF's resumable upload: attachments | M2 |
 | L19 | `(time-now)`: the wall clock, for "2h ago" | M2 |
 | L20 | Wheel scrolling of a window in FTXUI and tvision | M2 |
-| L21 | End-to-end encrypted messaging in the host: TX.WTF's X3DH and Double Ratchet over libsodium (X25519, Ed25519, XChaCha20-Poly1305, BLAKE2b, Argon2id backup), wire-compatible with the web app, its keys held by the host as the session token is (never in state). Needs a libsodium package on cvcpkg | M2 |
+| L21 | End-to-end encrypted messaging in the host: TX.WTF's X3DH and Double Ratchet over libsodium (X25519, Ed25519, XChaCha20-Poly1305, BLAKE2b, Argon2id backup), wire-compatible with the web app, its keys held by the host as the session token is (never in state). Needs a libsodium package on cvcpkg. Drafted: cy-pca/cvcpkg#612 (libsodium), the libcvc E2EE PR (the `e2ee-*` verbs, `--e2ee-store`), and DMs here (ui/dm.ari) | M2 |
 | L22 | Loop as a player control: a Loop box beside Mute, and a `loop` key the document reads and writes, as `muted` | M2 |
 | L23 | `badge:` on `image:` and `video:`, a label drawn over the picture (the grid's "+N"), with a capability token (`image.badge`). Not `overlay:`, a widget type the loader would take it for | M2 |
 | L24 | A reactive expression the per-frame budget skipped is not the document's error: no warning (a big feed's first frame in wasm showed one) | M2 |
@@ -92,10 +92,18 @@ on TX.WTF is tracked as T-items in the TX.WTF repository.
   - Next, with L12-L20 (transfix/libcvc, the next release): a card and a picture clickable,
     Copy link, fullscreen video, hashtags and mentions clickable in the text, a live character
     count, "2h ago", attachments, wheel scrolling in a terminal. Then direct messages: plain
-    first, then end-to-end encrypted ones in the client itself (L21), never in a browser. Then
-    the admin screens an administrator needs: users, groups and permissions, invites, logs,
-    emoji and tag moderation, content retention, federation peers and settings, OIDC clients,
-    mail status. Billing, wallet and monetization admin wait for M3.
+    first, then end-to-end encrypted ones in the client itself (L21), never in a browser.
+  - Drafted (needs no new host feature): the admin screens, for an account the instance makes an
+    administrator (is_admin), in the same window behind its bar and Back: the accounts (found by
+    username, each disabled or enabled, made an administrator or not, its emailed sign-in code
+    turned off), the groups (made, deleted, members added and removed, made a group's admin or
+    not) and what each grants (permissions granted by name and revoked), sign-up (open or
+    invite-only) and invite codes, the site's title, description and time zone, and the system
+    log. The way in is the profile's Admin, the nicotina menu, and the bar where it is icons.
+    txwtf has no reports queue, and its post delete doesn't honour an administrator yet, so
+    there is no post moderation. Next: emoji and tag moderation, content retention, federation
+    peers and settings, OIDC clients, mail status. Billing, wallet and monetization admin wait
+    for M3.
 - **M3, SCRIP:** live balance, top-up through hosted checkout in the system
   browser, and the metered prompt chat.
 - **M4, ship:** publish the cvcpkg recipe for linux-x86_64, macOS and Windows,

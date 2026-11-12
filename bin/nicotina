@@ -155,12 +155,21 @@ config=${XDG_CONFIG_HOME:-}
 case $config in /*) ;; *) config=${HOME:+$HOME/.config} ;; esac
 store=
 [ -n "$config" ] && store=$config/nicotina/credentials
+# The account's end-to-end encryption keys, kept by the host beside it (--e2ee-store, libcvc
+# 3.7.14): only for a host that has the flag, since an older one refuses a flag it doesn't
+# know. NICOTINA_E2EE=0 leaves them out (encrypted conversations then stay locked).
+e2ee=
+if [ -n "$config" ] && [ "${NICOTINA_E2EE:-1}" != 0 ] &&
+  "$host" --help 2>/dev/null | grep -q -- '--e2ee-store'; then
+  e2ee=$config/nicotina/e2ee
+fi
 
 set -- run
 [ -n "$mode" ] && set -- "$@" "$mode"
 [ "$backend" = tvision ] && set -- "$@" --backend tvision
 set -- "$@" --net --net-allow "$origin"
 [ -n "$store" ] && set -- "$@" --credential-store "$store"
+[ -n "$e2ee" ] && set -- "$@" --e2ee-store "$e2ee"
 eval "set -- \"\$@\" $host_args"
 set -- "$@" "$share/main.ari" --instance "$instance"
 eval "set -- \"\$@\" $doc_args"

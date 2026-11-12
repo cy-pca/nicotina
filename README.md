@@ -90,6 +90,34 @@ The host holds the token, never the documents:
 The document declares `requires: [net, net.auth, ...]`, so a host started without `--net`
 refuses to load it and says what is missing.
 
+### Direct messages, and the encryption keys
+
+The bar's **DMs** (or Message on someone's profile) lists your conversations and opens one: its
+last 30 messages, oldest first, and a box that sends.
+- **A plaintext conversation** goes through `/social/dm/...`.
+- **An end-to-end encrypted one**, TX.WTF's lock, goes through the host's `e2ee-*` verbs
+  (libcvc 3.7.14). The host seals and opens the messages, wire-compatible with the web app (X3DH
+  and a Double Ratchet over libsodium), and keeps the keys as it keeps the session token. The
+  documents never hold one.
+  - **Where the keys live.** The launcher passes `--e2ee-store` (`~/.config/nicotina/e2ee`,
+    `%APPDATA%\nicotina\e2ee` on Windows) to a host that has the flag. The store is an
+    owner-only file locked to one running client.
+  - **Opting out.** `NICOTINA_E2EE=0` leaves the keys out.
+- **On a host without the verbs** (an older libcvc, or the browser for now), an encrypted
+  conversation stays locked and says why. Plaintext ones work everywhere.
+
+The keys are this device's:
+- **The first encrypted conversation** you open makes your keys and publishes the public half
+  (`POST /e2ee/keys`).
+- **DMs has the key controls.**
+  - **Back up keys** stores them at the instance under a passphrase (Argon2id; the server keeps an
+    opaque blob).
+  - **Restore keys** takes them from that backup on another device.
+  - **New keys** replaces another device's. Messages sealed for the old keys stay unreadable here.
+- **Sessions are per device in TX.WTF's design.** A conversation whose session another device
+  holds shows its messages as "encrypted on another device", and nicotina won't write in it: a
+  new session there would break the other person's copy.
+
 ## Running M0 today
 
 M0 runs in the stock hosts: the `ari` and `arigl` packages from cvcpkg.org, 3.7.8 or newer
@@ -183,12 +211,39 @@ ARI=$NICOTINA_ARI ARIGL=$NICOTINA_ARIGL tests/run.sh
 - `ari snapshot`, FTXUI and tvision: the sign-in form; a stored session resumed (the home feed,
   and the profile); every kind of card (pictures, a video, a recording, a PDF, a repost, a paid
   post, rich text); an empty feed; an expired session (back to the form, and the host forgets
-  it); an instance that doesn't answer.
+  it); an instance that doesn't answer. The Admin view's parts, an account and a group, as ada,
+  the stub's administrator, and none of it for anyone else.
 - `arigl snapshot`, as text (`--terminal`) and as a PNG.
-- In tmux: sign in to the home feed; a post opened whole and back; Load more; Everyone; the
-  profile's tabs (Replies, Balances) and an older page of posts; start again still signed in,
-  sign out; a wrong password; the emailed code, wrong and then right; an account that must
-  change its password first; the whole feed and profile in an 80x24 pane.
+- `ari snapshot`, direct messages: the conversations, a plaintext one with its box, and an
+  encrypted one on a host that keeps no keys (locked, saying why, with no box).
+- In tmux: sign in to the home feed; a post opened whole and back; Load more; Everyone; a
+  direct message sent; the profile's tabs (Replies, Balances) and an older page of posts; start
+  again still signed in, sign out; a wrong password; the emailed code, wrong and then right; an
+  account that must change its password first; the whole feed and profile in an 80x24 pane. And
+  the Admin view: an account disabled (its sign-in refused), enabled and made an administrator; a
+  group's members and its permissions; a group made and deleted; sign-up and invite codes; the
+  site's title; the log; an administrator whose rights went, refused by the instance but still
+  signed in.
+
+**`tests/e2ee.sh`: an encrypted conversation with TX.WTF's own web client crypto.**
+- **The two sides.** nicotina, on a host that keeps keys (libcvc 3.7.14), is one side;
+  [tests/e2ee_peer.js](tests/e2ee_peer.js) runs txwtf's `e2ee.js` and `messaging-e2ee.js`, as
+  the web page does, for the other.
+- **The steps.**
+  1. ada opens the conversation, and the host makes and publishes her keys.
+  2. mary (e2ee.js) writes first.
+  3. The host opens it.
+  4. ada answers, typed in tmux.
+  5. e2ee.js opens the answer.
+- **The checks.** The server holds only ciphertext, the key store is owner-only, and no output
+  shows a key or a token.
+- **What it needs.** A host with `--e2ee-store`, node with `libsodium-wrappers-sumo` 0.7.15 (the
+  build the TX.WTF page loads), and `TXWTF_JS` naming a txwtf checkout's `txwtf/static/js`.
+  Without them it skips.
+
+```bash
+TXWTF_JS=~/src/txwtf/txwtf/static/js NODE_PATH=... ARI=$NICOTINA_ARI tests/e2ee.sh
+```
 
 **`tests/local.sh`: a real txwtf instance it starts itself** (about 70 s). It uses txwtf's
 own server from a cvcpkg prefix, on a fresh SQLite database.
@@ -199,7 +254,10 @@ signs in with the code from the real email. It also checks:
 
 - that the server refuses a token after sign-out;
 - the 429 txwtf answers once its login rate limit is used up;
-- a server that has gone away.
+- a server that has gone away;
+- the Admin view against the server's own admin routes: an account disabled (the server refuses
+  its sign-in) and enabled, a group made, a member added and removed, a permission granted and
+  revoked, the group deleted, an invite code made and turned off, the system log.
 
 ```bash
 # once, from a txwtf checkout (atx-crypto-club/txwtf):
@@ -239,8 +297,10 @@ The client uses only an instance's public API:
   `GET /social/timeline/home` and `/social/timeline/public` (the feed, `mode=latest`, paged by
   `before_id`), `GET /social/posts/{id}` (a post opened whole, with its reactions),
   `GET /social/timeline/user/{id}` (the profile's Posts and Replies tabs),
-  `GET /billing/scrip/balance` and `POST /user/logout`. The stub in `tests/` follows
-  [tx.wtf's schema](https://tx.wtf/openapi.json) (txwtf 0.4.0), and the errors tx.wtf
+  `GET /billing/scrip/balance` and `POST /user/logout`. For an administrator, the Admin view uses
+  `GET /user/list`, `PUT /user/update`, `PUT /group/user/sysadmin`, `/group/...`, `/perms/...`,
+  `/invite/...`, `/site/...` and `GET /logs/` (see [ui/admin.ari](share/nicotina/ui/admin.ari)).
+  The stub in `tests/` follows [tx.wtf's schema](https://tx.wtf/openapi.json) (txwtf 0.4.0), and the errors tx.wtf
   answers that the schema doesn't list (401 `Not authenticated` without a token);
 - from M1, the `/ws/events` WebSocket for live updates, and OIDC sign-in (instances
   support public PKCE clients and loopback redirects).

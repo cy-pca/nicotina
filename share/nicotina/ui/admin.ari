@@ -1,0 +1,369 @@
+# The instance's administration, for the accounts it makes administrators (is_admin): views in
+# the TX.WTF window (ui/app.ari), under its bar and on its Back stack like the others. The TX.WTF
+# web app's admin pages, the ones a person runs an instance with:
+#
+#   admin    one view, its part picked on its first row (as a profile picks its tab):
+#              Users    the accounts (GET /user/list), newest first, found by part of a username
+#              Groups   every group (GET /group/all), and a new one (POST /group/)
+#              Invites  who may sign up (GET/PUT /invite/mode), and your invite codes
+#                       (GET /invite/codes): new ones, and each one off or on again
+#              Site     the site's title, description and time zone (GET/PUT /site/...), and what
+#                       new accounts join and passwords need
+#              Log      the system log (GET /logs/), newest first, one kind of event or all
+#   auser    one account: its state, email, groups and when it last signed in; Disable or
+#            Enable it, Make admin or Remove admin, turn its emailed sign-in code off, its profile
+#   agroup   one group: its members (GET /group/members), each a group admin or not, removed or
+#            added by username; and Delete group, which asks first
+#   agperm   one group's permissions (GET /group/perms, named by GET /perms/codes): what its
+#            members may do, found by part of a name; Revoke one (DELETE /perms/), or Grant one
+#            by its name (POST /perms/)
+#
+# txwtf has no reports or moderation queue, and its DELETE /social/posts/{id} doesn't let an
+# administrator remove another's post yet, so there is nothing of that here: an account that
+# misbehaves is disabled (its sessions stop working, and it can't sign in).
+#
+# Only an administrator sees a way in: the [ Admin ] button on their own profile, the nicotina
+# menu's Admin, and (where the bar is icons) the bar's 🛠. A terminal's bar has no room for an
+# eighth word. The controller (nicotina.ari) refuses these views to anyone else, and the instance
+# refuses its admin routes too (txwtf answers 401 AccessDenied, which the client says plainly
+# rather than taking it for a session that ended).
+#
+# Laid out for an 80x24 terminal first, within the window's 74 columns: each list is rows of text
+# with a button at the end (a button's label is fixed in a document, so the row says what it acts
+# on), a page at a time with Prev and Next. A row's columns are cells of fixed widths (col_widths, in pixels:
+# 8 a terminal column), so they line up in a window's proportional font as well as in a terminal;
+# each table stays within the width a browser window has by itself (about 560 px).
+#
+# A field commits its text when Enter is pressed and when the focus leaves it, in every backend,
+# and its on: runs then. So only the two filters (Find user, Find permission) act on their field;
+# a form's fields have none, and its button (Create, New code, Save, Add, Grant) does the work.
+
+units:
+  admin_view:
+    type: group
+    children:
+      - radio_row: Admin
+        bind: admin.tab
+        options: [Users, Groups, Invites, Site, Log]
+        on: (state-set "ui.cmd" "admin-tab")
+      - separator
+      - type: group
+        id: a_users
+        visible_when: (= (state-get "admin.tab") "Users")
+        children:
+          - include: admin_users
+      - type: group
+        id: a_groups
+        visible_when: (= (state-get "admin.tab") "Groups")
+        children:
+          - include: admin_groups
+      - type: group
+        id: a_invites
+        visible_when: (= (state-get "admin.tab") "Invites")
+        children:
+          - include: admin_invites
+      - type: group
+        id: a_site
+        visible_when: (= (state-get "admin.tab") "Site")
+        children:
+          - include: admin_site
+      - type: group
+        id: a_log
+        visible_when: (= (state-get "admin.tab") "Log")
+        children:
+          - include: admin_log
+
+  # Prev and Next, and the page it is on, for the list admin.tab shows (or a group's permissions).
+  admin_pager:
+    type: group
+    layout: {kind: horizontal}
+    children:
+      - button: Prev
+        on: (state-set "ui.cmd" "admin-prev")
+        enabled_when: (and (!= (state-get "ui.busy") "1") (= (state-get "admin.prev") "1"))
+      - button: Next
+        on: (state-set "ui.cmd" "admin-next")
+        enabled_when: (and (!= (state-get "ui.busy") "1") (= (state-get "admin.next") "1"))
+      - text: ""
+        bind: admin.page
+        color: [0.6, 0.6, 0.6]
+
+  # The accounts: Enter in the field finds the usernames with that in them; an empty one, all.
+  admin_users:
+    type: group
+    children:
+      - input_text: Find user
+        bind: admin.uq
+        on: (state-set "ui.cmd" "admin-find")
+      - text: ""
+        bind: admin.users_head
+        color: [0.6, 0.6, 0.6]
+      - type: group
+        repeat: (state-get "admin.users")
+        children:
+          - type: group
+            layout: {kind: horizontal, col_widths: [280, 88, 112, auto]}
+            children:
+              - text: ""
+                bind: admin.users.{i}.who
+              - text: ""
+                bind: admin.users.{i}.joined
+                color: [0.6, 0.6, 0.6]
+              - text: ""
+                bind: admin.users.{i}.flags
+                color: [0.95, 0.75, 0.3]
+              - button: Open
+                on: (begin (state-set "auser.want" (state-get "admin.users.{i}.id")) (state-set "ui.cmd" "auser"))
+      - include: admin_pager
+
+  admin_groups:
+    type: group
+    children:
+      - text: ""
+        bind: admin.groups_head
+        color: [0.6, 0.6, 0.6]
+      - type: group
+        repeat: (state-get "admin.groups")
+        children:
+          - type: group
+            layout: {kind: horizontal, col_widths: [160, 304, auto]}
+            children:
+              - text: ""
+                bind: admin.groups.{i}.name
+              - text: ""
+                bind: admin.groups.{i}.about
+                color: [0.6, 0.6, 0.6]
+              - button: Open
+                on: (begin (state-set "agroup.want" (state-get "admin.groups.{i}.id")) (state-set "ui.cmd" "agroup"))
+      - separator
+      - input_text: New group
+        bind: admin.gname
+      - input_text: About it
+        bind: admin.gdesc
+      - button: Create
+        on: (state-set "ui.cmd" "group-create")
+
+  # Sign-up, then your codes (txwtf lists the signed-in account's own), each off or on again.
+  admin_invites:
+    type: group
+    children:
+      - radio_row: Sign-up
+        bind: admin.signup
+        options: [Open, Invite only]
+        on: (state-set "ui.cmd" "invite-mode")
+      - text: ""
+        bind: admin.invites_head
+        color: [0.6, 0.6, 0.6]
+      - type: group
+        repeat: (state-get "admin.invites")
+        children:
+          - type: group
+            layout: {kind: horizontal, col_widths: [104, 104, 136, 104, auto]}
+            children:
+              - text: ""
+                bind: admin.invites.{i}.code
+              - text: ""
+                bind: admin.invites.{i}.uses
+              - text: ""
+                bind: admin.invites.{i}.state
+              - text: ""
+                bind: admin.invites.{i}.note
+                color: [0.6, 0.6, 0.6]
+              - button: Turn off
+                on: (begin (state-set "invite.want" (state-get "admin.invites.{i}.id")) (state-set "ui.cmd" "invite-off"))
+                visible_when: (= (state-get "admin.invites.{i}.active") "1")
+              - button: Turn on
+                on: (begin (state-set "invite.want" (state-get "admin.invites.{i}.id")) (state-set "ui.cmd" "invite-on"))
+                visible_when: (!= (state-get "admin.invites.{i}.active") "1")
+      - include: admin_pager
+      - separator
+      - input_text: Uses
+        bind: admin.iuses
+      - input_text: Note
+        bind: admin.inote
+      - type: group
+        layout: {kind: horizontal}
+        children:
+          - button: New code
+            on: (state-set "ui.cmd" "invite-new")
+          - text: "  Uses: how many sign-ups it takes; blank for no limit."
+            color: [0.6, 0.6, 0.6]
+
+  # Save saves what has changed.
+  admin_site:
+    type: group
+    children:
+      - input_text: Title
+        bind: site.title
+      - input_text: About
+        bind: site.about
+      - input_text: Time zone
+        bind: site.tz
+      - button: Save
+        on: (state-set "ui.cmd" "site-save")
+      - separator
+      - text: ""
+        bind: site.groups
+      - text: ""
+        bind: site.pw
+
+  # The log: an event a row (when, who, what, and its description), a page of ten.
+  admin_log:
+    type: group
+    children:
+      - combo: Events
+        bind: admin.log_event
+        options: [All, User Login, User Create, User Update, User Logout, Setting Change,
+                  Deactivate Session, Launch Session, Group Create, Group Delete, Group Add User,
+                  Group Remove User, Group Add Permission, Group Remove Permission,
+                  Group Update Description]
+        values: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+        on: (state-set "ui.cmd" "admin-log-filter")
+      - text: ""
+        bind: admin.log_head
+        color: [0.6, 0.6, 0.6]
+      - type: group
+        repeat: (state-get "admin.log")
+        children:
+          - type: group
+            layout: {kind: horizontal, col_widths: [136, 104, 152, 136]}
+            children:
+              - text: ""
+                bind: admin.log.{i}.at
+                color: [0.6, 0.6, 0.6]
+              - text: ""
+                bind: admin.log.{i}.who
+              - text: ""
+                bind: admin.log.{i}.what
+                color: [0.45, 0.65, 0.95]
+              - text: ""
+                bind: admin.log.{i}.desc
+      - include: admin_pager
+
+  # One account, as an administrator sees it.
+  auser_view:
+    type: group
+    children:
+      - text: ""
+        bind: auser.header
+      - text: ""
+        bind: auser.state
+        color: [0.95, 0.75, 0.3]
+      - text: ""
+        bind: auser.email
+      - text: ""
+        bind: auser.seen
+        color: [0.6, 0.6, 0.6]
+      - text: ""
+        bind: auser.counts
+        color: [0.6, 0.6, 0.6]
+      - text: ""
+        bind: auser.groups
+      - text: ""
+        bind: auser.note
+        color: [0.6, 0.6, 0.6]
+        visible_when: (!= (state-get "auser.note") "")
+      # Not on your own account: Disable and Remove admin there would lock you out.
+      - type: group
+        layout: {kind: horizontal}
+        children:
+          - button: Disable
+            on: (state-set "ui.cmd" "auser-disable")
+            visible_when: (and (!= (state-get "auser.self") "1") (= (state-get "auser.enabled") "1"))
+          - button: Enable
+            on: (state-set "ui.cmd" "auser-enable")
+            visible_when: (and (!= (state-get "auser.self") "1") (!= (state-get "auser.enabled") "1"))
+          - button: Make admin
+            on: (state-set "ui.cmd" "auser-admin")
+            visible_when: (and (!= (state-get "auser.self") "1") (!= (state-get "auser.admin") "1"))
+          - button: Remove admin
+            on: (state-set "ui.cmd" "auser-unadmin")
+            visible_when: (and (!= (state-get "auser.self") "1") (= (state-get "auser.admin") "1"))
+          - button: Two-step off
+            on: (state-set "ui.cmd" "auser-2fa-off")
+            visible_when: (= (state-get "auser.tfa") "1")
+          - button: Profile
+            on: (begin (state-set "user.want" (state-get "auser.id")) (state-set "ui.cmd" "user"))
+
+  # One group: its members, each with what can be done to them, then Add and Delete group.
+  agroup_view:
+    type: group
+    children:
+      - text: ""
+        bind: agroup.head
+      - text: ""
+        bind: agroup.about
+        color: [0.6, 0.6, 0.6]
+      - type: group
+        layout: {kind: horizontal}
+        children:
+          - button: Permissions
+            on: (state-set "ui.cmd" "agperm")
+          - text: "  what its members may do"
+            color: [0.6, 0.6, 0.6]
+      - separator
+      - type: group
+        repeat: (state-get "agroup.members")
+        children:
+          - type: group
+            layout: {kind: horizontal, col_widths: [352, auto, auto]}
+            children:
+              - text: ""
+                bind: agroup.members.{i}.line
+              - button: Make admin
+                on: (begin (state-set "agroup.pick" (state-get "agroup.members.{i}.uid")) (state-set "ui.cmd" "agroup-lead"))
+                visible_when: (!= (state-get "agroup.members.{i}.lead") "1")
+              - button: Drop admin
+                on: (begin (state-set "agroup.pick" (state-get "agroup.members.{i}.uid")) (state-set "ui.cmd" "agroup-unlead"))
+                visible_when: (= (state-get "agroup.members.{i}.lead") "1")
+              - button: Remove
+                on: (begin (state-set "agroup.pick" (state-get "agroup.members.{i}.uid")) (state-set "ui.cmd" "agroup-remove"))
+      - separator
+      - input_text: Add member
+        bind: agroup.add
+      - type: group
+        layout: {kind: horizontal}
+        children:
+          - button: Add
+            on: (state-set "ui.cmd" "agroup-add")
+          - button: Delete group
+            on: (state-set "ui.cmd" "agroup-delete")
+          # Delete asks first: these two follow it while it asks.
+          - button: Yes, delete it
+            on: (state-set "ui.cmd" "agroup-delete-yes")
+            visible_when: (= (state-get "agroup.confirm") "1")
+          - button: Keep it
+            on: (state-set "ui.cmd" "agroup-keep")
+            visible_when: (= (state-get "agroup.confirm") "1")
+
+  # One group's permissions, by name, a page of ten. Enter in Find permission finds the names with
+  # that in them; Revoke takes one away; Grant adds the one Permission names, as txwtf names it.
+  agperm_view:
+    type: group
+    children:
+      - text: ""
+        bind: agperm.head
+      - input_text: Find permission
+        bind: agperm.q
+        on: (state-set "ui.cmd" "agperm-find")
+      - type: group
+        repeat: (state-get "agperm.rows")
+        children:
+          - type: group
+            layout: {kind: horizontal, col_widths: [432, auto]}
+            children:
+              - text: ""
+                bind: agperm.rows.{i}.name
+              - button: Revoke
+                on: (begin (state-set "agperm.pick" (state-get "agperm.rows.{i}.code")) (state-set "agperm.pick_name" (state-get "agperm.rows.{i}.name")) (state-set "ui.cmd" "agperm-revoke"))
+      - include: admin_pager
+      - separator
+      - input_text: Permission   # not "Grant": the button's label, and one label is one ImGui ID
+        bind: agperm.grant
+      - type: group
+        layout: {kind: horizontal}
+        children:
+          - button: Grant
+            on: (state-set "ui.cmd" "agperm-grant")
+          - text: "  A permission's name: GroupsRead, SystemLogRead, ..."
+            color: [0.6, 0.6, 0.6]

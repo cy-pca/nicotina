@@ -11,14 +11,26 @@
 #     slots, the card, the Posts tab); a stored session the server no longer knows (back to the
 #     form, and the host forgets it). Then each view --start opens: a post with its replies, a
 #     hashtag's posts, the hashtags, the notifications, search, a new post, another's profile, the
-#     viewer.
+#     viewer; and for ada, the stub's administrator, the Admin view's parts (the accounts, the
+#     groups, the invite codes, the site's settings, the system log), an account and a group,
+#     none of which someone who isn't an administrator sees or asks the instance for.
 #  4. arigl snapshot, if arigl is here: the resumed session as text (--terminal) and in a window
 #     (a PNG; checked only for being drawn, since nothing here reads pixels).
 #  5. bin/nicotina --terminal in a tmux pane, FTXUI and tvision, typed at the way a person types:
 #     sign in, see the profile, the Replies and Balances tabs and an older page of posts, open a
 #     post and go Back, like a post and take it back, write a post and a reply, open a hashtag,
-#     follow someone and stop, start again still signed in, sign out; a wrong password; the emailed
-#     code, wrong and then right; an account that must change its password.
+#     follow someone and stop, send a direct message, start again still signed in, sign out; a
+#     wrong password; the emailed code, wrong and then right; an account that must change its
+#     password. As ada, the Admin view: an account found, disabled (its sign-in refused),
+#     enabled, its emailed code turned off, made an administrator and not; a group's member
+#     added, made its admin, removed; a group made and deleted; sign-up closed and opened, an
+#     invite code made and turned off; the site's title changed and back; the log filtered and
+#     paged; and the instance refusing an administrator whose rights went, which leaves her
+#     signed in.
+#
+# The direct-message views are in 3 too: the conversations, a plaintext one, and an encrypted
+# one locked on a host that keeps no keys. tests/e2ee.sh is the end-to-end encrypted round trip
+# with a host that does (libcvc 3.7.14) and TX.WTF's own e2ee.js on the other side.
 #
 # `ari snapshot` lays a frame out with FTXUI whatever --backend says, so 5 is what checks the
 # tvision desktop itself. 5 needs tmux; without it those cases are skipped.
@@ -80,17 +92,35 @@ launch launcher-nodisplay -- --instance "$base"
 check "launcher: no display gets ari" "$out/launcher-nodisplay.txt" "$ARI 'run' '--net'"
 launch launcher-ssh DISPLAY= SSH_CONNECTION="10.0.0.2 5000 10.0.0.1 22" -- --instance "$base"
 check "launcher: SSH without X forwarding gets ari" "$out/launcher-ssh.txt" "$ARI 'run'"
+# A host with --e2ee-store (libcvc 3.7.14) gets the key store beside the credentials.
+ari_help=$("$ARI" --help 2>&1 || true) # whole: grep -q on a pipe can SIGPIPE ari under pipefail
+keys_flag=
+grep -q -- '--e2ee-store' <<<"$ari_help" && keys_flag=" '--e2ee-store' '$work/xdg/nicotina/e2ee'"
 launch launcher-tvision DISPLAY=:0 XDG_CONFIG_HOME="$work/xdg" -- --backend tvision --fps 30 \
   -- --user ada
 check "launcher: --backend tvision, host flags before the document, document args after" \
   "$out/launcher-tvision.txt" "$ARI 'run' '--backend' 'tvision' '--net'" \
-  "'$work/xdg/nicotina/credentials' '--fps' '30' '$main' '--instance' 'https://tx.wtf' '--user' 'ada'"
+  "'$work/xdg/nicotina/credentials'$keys_flag '--fps' '30' '$main' '--instance' 'https://tx.wtf' '--user' 'ada'"
 # ari-media (ari with sound and video) is the terminal's ari where it is installed.
 mkdir -p "$work/fakebin" && printf '#!/bin/sh\n' >"$work/fakebin/ari-media" &&
   chmod +x "$work/fakebin/ari-media"
 launch launcher-ari-media NICOTINA_ARI= PATH="$work/fakebin:/usr/bin:/bin" -- --terminal
 check "launcher: a terminal gets ari-media (sound and video) where it is installed" \
   "$out/launcher-ari-media.txt" "$work/fakebin/ari-media 'run' '--net'"
+# A host whose help lists --e2ee-store (libcvc 3.7.14) keeps the account's encryption keys beside
+# the session; NICOTINA_E2EE=0 leaves them out. (The hosts above have no such flag.)
+printf '#!/bin/sh\n[ "$1" = --help ] && echo "  --e2ee-store S         keep end-to-end encryption keys"\nexit 0\n' \
+  >"$work/fakebin/ari-e2ee" && chmod +x "$work/fakebin/ari-e2ee"
+launch launcher-e2ee NICOTINA_ARI="$work/fakebin/ari-e2ee" -- --terminal
+check "launcher: a host with --e2ee-store keeps the encryption keys beside the session" \
+  "$out/launcher-e2ee.txt" \
+  "'--credential-store' '$work/home/.config/nicotina/credentials' '--e2ee-store' '$work/home/.config/nicotina/e2ee'"
+launch launcher-e2ee-off NICOTINA_ARI="$work/fakebin/ari-e2ee" NICOTINA_E2EE=0 -- --terminal
+check_not "launcher: ... and NICOTINA_E2EE=0 leaves them out" "$out/launcher-e2ee-off.txt" \
+  "--e2ee-store"
+if ! grep -q -- '--e2ee-store' <<<"$ari_help"; then
+  check_not "launcher: a host without the flag gets none" "$out/launcher-nodisplay.txt" "--e2ee-store"
+fi
 launch launcher-bad -- --instance ftp://example.org
 check "launcher: refuses an instance that is not http(s)" "$out/launcher-bad.txt" \
   "--instance must be an http:// or https:// URL"
@@ -131,19 +161,12 @@ pictures=
 "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement image.url" || pictures=1
 # Whether this ari plays video and audio (media.player: ari-media and arigl with
 # transfix/libcvc#935): then a card's recording has a player, three Tab stops (Play, the seek
-# slider, Mute), and from libcvc 3.7.13 a fourth, the Loop box beside Mute (transfix/libcvc#1079,
-# which no capability names: the version says). Its video plays with no controls, so no stops:
-# the viewer has them.
+# slider, Mute), and four where the player has a Loop box too (libcvc 3.7.13, #1079; the players'
+# snapshot below tells). Its video plays with no controls, so no stops: the viewer has them.
 media=
 "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement media.player" || media=1
 player_stops=0
-if [ -n "$media" ]; then
-  player_stops=3
-  libcvc=$("$ARI" info 2>&1 | sed -n '1s/.*libcvc \([0-9][0-9.]*\).*/\1/p')
-  if [ -n "$libcvc" ] && [ "$(printf '%s\n' 3.7.13 "$libcvc" | sort -V | head -n 1)" = 3.7.13 ]; then
-    player_stops=4
-  fi
-fi
+[ -n "$media" ] && player_stops=3
 # Whether this ari draws a post's :emoji: (text.emoji, transfix/libcvc#1052): a standard one's
 # shortcode becomes its character; a custom one stays its :name: in a terminal, which can't put
 # a picture in a line of text.
@@ -159,7 +182,7 @@ card1_links=0
 page1_links=0
 [ -n "$runs" ] && card1_links=2 page1_links=5
 # The bar along the window's top, in every view.
-bar="[ Back ][ Home ][ Tags ][ Search ][ Alerts ][ Profile ][ Post ]"
+bar="[ Back ][ Home ][ Tags ][ Search ][ Alerts ][ Profile ][ Post ][ DMs ]"
 # The first card's counts and buttons, and View on its first attachment's row (it has a picture
 # and a video), inside the card's frame. (The window's own frame is rounded, or heavy while it
 # has the focus, by host: the checks look inside it.)
@@ -175,7 +198,7 @@ for backend in ftxui tvision; do
   seed_store "$store" ada
   snap "snap-$backend-feed" "$backend" "$store"
   check "ari snapshot ($backend): a stored session opens the home feed, a card a post" \
-    "$out/snap-$backend-feed.txt" " TX.WTF " "$bar 2 new" \
+    "$out/snap-$backend-feed.txt" " TX.WTF " "$bar 2" \
     "Show: (*) Following  ( ) Everyone  ( ) Friends" "Signed in to 127.0.0.1" \
     " Charles Babbage  @charles@$hostport" " 2026-10-30 22:40" \
     "│The Difference Engine No. 2, working at last. #engines #brass            │" \
@@ -205,7 +228,7 @@ for backend in ftxui tvision; do
     "$out/snap-$backend-resume.txt" " TX.WTF " "$bar" " @ada@$hostport  Ada Lovelace" \
     "Writes notes on the analytical engine. Prefers punched cards t..." \
     "admin · Verified · online" "GB · Joined 2025-03-01 · 42 posts · 1234 views" \
-    "Groups: users, analysts" "[ Refresh ][ Sign out ]" \
+    "Groups: users, analysts" "[ Refresh ][ Sign out ][ Admin ]" \
     "Show: (*) Posts  ( ) Replies  ( ) Balances" \
     "2026-10-30  Finished the notes on Menabrea's paper. Not...  ↩2 ♥5 [ Open ]" \
     "2026-10-28  The Analytical Engine weaves algebraic patt...  ↩4 ♥9 [ Open ]" \
@@ -329,6 +352,120 @@ check "ari snapshot: the viewer: a post's picture and video, one at a time" \
 view gone post:9999
 check "ari snapshot: a post that is gone: the feed instead, saying so" "$out/snap-view-gone.txt" \
   "Show: (*) Following" " Charles Babbage"
+check "ari snapshot: ... another's profile has Message beside Unfollow" "$out/snap-view-user.txt" \
+  "[ Unfollow ][ Message ]"
+
+# Direct messages (ui/dm.ari): the conversations, a plaintext one, and an encrypted one on a host
+# that keeps no keys here (no --e2ee-store: tests/e2ee.sh opens them with one that does).
+view dms dms
+check "ari snapshot: DMs: the conversations, the latest first" "$out/snap-view-dms.txt" "$bar" \
+  "3 conversations" "[ Refresh ]" "@grace@$hostport  Grace Hopper" "  2026-10-31 09:10" \
+  "@charles@$hostport  Charles Babbage" "  2026-10-29 12:05  · end-to-end encrypted" "[ Open ]" \
+  "Encrypted conversations stay locked here:"
+view dm-plain dm:900
+check "ari snapshot: a conversation: its messages, oldest first, and a box to write in" \
+  "$out/snap-view-dm-plain.txt" "@grace@$hostport  Grace Hopper" \
+  "Not encrypted: the server can read these messages." "2026-10-31 08:58  @grace@$hostport" \
+  "  Ada, did you see Charles's engine post?" "2026-10-31 09:02  you" \
+  "  I did. The carry mechanism is lovely." \
+  "  Lunch on Thursday? I'll bring the compiler notes, all three binders of" \
+  "  them, and the bugs we found." "Message: [Write a message (Enter sends it)"
+view dm-locked dm:901
+check "ari snapshot: an encrypted conversation where the host keeps no keys: locked, saying why" \
+  "$out/snap-view-dm-locked.txt" "@charles@$hostport  Charles Babbage" \
+  "End-to-end encrypted: the server sees ciphertext only." \
+  "These messages are end-to-end encrypted, and stay locked here:"
+check_not "ari snapshot: ... no box to write in, and no ciphertext" "$out/snap-view-dm-locked.txt" \
+  "Message: [" "c3RhbmQtaW4"
+
+# The Admin view, for ada, the stub's administrator: each of its parts, one account, one group.
+view admin admin
+check "ari snapshot: Admin: the accounts, newest first, a page of six" "$out/snap-view-admin.txt" \
+  "$bar" "Admin: (*) Users  ( ) Groups  ( ) Invites  ( ) Site  ( ) Log" "Find user: [" \
+  "10 accounts, the newest first" "@ivy  Ivy Lane" \
+  "@eve  Eve Example                  2026-04-01               [ Open ]" \
+  "@mary  Mary Kenneth Keller of ...  2025-12-01" "[ Prev ][ Next ]  Page 1 of 2"
+check_not "ari snapshot: ... not the second page" "$out/snap-view-admin.txt" "@grace" "@ada  Ada" \
+  "@charles"
+view admin-groups admin:groups
+check "ari snapshot: Admin: the groups, and a new one" "$out/snap-view-admin-groups.txt" \
+  "(*) Groups" "3 groups" "users               The default user group                [ Open ]" \
+  "root                The administrators" "New group: [" "About it: [" "[ Create ]"
+view admin-invites admin:invites
+check "ari snapshot: Admin: who may sign up, and her invite codes" \
+  "$out/snap-view-admin-invites.txt" "(*) Invites" "Sign-up: (*) Open  ( ) Invite only" \
+  "Anyone may sign up. Your 2 codes:" \
+  "ENGINE-7Q2X  3 of 10 used until 2026-12-31 the lecture  [ Turn off ]" \
+  "LOOM-4K9D    1 of 1 used  off              for Charles  [ Turn on ]" "Uses: [" \
+  "Note: [" "[ New code ]"
+view admin-site admin:site
+check "ari snapshot: Admin: the site's settings" "$out/snap-view-admin-site.txt" "(*) Site" \
+  "Title: [TX.WTF]" "About: [Austin's crypto club, on the web.]" "Time zone: [UTC]" "[ Save ]" \
+  "New accounts join users; the administrators' group is root." \
+  "Passwords: 8 characters or more, a digit."
+view admin-log admin:log
+check "ari snapshot: Admin: the system log, newest first, a page of ten" \
+  "$out/snap-view-admin-log.txt" "(*) Log" "Events: " "14 events, the newest first" \
+  "2026-10-30 23:10 alan@peer... User Login         Brokered sign-..." \
+  "2026-10-30 12:00 -            Stats Job Compl... Stats job comp..." \
+  "2026-10-28 08:30 slowpoke     User Create" "[ Prev ][ Next ]  Page 1 of 2"
+check_not "ari snapshot: ... not the second page" "$out/snap-view-admin-log.txt" "Retention sweep"
+view auser auser:9
+check "ari snapshot: an account, as an administrator sees it" "$out/snap-view-auser.txt" \
+  "@eve@$hostport  Eve Example" "Account: active · Administrator: no · Two-step sign-in: on" \
+  "Email: eve@example.org, verified" "Joined 2026-04-01 · last signed in 2026-10-30 11:59" \
+  "Groups: users" "[ Disable ][ Make admin ][ Two-step off ][ Profile ]"
+view auser-self auser:1
+check "ari snapshot: ... her own: no Disable, no Remove admin" "$out/snap-view-auser-self.txt" \
+  "@ada@$hostport  Ada Lovelace" "Administrator: yes" \
+  "Groups: users, analysts (its admin), root (its admin)" \
+  "Your own account: Disable and Remove admin aren't offered." "[ Profile ]"
+check_not "ari snapshot: ... none of those buttons" "$out/snap-view-auser-self.txt" "[ Disable ]" \
+  "[ Remove admin ]" "[ Make admin ]"
+view agroup agroup:2
+check "ari snapshot: a group: its members, Add and Delete group" "$out/snap-view-agroup.txt" \
+  "analysts  ·  1 member" "Reads the engine's tables" "[ Permissions ]  what its members may do" \
+  "@ada  Ada Lovelace  · group admin           [ Drop admin ][ Remove ]" \
+  "Add member: [" "[ Add ][ Delete group ]"
+check_not "ari snapshot: ... asking nothing yet" "$out/snap-view-agroup.txt" "Yes, delete it"
+view agperm agperm:3
+check "ari snapshot: a group's permissions, by name, a page of ten" "$out/snap-view-agperm.txt" \
+  "root: 12 permissions, what its members may do" "Find permission: [" \
+  "GroupAddPermission                                    [ Revoke ]" "UserListRead" \
+  "[ Prev ][ Next ]  Page 1 of 2" "Permission: [" "[ Grant ]"
+check_not "ari snapshot: ... not the second page" "$out/snap-view-agperm.txt" "UserWrite"
+# An administrator's profile has Admin; it fits 80x24 with the Admin view's first page.
+"$ARI" snapshot --width 80 --height 24 --net-allow "$base" --credential-store "$store" "$main" \
+  --instance "$base" --start admin >"$out/snap-admin-80x24.txt" 2>&1
+grep -v '^ari: ' "$out/snap-admin-80x24.txt" >"$work/frame.txt"
+if grep -qF "[ Prev ][ Next ]  Page 1 of 2" "$work/frame.txt" &&
+  [ "$(wc -l <"$work/frame.txt")" -le 24 ] && [ "$(wc -L <"$work/frame.txt")" -le 80 ] &&
+  grep -qE '^  [╰┗][─┴━┷]{70}' "$work/frame.txt"; then
+  pass "ari snapshot: the Admin view's first page fits 80x24, its frame whole"
+else
+  fail "ari snapshot: the Admin view runs past 80x24" "$out/snap-admin-80x24.txt"
+fi
+# Not for anyone else: no Admin on grace's profile, and --start admin opens her feed.
+seed_store "$work/snap-nonadmin/credentials" grace
+"$ARI" snapshot --width 80 --height 60 --net-allow "$base" \
+  --credential-store "$work/snap-nonadmin/credentials" "$main" --instance "$base" --start admin \
+  >"$out/snap-view-nonadmin.txt" 2>&1
+check "ari snapshot: someone who isn't an administrator: --start admin opens the feed" \
+  "$out/snap-view-nonadmin.txt" "$bar" "Show: (*) Following"
+check_not "ari snapshot: ... and no Admin view" "$out/snap-view-nonadmin.txt" "Admin: (*)" \
+  "accounts, the newest first"
+"$ARI" snapshot --width 80 --height 60 --net-allow "$base" \
+  --credential-store "$work/snap-nonadmin/credentials" "$main" --instance "$base" --start profile \
+  >"$out/snap-view-nonadmin-profile.txt" 2>&1
+check "ari snapshot: ... her profile: Refresh and Sign out" "$out/snap-view-nonadmin-profile.txt" \
+  "@grace@$hostport  Grace Hopper" "[ Refresh ][ Sign out ]"
+check_not "ari snapshot: ... and no Admin" "$out/snap-view-nonadmin-profile.txt" "[ Admin ]"
+if grep -F '"user": "grace"' "$out/stub.log" | grep -qE '"path": "/(user/list|group/|invite/|logs/)'; then
+  fail "the client asked the instance's admin routes for someone who isn't an administrator" \
+    "$out/stub.log"
+else
+  pass "the client never asks the admin routes for someone who isn't an administrator"
+fi
 
 # The card's first row: the full handle, @user@instance, then the display name cut to fit the
 # 65 columns beside the avatar.
@@ -452,6 +589,8 @@ else
   # (ari snapshot doesn't wait for a player whose URL comes from a reply, so not the durations)
   check "ari snapshot: the card's recording has a player" "$out/snap-feed-players.txt" \
     "[ Play ]" "Mute" "[video] engine.mp4 · 11 KB" "[audio] lecture.ogg · 5 KB"
+  # A player with a Loop box beside Mute (libcvc 3.7.13) has a fourth Tab stop.
+  grep -qF "] Loop" "$out/snap-feed-players.txt" && player_stops=4
   if [ "$(grep -c '\[ Play \]' "$out/snap-feed-players.txt")" -eq 1 ]; then
     pass "ari snapshot: ... and the video has no controls"
   else
@@ -535,6 +674,7 @@ fi
 if ! command -v tmux >/dev/null; then
   skip "bin/nicotina in tmux: no tmux"
 else
+  codes_made=0 # invite codes the Admin steps have made
   for backend in ftxui tvision; do
     xdg=$work/xdg-$backend
     store=$xdg/nicotina/credentials
@@ -549,9 +689,9 @@ else
         "correct horse"
     fi
     keys Tab; keys Enter
-    # The focus, in the TX.WTF window: the bar's seven buttons are the first seven stops (Back,
-    # Home, Tags, Search, Alerts, Profile, Post) in every view, and each new view starts with the
-    # focus on Back: Tab k times reaches stop k + 1.
+    # The focus, in the TX.WTF window: the bar's eight buttons are the first eight stops (Back,
+    # Home, Tags, Search, Alerts, Profile, Post, DMs) in every view, and each new view starts with
+    # the focus on Back: Tab k times reaches stop k + 1.
     step "$t: signed in, the home feed" "Home" "$bar" "Show: (*) Following" \
       " Charles Babbage  @charles@$hostport" " 2026-10-30 22:40" \
       "The Difference Engine No. 2, working at last."
@@ -563,8 +703,9 @@ else
     step "$t: Profile: the profile" "@ada@$hostport  Ada Lovelace" "admin · Verified · online" \
       "GB · Joined 2025-03-01 · 42 posts · 1234 views" "Groups: users, analysts" \
       "(*) Posts" "Finished the notes on Menabrea's paper." "Page 1"
-    # The tabs: Tab past the bar, Refresh and Sign out to them, then Right picks the next one.
-    for _ in $(seq 9); do keys Tab; done
+    # The tabs: Tab past the bar, Refresh, Sign out and Admin (she is the stub's administrator)
+    # to them, then Right picks the next one.
+    for _ in $(seq 11); do keys Tab; done
     keys Right
     step "$t: the Replies tab" "(*) Replies" "2026-10-29  Agreed: the engine might compose music" \
       "2026-10-25  Thank you, Mr. Babbage."
@@ -588,7 +729,7 @@ else
     start "$backend" "$xdg" "$base"
     step "$t: started again, still signed in: the feed" "$bar" " Charles Babbage"
     # past the bar, Show, the first card's links (where its text has them) and View to its Open
-    for _ in $(seq $((9 + card1_links))); do keys Tab; done
+    for _ in $(seq $((10 + card1_links))); do keys Tab; done
     keys Enter
     # (Its replies are below the fold here: the 80x60 snapshot of post:312 has them.)
     step "$t: Open: the whole post, its hashtags, reactions and attachments" \
@@ -598,10 +739,10 @@ else
       "Link: $base/app/post/312"
     keys Enter # Back: a view just opened has the focus there
     step "$t: Back to the feed" "Show: (*) Following" " Charles Babbage"
-    # Back keeps the focus. Load more is stop 53: the bar and Show (8), then ten cards' buttons
+    # Back keeps the focus. Load more is stop 54: the bar and Show (9), then ten cards' buttons
     # (Open, Reply, Like, Repost, and View on the four with something to view: 44), and the
     # recording's player more, and the links in the cards' text more.
-    for _ in $(seq $((52 + player_stops + page1_links))); do keys Tab; done
+    for _ in $(seq $((53 + player_stops + page1_links))); do keys Tab; done
     keys Enter
     step "$t: Load more: the next page, below the first" "13 posts; no more" \
       "Good morning, TX.WTF."
@@ -610,7 +751,7 @@ else
     # taken back.
     start "$backend" "$xdg" "$base"
     step "$t: the feed, to like a post" "$bar" " Charles Babbage"
-    for _ in $(seq $((11 + card1_links))); do keys Tab; done
+    for _ in $(seq $((12 + card1_links))); do keys Tab; done
     keys Enter
     # (The view scrolls to keep Like in sight, the status line above it out of sight.)
     step "$t: Like: liked, the count one up" "↩5 ⇄3 ♥22 · 310 views · liked"
@@ -622,7 +763,7 @@ else
     # radio's choice there), then Open tag. Back, and Back again.
     keys BTab; keys BTab; keys Enter # Open, two stops before Like
     step "$t: the post again" "Tags: (*) #engines  ( ) #brass  [ Open tag ]"
-    for _ in $(seq $((7 + card1_links))); do keys Tab; done # past the bar and its text's links
+    for _ in $(seq $((8 + card1_links))); do keys Tab; done # past the bar and its text's links
     keys Right
     step "$t: Tags: #brass picked" "( ) #engines  (*) #brass"
     keys Tab; keys Enter # Open tag
@@ -638,21 +779,21 @@ else
 
     # A post's links, where its text is rich (text.runs): a hashtag opens its posts, a mention
     # its account's profile (GET /user/by-username/{name}), and a URL elsewhere is copied, never
-    # opened. The bar and Show are the first eight stops; the first card's #engines is next.
+    # opened. The bar and Show are the first nine stops; the first card's #engines is next.
     if [ -n "$runs" ]; then
       start "$backend" "$xdg" "$base"
       step "$t: the feed, to follow a link" "$bar" " Charles Babbage"
-      for _ in $(seq 8); do keys Tab; done
+      for _ in $(seq 9); do keys Tab; done
       keys Enter # #engines, in the first card's text
       step "$t: a hashtag link: its posts" "#engines  ·  3 posts" "Nanoseconds, in wire. #engines"
       start "$backend" "$xdg" "$base" -- --start post:306
       step "$t: a post with a mention and a URL" "Can machines think? Ask @ada, or read"
-      for _ in $(seq 7); do keys Tab; done
+      for _ in $(seq 8); do keys Tab; done
       keys Enter # @ada, past the bar
       step "$t: a mention: the profile" "@ada@$hostport  Ada Lovelace"
       keys Enter # Back: a view just opened has the focus there
       step "$t: Back: the post" "Can machines think? Ask @ada, or read"
-      for _ in $(seq 8); do keys Tab; done
+      for _ in $(seq 9); do keys Tab; done
       keys Enter # the URL
       step "$t: a URL elsewhere: copied, not opened" \
         "Link copied: https://example.org/computing-machinery"
@@ -668,30 +809,32 @@ else
     keys Enter
     step "$t: posted: the new post, yours" "Posted." "Posted from $backend, by hand." \
       "[ Like ][ Repost ][ Author ][ Delete ]" "No replies yet."
-    for _ in $(seq 10); do keys Tab; done
+    for _ in $(seq 11); do keys Tab; done
     keys Enter # Delete: past the bar, Like, Repost and Author
     step "$t: Delete: gone, back to the feed" "Deleted." "Show: (*) Following" " Charles Babbage"
     check_not "$t: ... and not in the feed" "$out/tmux-$(slug "$t: Delete: gone, back to the feed").txt" \
       "Posted from $backend"
 
     # A reply: the second card's Reply opens the post with the reply box focused.
-    for _ in $(seq $((14 + card1_links))); do keys Tab; done
+    for _ in $(seq $((15 + card1_links))); do keys Tab; done
     keys Enter # past the bar, Show, the first card's five (and links), and Open: Reply
-    step "$t: Reply: the post, and the reply box" "A ship in port is safe" "Reply: ["
+    # (waits for the reply box: the feed shows the post's text too, so its text alone could match
+    # before the post has opened)
+    step "$t: Reply: the post, and the reply box" "Reply: [" "A ship in port is safe"
     type_text "Aye, from $backend."
     keys Enter
     step "$t: replied: the reply, under the post" "Replied." "Aye, from $backend." \
       "Ada Lovelace  @ada@$hostport"
 
     # Author, then Unfollow and Follow: ada follows grace.
-    for _ in $(seq 9); do keys Tab; done
+    for _ in $(seq 10); do keys Tab; done
     keys Enter # Author: past the bar, Like and Repost
     step "$t: Author: her profile, followed" "@grace@$hostport  Grace Hopper" "[ Unfollow ]"
-    for _ in $(seq 7); do keys Tab; done
+    for _ in $(seq 8); do keys Tab; done
     keys Enter
     step "$t: Unfollow" "Stopped following @grace@$hostport." "[ Follow ]"
     # Unfollow is gone, so nothing has the focus: Tab starts at Back.
-    for _ in $(seq 8); do keys Tab; done
+    for _ in $(seq 9); do keys Tab; done
     keys Enter
     step "$t: Follow again" "Following @grace@$hostport." "[ Unfollow ]"
 
@@ -703,20 +846,235 @@ else
       step "$t: the feed, with a player: its video has no controls" "$bar" " Charles Babbage"
       check_not "$t: ... none" \
         "$out/tmux-$(slug "$t: the feed, with a player: its video has no controls").txt" "[x] Mute"
-      for _ in $(seq $((8 + card1_links))); do keys Tab; done
+      for _ in $(seq $((9 + card1_links))); do keys Tab; done
       keys Enter # View: past the bar, Show and the first card's links
       step "$t: View: the viewer, at the post's picture" "1 of 2" "[ Prev ][ Next ]"
-      for _ in $(seq 8); do keys Tab; done
+      for _ in $(seq 9); do keys Tab; done
       keys Enter # Next: past the bar and Prev
       step "$t: Next: the video plays, looping, with its controls" "2 of 2" "[ Pause ]" \
         "[ ] Mute"
     fi
+    # --- the Admin view, for ada (the stub's administrator) ---
+    # Each backend acts on an account of its own, since nothing turns the emailed code back on:
+    # eve in FTXUI, ivy in tvision. A new view starts with the focus on Back (Tab k reaches stop
+    # k + 1); where the focused button goes away (Disable becomes Enable), nothing has the focus
+    # and Tab k reaches stop k.
+    case $backend in
+      ftxui) who=eve who_id=9 who_name="Eve Example" ;;
+      *) who=ivy who_id=10 who_name="Ivy Lane" ;;
+    esac
+    start "$backend" "$xdg" "$base"
+    step "$t: the feed, to administer" "$bar" " Charles Babbage"
+    for _ in $(seq 5); do keys Tab; done
+    keys Enter # Profile
+    step "$t: her profile has Admin" "[ Refresh ][ Sign out ][ Admin ]"
+    for _ in $(seq 10); do keys Tab; done
+    keys Enter # past the bar, Refresh and Sign out: Admin
+    step "$t: Admin: the accounts, newest first" "Admin: (*) Users" "10 accounts, the newest first" \
+      "@ivy  Ivy Lane" "[ Prev ][ Next ]  Page 1 of 2"
+    for _ in $(seq 8); do keys Tab; done
+    keys Right # the parts, past the bar
+    step "$t: Right: the groups" "3 groups" "(*) Groups" "root                The administrators"
+    keys Left
+    step "$t: Left: the accounts again" "(*) Users" "10 accounts, the newest first"
+    keys Tab # Find user
+    type_text "${who:0:2}"
+    keys Enter
+    step "$t: Find user: the usernames with ${who:0:2} in them" \
+      "1 account with \"${who:0:2}\" in the username" "@$who  $who_name"
+    keys Tab; keys Enter # its Open
+    step "$t: Open: $who's account" "@$who@$hostport  $who_name" \
+      "Account: active · Administrator: no · Two-step sign-in: on" \
+      "[ Disable ][ Make admin ][ Two-step off ][ Profile ]"
+    for _ in $(seq 8); do keys Tab; done
+    keys Enter # Disable, past the bar
+    step "$t: Disable" "@$who is disabled: signed out, and can't sign in." "Account: disabled" \
+      "[ Enable ][ Make admin ][ Two-step off ][ Profile ]"
+    # A disabled account's sign-in: the instance refuses the password, and emails no code (as
+    # txwtf's execute_login).
+    start "$backend" "$work/xdg-$who" "$base" -- --user "$who"
+    step "$t: the form for $who" "Username: [$who"
+    form_focus; keys Tab; type_text "correct horse"; keys Tab; keys Enter
+    step "$t: disabled: the instance won't sign $who in" \
+      "This account is disabled. Ask the site's administrators." "Sign in to TX.WTF"
+    check_not "$t: ... nor ask for a code" \
+      "$out/tmux-$(slug "$t: disabled: the instance won't sign $who in").txt" "Two-step verification"
+    if [ "$(sessions_in "$work/xdg-$who/nicotina/credentials")" = 0 ]; then
+      pass "$t: ... and no session is kept for $who"
+    else
+      fail "$t: a session was kept for a disabled account"
+    fi
+    # Back to her account (a deep link): Enable, Two-step off, Make admin and Remove admin.
+    start "$backend" "$xdg" "$base" -- --start "auser:$who_id"
+    step "$t: --start auser:$who_id: $who's account" "@$who@$hostport  $who_name" "[ Enable ]"
+    for _ in $(seq 8); do keys Tab; done
+    keys Enter # Enable
+    step "$t: Enable" "@$who can sign in again." "Account: active" "[ Disable ]"
+    for _ in $(seq 11); do keys Tab; done
+    keys Enter # Two-step off: nothing has the focus, so Tab 11 reaches stop 11
+    step "$t: Two-step off" "@$who signs in without two-step sign-in now." "Two-step sign-in: off" \
+      "[ Disable ][ Make admin ][ Profile ]"
+    for _ in $(seq 10); do keys Tab; done
+    keys Enter # Make admin
+    step "$t: Make admin" "@$who is an administrator now." "Administrator: yes" \
+      "[ Disable ][ Remove admin ][ Profile ]"
+    for _ in $(seq 10); do keys Tab; done
+    keys Enter # Remove admin
+    step "$t: Remove admin" "@$who is no longer an administrator." "Administrator: no"
+    # Enabled, with the code off: her password alone signs her in, to her (empty) feed.
+    start "$backend" "$work/xdg-$who" "$base" -- --user "$who"
+    step "$t: the form for $who again" "Username: [$who"
+    form_focus; keys Tab; type_text "correct horse"; keys Tab; keys Enter
+    step "$t: enabled, the code off: $who signs in with her password" "$bar" \
+      "Your feed is empty. Follow people, or Show: Everyone."
+    check_not "$t: ... and she has no Admin" \
+      "$out/tmux-$(slug "$t: enabled, the code off: $who signs in with her password").txt" \
+      "Admin" "Two-step verification"
+    # A group: add her, make her its admin and not, remove her.
+    start "$backend" "$xdg" "$base" -- --start agroup:2
+    step "$t: --start agroup:2: analysts" "analysts  ·  1 member" "[ Add ][ Delete group ]"
+    for _ in $(seq 11); do keys Tab; done # the bar, Permissions and ada's two: Add member
+    type_text "$who"
+    keys Tab; keys Enter # Add
+    step "$t: Add member: $who" "Added @$who to analysts." "analysts  ·  2 members" \
+      "@$who  $who_name"
+    keys BTab; keys BTab; keys BTab; keys Enter # her Make admin: before the field and her Remove
+    step "$t: her Make admin" "@$who is an admin of analysts." \
+      "@$who  $who_name  · group admin"
+    for _ in $(seq 13); do keys Tab; done
+    keys Enter # her Remove: the bar, Permissions, ada's two, her Drop admin
+    step "$t: her Remove" "@$who is out of analysts." "analysts  ·  1 member"
+    # Its permissions: one granted by name, then revoked; a name txwtf doesn't have.
+    for _ in $(seq 9); do keys Tab; done
+    keys Enter # Permissions (Remove went, so nothing had the focus)
+    step "$t: Permissions: what analysts may do" "analysts: 2 permissions, what its members may do" \
+      "StatsUserView" "SystemLogReadSelf"
+    for _ in $(seq 11); do keys Tab; done # the bar, Find permission, two Revokes: Permission
+    type_text "NoSuchThing"; keys Tab; keys Enter # the Grant button
+    step "$t: Grant: a name txwtf doesn't have" "No permission is called NoSuchThing."
+    keys BTab; for _ in $(seq 11); do keys BSpace; done
+    type_text "userlistread"; keys Tab; keys Enter
+    step "$t: Grant: UserListRead" "analysts grants UserListRead now." \
+      "analysts: 3 permissions" "UserListRead"
+    keys BTab; keys BTab; keys Enter # its Revoke, the last row's (sorted by name)
+    step "$t: Revoke: UserListRead" "analysts no longer grants UserListRead." \
+      "analysts: 2 permissions"
+    start "$backend" "$xdg" "$base" -- --start agperm:3
+    step "$t: --start agperm:3: root's" "root: 12 permissions" "Page 1 of 2"
+    for _ in $(seq 8); do keys Tab; done
+    type_text "group"; keys Enter # Find permission
+    step "$t: Find permission: group" "root: 7 of 12 permissions with \"group\" in the name" \
+      "GroupsRead"
+    check_not "$t: ... none other" \
+      "$out/tmux-$(slug "$t: Find permission: group").txt" "SiteTitleSet" "Page 1 of 2"
+    # A new group, opened, and deleted: Delete group asks first, Keep it keeps it.
+    start "$backend" "$xdg" "$base" -- --start admin:groups
+    step "$t: --start admin:groups" "(*) Groups" "3 groups" "[ Create ]"
+    for _ in $(seq 12); do keys Tab; done # the bar, the parts, three Opens: New group
+    type_text "lecturers"; keys Tab; type_text "Give the talks"; keys Tab; keys Enter # Create
+    step "$t: Create: a new group" "Created the group lecturers." "4 groups" \
+      "lecturers           Give the talks"
+    keys BTab; keys BTab; keys BTab; keys Enter # its Open, before New group and About it
+    step "$t: its Open: no members" "lecturers  ·  0 members" "Give the talks"
+    for _ in $(seq 11); do keys Tab; done
+    keys Enter # Delete group: past the bar, Permissions, Add member and Add
+    step "$t: Delete group asks first" "Delete lecturers? Its members' accounts stay." \
+      "[ Delete group ][ Yes, delete it ][ Keep it ]"
+    keys Tab; keys Tab; keys Enter # Keep it
+    step "$t: Keep it" "Kept it." "lecturers  ·  0 members"
+    check_not "$t: ... and it asks no more" "$out/tmux-$(slug "$t: Keep it").txt" "Yes, delete it"
+    for _ in $(seq 12); do keys Tab; done
+    keys Enter # Delete group again
+    step "$t: Delete group again" "[ Yes, delete it ][ Keep it ]"
+    keys Tab; keys Enter # Yes, delete it
+    step "$t: Yes, delete it: the groups, without it" "Deleted the group lecturers." "3 groups"
+    check_not "$t: ... gone" "$out/tmux-$(slug "$t: Yes, delete it: the groups, without it").txt" \
+      "Give the talks"
+    # Invites: who may sign up, a new code, and the code turned off.
+    start "$backend" "$xdg" "$base" -- --start admin:invites
+    step "$t: --start admin:invites" "Sign-up: (*) Open  ( ) Invite only" "[ New code ]"
+    for _ in $(seq 9); do keys Tab; done
+    keys Right # Sign-up: Invite only, past the bar and the parts
+    step "$t: Sign-up: invite only" "Signing up takes an invite code now." \
+      "Sign-up: ( ) Open  (*) Invite only"
+    keys Left
+    step "$t: Sign-up: open again" "Anyone may sign up now." "Sign-up: (*) Open  ( ) Invite only"
+    # past each code's button (the stub's two, and one a backend before this made): Uses
+    for _ in $(seq $((3 + codes_made))); do keys Tab; done
+    type_text 5; keys Tab; type_text "workshop"; keys Tab; keys Enter # New code
+    step "$t: New code" "New code: NEW-000" "0 of 5 used  on               workshop"
+    codes_made=$((codes_made + 1))
+    start "$backend" "$xdg" "$base" -- --start admin:invites
+    step "$t: the codes again, the new one first" "Sign-up: (*) Open" "[ Turn off ]"
+    for _ in $(seq 10); do keys Tab; done
+    keys Enter # the first code's Turn off, past the bar, the parts and Sign-up
+    step "$t: Turn off" "That code is off: it signs no one up now." \
+      "0 of 5 used  off              workshop"
+    # Site: the title saved (the window takes it), and back.
+    start "$backend" "$xdg" "$base" -- --start admin:site
+    step "$t: --start admin:site" "Title: [TX.WTF]" "Time zone: [UTC]"
+    for _ in $(seq 9); do keys Tab; done # Title, past the bar and the parts
+    keys End; for _ in $(seq 6); do keys BSpace; done
+    type_text "Analytical Engines"
+    for _ in $(seq 3); do keys Tab; done
+    keys Enter # Save, past About and Time zone
+    step "$t: the title saved" "Saved the title." " Analytical Engines " \
+      "Title: [Analytical Engines]"
+    for _ in $(seq 3); do keys BTab; done
+    keys End; for _ in $(seq 18); do keys BSpace; done
+    type_text "TX.WTF"
+    for _ in $(seq 3); do keys Tab; done
+    keys Enter # Save
+    step "$t: ... and back" "Saved the title." " TX.WTF " "Title: [TX.WTF]"
+    # The log: the changes just made at its top; one kind of event; the next page.
+    start "$backend" "$xdg" "$base" -- --start admin:log
+    step "$t: --start admin:log: the changes at its top" "(*) Log" \
+      "ada          Setting Change     site title cha..." "Page 1 of "
+    for _ in $(seq 9); do keys Tab; done
+    keys Right # Events, past the bar and the parts: User Login
+    step "$t: Events: sign-ins alone" "4 events: User Login, the newest first"
+    keys Left
+    step "$t: Events: all again" "events, the newest first" "Setting Change"
+    keys Tab; keys Enter # Next
+    step "$t: Next: an older page" "Page 2 of "
+    # An administrator whose rights go while the view is open: the instance refuses (401
+    # AccessDenied), and the client says so and stays signed in. bob (his session live in the
+    # stub) puts them back.
+    start "$backend" "$xdg" "$base" -- --start admin
+    step "$t: --start admin" "Admin: (*) Users" "10 accounts"
+    sysadmin() { # sysadmin AS USER_ID IS_ADMIN, through the stub's API
+      curl -s -o /dev/null -X PUT -H "Authorization: Bearer $(token "$1")" \
+        -H 'Content-Type: application/json' -d "{\"user_id\": $2, \"is_admin\": $3}" \
+        "$base/group/user/sysadmin"
+    }
+    sysadmin ada 5 true && sysadmin ada 1 false
+    for _ in $(seq 9); do keys Tab; done
+    keys Enter # Find user, again
+    step "$t: refused: said so, still signed in" "This account may not see the accounts here." \
+      "$bar"
+    sysadmin bob@peer.example 1 true && sysadmin ada 5 false
+
     # Everyone: the public feed, with someone ada doesn't follow.
     start "$backend" "$xdg" "$base"
     step "$t: the feed again" "Show: (*) Following" " Charles Babbage"
-    for _ in $(seq 7); do keys Tab; done
+    for _ in $(seq 8); do keys Tab; done
     keys Right
-    step "$t: Show: Everyone" "(*) Everyone" "Hello from someone you don't follow."
+    # (waits for the post: the choice shows before the public feed has loaded)
+    step "$t: Show: Everyone" "Hello from someone you don't follow." "(*) Everyone"
+
+    # Direct messages: DMs (the bar's last stop), grace's conversation (past Refresh, its Open),
+    # whose box has the focus; a message, sent and shown below the others.
+    start "$backend" "$xdg" "$base"
+    step "$t: the feed, for DMs" "$bar" " Charles Babbage"
+    for _ in $(seq 7); do keys Tab; done
+    keys Enter # DMs
+    step "$t: DMs: the conversations" "3 conversations" "@grace@$hostport  Grace Hopper"
+    for _ in $(seq 9); do keys Tab; done
+    keys Enter # Open: past the bar and Refresh
+    step "$t: Open: grace's conversation, its box focused" "Lunch on Thursday?" "Message: ["
+    type_text "Thursday works, from $backend."
+    keys Enter
+    step "$t: sent: the message, below the others" "Sent." "  Thursday works, from $backend."
 
     start "$backend" "$xdg" "$base"
     step "$t: started again, still signed in" "$bar" " Charles Babbage"
@@ -726,7 +1084,7 @@ else
     for _ in $(seq 5); do keys Tab; done
     keys Enter # Profile
     step "$t: Profile, to sign out" "@ada@$hostport  Ada Lovelace" "[ Sign out ]"
-    for _ in $(seq 8); do keys Tab; done
+    for _ in $(seq 9); do keys Tab; done
     keys Enter # past the bar and Refresh to Sign out
     step "$t: signed out" "Signed out." "Sign in to TX.WTF" "Username: [ada"
     if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: sign-out drops the session"; else
@@ -749,7 +1107,7 @@ else
     for _ in $(seq 5); do keys Tab; done
     keys Enter # Profile
     step "$t: grace's profile" "@grace@$hostport  Grace Hopper" "Nanoseconds, in wire. #engines"
-    for _ in $(seq 9); do keys Tab; done
+    for _ in $(seq 10); do keys Tab; done
     keys Right; keys Right # the tabs: Balances
     step "$t: grace's balance" "(*) Balances" "SCRIP    25" "Value    \$25.00"
     keys BTab; keys Enter # back from the tabs to Sign out
@@ -782,7 +1140,7 @@ else
       for _ in $(seq 5); do keys Tab; done
       keys Enter # Profile (it takes the stub 3 s)
       step "$t: mary's profile" "@mary@$hostport" "[ Sign out ]"
-      for _ in $(seq 8); do keys Tab; done
+      for _ in $(seq 9); do keys Tab; done
       keys Enter # past the bar and Refresh to Sign out
       step "$t: mary signs out" "Signed out."
     fi
@@ -801,7 +1159,7 @@ else
       "[ Newer ][ Older ]  Page 1"
     fits_80x24 "$t: ... its frame whole, within 80 columns" \
       "$out/tmux-$(slug "$t: the profile fits an 80x24 terminal").txt"
-    for _ in $(seq 8); do keys Tab; done
+    for _ in $(seq 9); do keys Tab; done
     keys Enter # past the bar and Refresh to Sign out
     step "$t: ada signs out at 80x24" "Signed out."
 

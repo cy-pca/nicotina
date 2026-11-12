@@ -10,9 +10,9 @@
 #   cvcpkg build txwtf-cp312 --no-deps --prefix "$TXWTF_PREFIX"
 #
 # The instance is txwtf's own server on a fresh SQLite database (txwtf init-db, txwtf backend).
-# tests/txwtf_local.py makes three accounts with txwtf's core functions: ada (1234.56789 SCRIP
-# minted, two posts and a reply), grace (the emailed second factor on) and linus
-# (force_password_change). Its email
+# tests/txwtf_local.py makes four accounts with txwtf's core functions: ada (1234.56789 SCRIP
+# minted, two posts and a reply; the administrator), grace (the emailed second factor on), linus
+# (force_password_change) and eve (for the Admin view to disable). Its email
 # goes to tests/smtp_sink.py, where the tests read grace's sign-in code. Everything the client
 # does goes through the real HTTP API.
 #
@@ -24,6 +24,10 @@
 #   - grace: the emailed code, a wrong one and then the one from the email; no posts, and a
 #     balance of zero;
 #   - linus: told to change his password in the web app first, and no session kept.
+# Then ada, the instance's administrator, in the Admin view: each part as the server answers it;
+# eve (tests/txwtf_local.py's fourth account) disabled, refused at sign-in, enabled; a group made,
+# eve added and removed, a permission granted and revoked, the group deleted; an invite code made
+# and turned off, where this txwtf has invite codes.
 # Then, with txwtf's login rate limit on, a sign-in after ten failed ones is told to wait; and
 # with the server stopped, a stored session can't reach it. At the end every output is searched
 # for the password and for every token the host stored.
@@ -125,7 +129,7 @@ post_links=0
 [ -n "$runs" ] && post_links=1
 # The bar along the main window's top: its seven buttons are the first seven focus stops, and
 # each new view starts with the focus on Back (stop 1): Tab k times reaches stop k + 1.
-bar="[ Back ][ Home ][ Tags ][ Search ][ Alerts ][ Profile ][ Post ]"
+bar="[ Back ][ Home ][ Tags ][ Search ][ Alerts ][ Profile ][ Post ][ DMs ]"
 [ -n "$pictures" ] && ada_card=" Ada Lovelace"
 
 # --- the client --------------------------------------------------------------------------------
@@ -145,19 +149,19 @@ for backend in ftxui tvision; do
   # She follows no one, so her home feed is empty, as txwtf's is then.
   step "$t: ada signs in: her home feed, empty" "$bar" "Show: (*) Following" \
     "Your feed is empty. Follow people, or Show: Everyone." "Signed in to 127.0.0.1"
-  for _ in $(seq 7); do keys Tab; done
+  for _ in $(seq 8); do keys Tab; done
   keys Right # past the bar to Show: Everyone
   step "$t: Everyone: the public timeline, a card a post" "(*) Everyone" \
     "$ada_card  @ada@127.0.0.1:$port" "│Bernoulli numbers, step by step." \
     "│Hello from the analytical engine." "[ Open ]"
-  keys BTab; keys BTab; keys Enter # back past Post to Profile
+  keys BTab; keys BTab; keys BTab; keys Enter # back past DMs and Post to Profile
   step "$t: her profile" "@ada@127.0.0.1:$port  Ada Lovelace" \
     "Writes notes on the analytical engine. Prefers punched cards t..." "Joined " \
     "Show: (*) Posts" "  Bernoulli numbers, step by step." "  Hello from the analytical engine."
   check_not "$t: ... her posts, not her reply" "$out/tmux-$(slug "$t: her profile").txt" \
     "Note G is the long one."
-  for _ in $(seq 9); do keys Tab; done
-  keys Right # past the bar, Refresh and Sign out: Replies
+  for _ in $(seq 11); do keys Tab; done
+  keys Right # past the bar, Refresh, Sign out and Admin (she is the administrator): Replies
   step "$t: the Replies tab: her reply" "(*) Replies" "  Note G is the long one."
   keys Right
   step "$t: the Balances tab: the balance the server works out" "(*) Balances" \
@@ -193,13 +197,13 @@ for backend in ftxui tvision; do
   keys Enter
   step "$t: posted: the post, with its hashtag" "Posted." \
     "Hello from nicotina on $backend. #nicotina" "Tags: (*) #nicotina" "[ Delete ]"
-  for _ in $(seq $((8 + post_links))); do keys Tab; done
+  for _ in $(seq $((9 + post_links))); do keys Tab; done
   keys Enter # Open tag (past the bar, the text's #nicotina where it is a link, and Tags)
   step "$t: the hashtag's posts, from the server" "#nicotina  ·  1 post" \
     "Hello from nicotina on $backend. #nicotina"
   keys Enter # Back
   step "$t: Back: the post" "Hello from nicotina on $backend. #nicotina" "[ Delete ]"
-  for _ in $(seq $((12 + post_links))); do keys Tab; done
+  for _ in $(seq $((13 + post_links))); do keys Tab; done
   keys Enter # Delete
   step "$t: deleted: back to the feed" "Deleted." "Show: (*) Following"
   # The notifications, the hashtags and search, as the server answers them.
@@ -218,7 +222,7 @@ for backend in ftxui tvision; do
   for _ in $(seq 5); do keys Tab; done
   keys Enter # Profile
   step "$t: her profile, to sign out" "@ada@127.0.0.1:$port  Ada Lovelace" "[ Sign out ]"
-  for _ in $(seq 8); do keys Tab; done
+  for _ in $(seq 9); do keys Tab; done
   keys Enter # past the bar and Refresh to Sign out
   step "$t: ada signs out" "Signed out." "Username: [ada"
   if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: sign-out drops the session"; else
@@ -251,7 +255,7 @@ for backend in ftxui tvision; do
   for _ in $(seq 5); do keys Tab; done
   keys Enter # Profile
   step "$t: grace's profile" "@grace@127.0.0.1:$port  Grace Hopper" "No posts yet."
-  for _ in $(seq 9); do keys Tab; done
+  for _ in $(seq 10); do keys Tab; done
   keys Right; keys Right # the tabs: Balances
   step "$t: grace's balance: nothing minted" "(*) Balances" "SCRIP    0" "Value    \$0.00"
   keys BTab; keys Enter # back from the tabs to Sign out
@@ -267,6 +271,149 @@ for backend in ftxui tvision; do
   fi
   stop
 done
+
+# --- the Admin view ----------------------------------------------------------------------------
+
+# ada is the instance's administrator (txwtf_local.py). Each part of the Admin view as the server
+# answers it; then, in FTXUI, what an administrator does there: an account disabled (the server
+# refuses its sign-in) and enabled, a group made, a member added and removed, the group deleted,
+# and an invite code made and turned off. (tests/run.sh covers both backends against the stub.)
+t="txwtf (admin)"
+curl -s -m 10 -o "$out/txwtf-openapi.json" "$base/openapi.json"
+has_route() { grep -qF "\"$1\"" "$out/txwtf-openapi.json"; }
+admin_xdg=$work/xdg-admin
+admin_store=$admin_xdg/nicotina/credentials
+start ftxui "$admin_xdg" "$base" -- --user ada --start admin
+step "$t: the form" "Username: [ada"
+sign_in "$work/password"
+# (txwtf keeps an account of its own, __system__, beside the four tests/txwtf_local.py makes)
+step "$t: --start admin: the accounts, from the server" "Admin: (*) Users" \
+  "accounts, the newest first" "@eve  Eve Example" "@linus  Linus" "@grace  Grace Hopper"
+if grep -qE '@ada  Ada Lovelace +[0-9-]{10} +admin' \
+  "$out/tmux-$(slug "$t: --start admin: the accounts, from the server").txt"; then
+  pass "$t: ... ada's row says admin"
+else
+  fail "$t: ada's row doesn't say admin" \
+    "$out/tmux-$(slug "$t: --start admin: the accounts, from the server").txt"
+fi
+tokens_from "$admin_store"
+stop
+admin_snap() { # admin_snap NAME START: an 80x60 frame of the view START opens, as ada
+  "$ARI" snapshot --width 80 --height 60 --net --net-allow "$base" --credential-store "$admin_store" \
+    "$main" --instance "$base" --start "$2" >"$out/txwtf-admin-$1.txt" 2>&1
+}
+admin_snap groups admin:groups
+check "$t: Admin: the server's groups" "$out/txwtf-admin-groups.txt" "(*) Groups" " group" \
+  "[ Create ]"
+admin_snap site admin:site
+check "$t: Admin: the site's settings" "$out/txwtf-admin-site.txt" "(*) Site" "Title: [" \
+  "Time zone: [" "New accounts join " "Passwords: "
+admin_snap log admin:log
+check "$t: Admin: the system log" "$out/txwtf-admin-log.txt" "(*) Log" "events, the newest first"
+admin_snap user auser:1
+check "$t: Admin: an account, from the server" "$out/txwtf-admin-user.txt" \
+  "@ada@127.0.0.1:$port  Ada Lovelace" "Administrator: yes" "Email: ada@example.org" \
+  "Your own account: Disable and Remove admin aren't offered."
+
+# eve: found, disabled, refused at sign-in, enabled, signed in.
+find_eve() { # from the Admin view's start: Find user, eve, her Open
+  for _ in $(seq 9); do keys Tab; done
+  type_text eve
+  keys Enter
+  step "$t: Find user: eve ($1)" "1 account with \"eve\" in the username" "@eve  Eve Example"
+  keys Tab; keys Enter
+  step "$t: eve's account ($1)" "@eve@127.0.0.1:$port  Eve Example"
+}
+start ftxui "$admin_xdg" "$base" -- --start admin
+step "$t: the Admin view" "Admin: (*) Users"
+find_eve "to disable"
+check "$t: ... as the server has it" "$out/tmux-$(slug "$t: eve's account (to disable)").txt" \
+  "Account: active · Administrator: no · Two-step sign-in: off" "[ Disable ][ Make admin ][ Profile ]"
+for _ in $(seq 8); do keys Tab; done
+keys Enter # Disable
+step "$t: Disable: the server disables her" "@eve is disabled: signed out, and can't sign in." \
+  "Account: disabled" "[ Enable ]"
+start ftxui "$work/xdg-eve" "$base" -- --user eve
+step "$t: the form for eve" "Username: [eve"
+sign_in "$work/password"
+step "$t: the server refuses a disabled account" \
+  "This account is disabled. Ask the site's administrators." "Username: [eve"
+start ftxui "$admin_xdg" "$base" -- --start admin
+step "$t: the Admin view, to enable her" "Admin: (*) Users"
+find_eve "to enable"
+for _ in $(seq 8); do keys Tab; done
+keys Enter # Enable
+step "$t: Enable" "@eve can sign in again." "Account: active"
+start ftxui "$work/xdg-eve" "$base" -- --user eve
+step "$t: the form for eve again" "Username: [eve"
+sign_in "$work/password"
+step "$t: enabled: eve signs in" "$bar" "Your feed is empty."
+tokens_from "$work/xdg-eve/nicotina/credentials"
+
+# A group: made, eve added and removed, deleted (Delete group asks first).
+groups=$(grep -c '\[ Open \]' "$out/txwtf-admin-groups.txt")
+start ftxui "$admin_xdg" "$base" -- --start admin:groups
+step "$t: the groups, to make one" "(*) Groups" "[ Create ]"
+for _ in $(seq $((9 + groups))); do keys Tab; done # the bar, the parts, each group's Open
+type_text "nicotina-tests"; keys Tab; type_text "Made by tests/local.sh"; keys Tab; keys Enter
+step "$t: Create: the server makes the group" "Created the group nicotina-tests." \
+  "nicotina-tests      Made by tests/local.sh"
+keys BTab; keys BTab; keys BTab; keys Enter # its Open, the last, before the two fields
+step "$t: its Open: no members" "nicotina-tests  ·  0 members" "Made by tests/local.sh"
+for _ in $(seq 9); do keys Tab; done # the bar and Permissions: Add member
+type_text eve
+keys Tab; keys Enter # Add
+step "$t: Add member: eve" "Added @eve to nicotina-tests." "nicotina-tests  ·  1 member" \
+  "@eve  Eve Example"
+keys BTab; keys BTab; keys Enter # her Remove, before the field
+step "$t: her Remove" "@eve is out of nicotina-tests." "nicotina-tests  ·  0 members"
+for _ in $(seq 9); do keys Tab; done
+keys Enter # Permissions: nothing had the focus, so Tab 9 reaches stop 9
+step "$t: its permissions: none yet" "nicotina-tests: 0 permissions, what its members may do"
+for _ in $(seq 9); do keys Tab; done # the bar and Find permission: Permission
+type_text "SocialHashtagRead"; keys Tab; keys Enter # the Grant button
+step "$t: Grant: the server grants it" "nicotina-tests grants SocialHashtagRead now." \
+  "nicotina-tests: 1 permission" "SocialHashtagRead"
+keys BTab; keys BTab; keys Enter # its Revoke, before the field
+step "$t: Revoke: the server takes it back" "nicotina-tests no longer grants SocialHashtagRead." \
+  "nicotina-tests: 0 permissions"
+keys Tab; keys Enter # Back (Revoke went, so nothing had the focus: Tab reaches Back)
+step "$t: Back: the group" "nicotina-tests  ·  0 members" "[ Delete group ]"
+for _ in $(seq 11); do keys Tab; done
+keys Enter # Delete group: past the bar, Permissions, Add member and Add
+step "$t: Delete group asks" "Delete nicotina-tests? Its members' accounts stay."
+keys Tab; keys Enter # Yes, delete it
+step "$t: Yes, delete it: the server deletes it" "Deleted the group nicotina-tests." "(*) Groups"
+
+if has_route /invite/mode; then
+  admin_snap invites admin:invites
+  check "$t: Admin: sign-up and invite codes" "$out/txwtf-admin-invites.txt" \
+    "Sign-up: (*) Open  ( ) Invite only" "You have no codes."
+  start ftxui "$admin_xdg" "$base" -- --start admin:invites
+  step "$t: the invite codes, to make one" "(*) Invites" "[ New code ]"
+  for _ in $(seq 10); do keys Tab; done # the bar, the parts and Sign-up: Uses
+  type_text 3; keys Tab; type_text "local.sh"; keys Tab; keys Enter # New code
+  step "$t: New code: the server makes one" "New code: " "0 of 3 used  on"
+  start ftxui "$admin_xdg" "$base" -- --start admin:invites
+  step "$t: the codes again" "(*) Invites" "[ Turn off ]"
+  for _ in $(seq 10); do keys Tab; done
+  keys Enter # its Turn off, past the bar, the parts and Sign-up
+  step "$t: Turn off" "That code is off: it signs no one up now." "0 of 3 used  off"
+else
+  skip "$t: invite codes (this txwtf has no /invite/mode)"
+fi
+# The log has the changes. The server logs its background jobs every few seconds, so its first
+# page soon holds only those: pick the kind of event (Events: Group Create is the eighth after
+# All, Group Delete the ninth).
+start ftxui "$admin_xdg" "$base" -- --start admin:log
+step "$t: the system log, to find the changes" "(*) Log" "events, the newest first"
+for _ in $(seq 9); do keys Tab; done # the bar and the parts: Events
+for _ in $(seq 8); do keys Right; done
+step "$t: Events: Group Create: the group made here" ": Group Create, the newest first" \
+  "Group Create"
+keys Right
+step "$t: Events: Group Delete: and deleted" ": Group Delete, the newest first" "Group Delete"
+stop
 
 # --- the rate limit ----------------------------------------------------------------------------
 
