@@ -79,8 +79,9 @@ units:
         color: [0.95, 0.75, 0.3]
 
   # In words. A terminal draws a button as its label in brackets, so the bar is 70 columns; the
-  # unread count follows it. (Forward is in the nicotina menu here: the bar has no room for it.)
-  # DMs comes last, so the buttons before it keep their places in the focus order.
+  # unread count follows it as a bare number (" 2"), so the row stays within the window's 74
+  # columns, its scroll bar beside them. (Forward is in the nicotina menu here: the bar has no
+  # room for it.) DMs comes last, so the buttons before it keep their places in the focus order.
   nav_words:
     type: group
     layout: {kind: horizontal}
@@ -103,7 +104,7 @@ units:
       - button: DMs
         on: (state-set "ui.cmd" "dms")
       - text: ""
-        bind: alerts.badge
+        bind: alerts.badge_n
         color: [0.95, 0.75, 0.3]
 
   # The window, titled by the site it is signed in to (app.title: GET /site/title, else its host).

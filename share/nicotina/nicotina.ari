@@ -124,7 +124,7 @@ init: |
   (state-set-tree "tab" (dict "rows" (list) "items" (list) "offset" 0 "more" "" "page" ""))
   (state-set-tree "prof" (dict "self" "" "following" "" "bg_pic_shown" ""))
   (state-set-tree "tags" (dict "rows" (list) "more" "" "offset" 0 "head" ""))
-  (state-set-tree "alerts" (dict "rows" (list) "head" "" "badge" ""))
+  (state-set-tree "alerts" (dict "rows" (list) "head" "" "badge" "" "badge_n" ""))
   (state-set-tree "search" (dict "q" "" "rows" (list) "note" "Find posts and people."))
   (state-set-tree "compose" (dict "text" "" "visibility" "Public"
                                   "note" "Text only for now: attaching files comes later."))
@@ -282,7 +282,7 @@ on_tick: |
                                        "parent" "" "mine" "" "focus_reply" "" "reply_text" ""))
           (state-set-tree "tab" (dict "rows" (list) "items" (list) "offset" 0 "more" "" "page" ""))
           (state-set-tree "prof" (dict "self" "" "following" "" "bg_pic_shown" ""))
-          (state-set-tree "alerts" (dict "rows" (list) "head" "" "badge" ""))
+          (state-set-tree "alerts" (dict "rows" (list) "head" "" "badge" "" "badge_n" ""))
           (state-set-tree "search" (dict "q" "" "rows" (list) "note" "Find posts and people."))
           (state-set "compose.text" "")
           (state-set-tree "dm.rows" (list))
@@ -1149,7 +1149,10 @@ on_tick: |
         (let ((r (get-authed "/notifications/count")))
           (if (ok? r)
             (let ((n (int (opt (reply-json r) "unviewed_count" 0))))
-              (state-set "alerts.badge" (if (> n 0) (str-concat " " (text n) " new") ""))))))
+              (begin
+                ;; " 2 new" beside the icons; " 2" beside the words, which fill a terminal's row
+                (state-set "alerts.badge" (if (> n 0) (str-concat " " (text n) " new") ""))
+                (state-set "alerts.badge_n" (if (> n 0) (str-concat " " (text n)) "")))))))
       ;; Your notifications, newest first, then all of them marked read (POST
       ;; /notifications/viewed), as the web app marks them when its list opens.
       (defun load-alerts ()
@@ -1178,6 +1181,7 @@ on_tick: |
                                 (if (> unread 0) (str-concat ", " (text unread) " new") ""))))
                 (if (> unread 0) (send-authed "POST" "/notifications/viewed" (dict)))
                 (state-set "alerts.badge" "")
+                (state-set "alerts.badge_n" "")
                 true))
             (begin
               (if (session-over? r) (session-over)

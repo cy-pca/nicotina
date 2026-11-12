@@ -177,7 +177,7 @@ for backend in ftxui tvision; do
   seed_store "$store" ada
   snap "snap-$backend-feed" "$backend" "$store"
   check "ari snapshot ($backend): a stored session opens the home feed, a card a post" \
-    "$out/snap-$backend-feed.txt" " TX.WTF " "$bar 2 new" \
+    "$out/snap-$backend-feed.txt" " TX.WTF " "$bar 2" \
     "Show: (*) Following  ( ) Everyone  ( ) Friends" "Signed in to 127.0.0.1" \
     " Charles Babbage  @charles@$hostport" " 2026-10-30 22:40" \
     "│The Difference Engine No. 2, working at last. #engines #brass            │" \
