@@ -18,7 +18,9 @@
 #     (a PNG; checked only for being drawn, since nothing here reads pixels).
 #  5. bin/nicotina --terminal in a tmux pane, FTXUI and tvision, typed at the way a person types:
 #     sign in, see the profile, the Replies and Balances tabs and an older page of posts, open a
-#     post and go Back, like a post and take it back, write a post and a reply, open a hashtag,
+#     post and go Back, like a post and take it back, write a post and a reply, attach a picture
+#     and a big file to a post where the host picks and uploads files (the Open file window, then
+#     the uploads the stub must get whole), open a hashtag,
 #     follow someone and stop, send a direct message, start again still signed in, sign out; a
 #     wrong password; the emailed code, wrong and then right; an account that must change its
 #     password. As ada, the Admin view: an account found, disabled (its sign-in refused),
@@ -181,6 +183,30 @@ runs=
 card1_links=0
 page1_links=0
 [ -n "$runs" ] && card1_links=2 page1_links=5
+# Whether this ari picks and uploads files (file-pick and http-upload, transfix/libcvc#1190): a new
+# post then has Attach. ari has no picker of its own, so the Runtime draws an Open file window.
+attach=
+"$ARI" check --net "$main" 2>&1 | grep -q "optional requirement file-pick" || attach=1
+# The picture the tmux cases attach: a small PNG, drawn by the stub's own writer.
+attach_file=$work/attach/kitten.png
+mkdir -p "$work/attach"
+python3 -I -B -c "
+import sys; sys.path.insert(0, sys.argv[1]); import stub_txwtf as s
+open(sys.argv[2], 'wb').write(s.png(24, 16, lambda x, y: (240, 160 if (x + y) % 2 else 120, 60)))" \
+  "$here" "$attach_file"
+attach_size=$(wc -c <"$attach_file" | tr -d ' ')
+# ... and one over 8 MiB, which goes by the resumable upload, in chunks.
+attach_big=$work/attach/engine-log.bin
+head -c $((9 * 1024 * 1024 + 4321)) /dev/urandom >"$attach_big"
+# check_upload NAME FILENAME FILE: the stub's log has FILENAME uploaded whole: FILE's size and
+# sha256.
+check_upload() {
+  local want
+  want="\"upload\": \"$2\", \"size\": $(wc -c <"$3" | tr -d ' '), \"sha256\": \"$(sha256sum "$3" | cut -d' ' -f1)\""
+  if grep -qF -- "$want" "$out/stub.log"; then pass "$1"; else
+    fail "$1: the stub's log has no [$want]" "$out/stub.log"
+  fi
+}
 # The bar along the window's top, in every view.
 bar="[ Back ][ Home ][ Tags ][ Search ][ Alerts ][ Profile ][ Post ][ DMs ]"
 # The first card's counts and buttons, and View on its first attachment's row (it has a picture
@@ -340,6 +366,15 @@ check "ari snapshot: search: posts, people and hashtags, as txwtf groups them" \
 view compose compose
 check "ari snapshot: a new post: who sees it, and the text" "$out/snap-view-compose.txt" \
   "Who sees it: (*) Public  ( ) Followers  ( ) Private" "Post: [What's happening? (Enter posts it)"
+if [ -n "$attach" ]; then
+  check "ari snapshot: ... and Attach, the host picking files" "$out/snap-view-compose.txt" \
+    "[ Attach ]"
+  check_not "ari snapshot: ... no files yet, so no Post beside it" "$out/snap-view-compose.txt" \
+    "[ Attach ][ Post ]" "Text only: this host"
+else
+  check "ari snapshot: ... text only: this host can't attach files" \
+    "$out/snap-view-compose.txt" "Text only: this host can't attach files."
+fi
 view user user:7
 check "ari snapshot: another's profile: Unfollow (ada follows him), Posts and Replies" \
   "$out/snap-view-user.txt" "@charles@$hostport  Charles Babbage" "[ Unfollow ]" \
@@ -814,6 +849,47 @@ else
     step "$t: Delete: gone, back to the feed" "Deleted." "Show: (*) Following" " Charles Babbage"
     check_not "$t: ... and not in the feed" "$out/tmux-$(slug "$t: Delete: gone, back to the feed").txt" \
       "Posted from $backend"
+
+    # A post with a picture and a big file, where the host picks and uploads files: Post, type,
+    # Tab to Attach, Enter: the Open file window (a window of its own on the tvision desktop), the
+    # focus in its name field. The picture's path and Enter: it is listed, and the focus is in the
+    # text again. Tab past its Remove to Attach for the second, the same way. Enter posts it: the
+    # picture uploaded first (POST /social/files), then the big file in the resumable upload's
+    # chunks. Delete takes it away.
+    if [ -n "$attach" ]; then
+      for _ in $(seq 6); do keys Tab; done
+      keys Enter # Post
+      step "$t: Post again: the new post's view, with Attach" "[ Attach ]" "Who sees it: (*) Public"
+      type_text "A picture from $backend."
+      keys Tab
+      keys Enter # Attach
+      step "$t: Attach: the Open file window" "Attach to the post" "Name: [" "Folder: "
+      type_text "$attach_file"
+      keys Enter
+      step "$t: attached: the picture, listed, the text kept" "1 file to attach." \
+        "[ Remove ]kitten.png · $attach_size B" "[ Attach ][ Post ]" "A picture from $backend."
+      keys Tab; keys Tab; keys Enter # past the picture's Remove: Attach
+      step "$t: Attach again: the Open file window" "Attach to the post" "Name: ["
+      type_text "$attach_big"
+      keys Enter
+      step "$t: attached: both listed" "2 files to attach." "[ Remove ]kitten.png" \
+        "[ Remove ]engine-log.bin · 9 MB"
+      keys Enter # the text has the focus again
+      STEP_SECONDS=60 step "$t: posted with both" "Posted." "A picture from $backend." \
+        "[image] kitten.png · $attach_size B" "engine-log.bin"
+      check_upload "$t: ... the instance got the picture, every byte" kitten.png "$attach_file"
+      check_upload "$t: ... and the big file, in chunks, every byte" engine-log.bin "$attach_big"
+      if grep -q '"method": "PATCH", "path": "/social/files/resumable/' "$out/stub.log"; then
+        pass "$t: ... the big one by the resumable upload"
+      else
+        fail "$t: ... the big one by the resumable upload: no PATCH in the stub's log" "$out/stub.log"
+      fi
+      for _ in $(seq 11); do keys Tab; done
+      keys Enter # Delete
+      step "$t: Delete: the post with the picture gone" "Deleted." "Show: (*) Following"
+    else
+      skip "$t: a post with a picture (this ari has no file-pick; transfix/libcvc#1190)"
+    fi
 
     # A reply: the second card's Reply opens the post with the reply box focused.
     for _ in $(seq $((15 + card1_links))); do keys Tab; done

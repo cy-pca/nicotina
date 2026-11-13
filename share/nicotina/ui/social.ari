@@ -76,8 +76,12 @@ units:
             visible_when: (!= (state-get "search.rows.{i}.snippet") "")
 
   # A new post (POST /social/posts): who may see it, then the text. Enter posts it; Shift+Enter
-  # (Alt+Enter in a terminal) starts a new line; ImGui adds a Post button. Text only for now:
-  # attachments need a file picker, which Ariadne doesn't have yet.
+  # (Alt+Enter in a terminal) starts a new line; ImGui adds a Post button. Where the host can pick
+  # and upload a file (app.attach: libcvc 3.7.14), Attach adds files, each listed with a Remove,
+  # and posting uploads them first, the bar showing how far; the Post beside Attach posts what is
+  # written with them, or the files alone. Elsewhere a post is text only. After Attach or Remove
+  # the focus is back in the text, as the reply box takes it (feed.ari): the controller flips
+  # compose.focus, and the copy of the field that appears has autofocus.
   compose_view:
     type: group
     children:
@@ -92,9 +96,50 @@ units:
         send: Post
         autofocus: true
         on: (begin (state-set "compose.send" (get-attr event "text")) (state-set "ui.cmd" "post"))
+        visible_when: (!= (state-get "compose.focus") "b")
+      - message_input: Post
+        bind: compose.text
+        hint: What's happening? (Enter posts it)
+        max_length: 4096
+        max_lines: 8
+        send: Post
+        autofocus: true
+        on: (begin (state-set "compose.send" (get-attr event "text")) (state-set "ui.cmd" "post"))
+        visible_when: (= (state-get "compose.focus") "b")
+      - type: group
+        id: c_files
+        visible_when: (= (state-get "app.attach") "1")
+        children:
+          - type: group
+            repeat: (state-get "compose.files")
+            layout: {kind: horizontal}
+            children:
+              - button: Remove
+                on: (begin (state-set "compose.drop" "{i}") (state-set "ui.cmd" "detach"))
+                disabled_when: (= (state-get "compose.uploading") "1")
+              - text: ""
+                bind: compose.files.{i}.label
+          - type: group
+            layout: {kind: horizontal}
+            children:
+              - button: Attach
+                on: (state-set "ui.cmd" "attach")
+                disabled_when: (= (state-get "compose.uploading") "1")
+                tooltip: Pick files to attach to the post
+              - button: Post
+                on: (begin (state-set "compose.send" (state-get "compose.text")) (state-set "ui.cmd" "post"))
+                visible_when: (> (int (state-get "compose.files")) 0)
+                disabled_when: (= (state-get "compose.uploading") "1")
+          - progress: ""
+            bind: compose.progress
+            visible_when: (= (state-get "compose.uploading") "1")
+      - text: "Text only: this host can't attach files."
+        visible_when: (!= (state-get "app.attach") "1")
+        color: [0.6, 0.6, 0.6]
       - text: ""
         bind: compose.note
         color: [0.6, 0.6, 0.6]
+        visible_when: (!= (state-get "compose.note") "")
 
   # A post's pictures and videos, one at a time, as wide as the window at their own shape (at most
   # 720 px tall) where the host measures the line (image.fill), else in a 592 x 720 px box (592 x

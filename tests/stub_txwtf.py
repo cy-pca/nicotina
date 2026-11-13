@@ -26,6 +26,17 @@ and with the errors tx.wtf answers that the schema doesn't list:
   GET  /social/posts/{id}    Bearer -> PostResponse, with its reactions_summary
   GET  /user/by-username/{name}
                              Bearer -> {id, username, name, avatar_url}: who a mention names
+  POST /social/posts         Bearer, PostCreate -> PostResponse: a post, a reply or a repost;
+                             attachment_ids attaches files the user uploaded
+  POST /social/files         Bearer, multipart/form-data with the file in part "file"
+                             -> FileUploadResponse
+  POST /social/files/resumable  Bearer, {filename, total_size, mime_type} -> {upload_id,
+                             offset, chunk_size, total_size}: a resumable upload, as txwtf's
+  PATCH /social/files/resumable/{id}  Bearer, Upload-Offset: N, the chunk as the body ->
+                             {upload_id, offset, total_size}; 409 with the server's own
+                             Upload-Offset when N is not where the upload is
+  GET  /social/files/resumable/{id}   Bearer -> {upload_id, offset, total_size}
+  POST /social/files/resumable/{id}/complete  Bearer -> FileUploadResponse (409 if short)
   GET  /social/emojis/12/image
                              no auth: the custom emoji :gear:'s picture
   GET  /site/title, /site/description, ... (public); the admin routes (users, groups, invite
@@ -33,7 +44,8 @@ and with the errors tx.wtf answers that the schema doesn't list:
   GET  /uploads/..., /static/img/...
                              no auth (as txwtf's /uploads mount): a small PNG drawn here, the
                              same picture for the same path, or a recording from
-                             tests/fixtures (engine.mp4, lecture.ogg); 404 for a path nothing
+                             tests/fixtures (engine.mp4, lecture.ogg), or a file uploaded
+                             here (/uploads/attached/{id}/{name}); 404 for a path nothing
                              names
 
 Direct messages (ConversationResponse, DMResponse), and the end-to-end encrypted ones as
@@ -87,13 +99,15 @@ answers.
 The tokens are fixed so a test can look for them in output: no output of the
 client may ever contain one. The server itself never prints a token or a
 password. Its log (--log FILE) is one JSON object a line, with the method,
-path, status and whether the request carried a valid bearer token.
+path, status and whether the request carried a valid bearer token; an upload's
+file, once whole, gets a line of its own with its name, size and sha256.
 
   python3 stub_txwtf.py --port 0 --port-file PORTFILE --log LOG
 """
 
 import argparse
 import html
+import hashlib
 import json
 import os
 import re
@@ -101,6 +115,7 @@ import struct
 import sys
 import threading
 import time
+import uuid
 import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote
@@ -744,6 +759,9 @@ class State:
         self.deleted = set()
         self.next_id = 400
         self.viewed = set()  # notification ids marked viewed
+        self.files = {}  # file id -> an uploaded file (upload_record)
+        self.next_file = 900
+        self.resumable = {}  # upload id -> a resumable upload under way
         # Direct messages: conversations by id, each with its plaintext and its sealed messages.
         self.convs = {}
         for c in CONVERSATIONS:
@@ -865,6 +883,48 @@ def public_profile(user_id):
     return None
 
 
+# Uploads: at most this big (txwtf's storage max_file_size is configurable; this keeps the
+# stub's memory bounded), and the chunk size the resumable upload advertises, as txwtf's.
+MAX_UPLOAD = 64 * 1024 * 1024
+RESUMABLE_CHUNK = 8 * 1024 * 1024
+
+
+def upload_record(user, name, mime, data, state):
+    """Keep an uploaded file (state.lock held); its FileUploadResponse."""
+    fid = state.next_file
+    state.next_file += 1
+    url = "/uploads/attached/%d/%s" % (fid, name)
+    state.files[fid] = {"user": user, "name": name, "mime": mime, "data": bytes(data), "url": url}
+    return {"id": fid, "original_name": name, "mime_type": mime, "file_size": len(data),
+            "url": url, "downsampled": False, "original_size": None, "is_encrypted": False,
+            "content_url": "/social/files/%d/content" % fid, "owner_id": USERS[user]["id"],
+            "is_private": False}
+
+
+def multipart_file(content_type, body, field):
+    """The part named `field` of a multipart/form-data body: (filename, mime, bytes), or None."""
+    _, _, boundary = content_type.partition("boundary=")
+    boundary = boundary.strip().strip('"')
+    if not boundary:
+        return None
+    for part in body.split(b"--" + boundary.encode()):
+        head, sep, content = part.partition(b"\r\n\r\n")
+        if not sep:
+            continue
+        headers = head.decode("utf-8", "replace")
+        if 'name="%s"' % field not in headers or "filename=" not in headers:
+            continue
+        filename = headers.split('filename="', 1)[1].split('"', 1)[0]
+        mime = "application/octet-stream"
+        for line in headers.split("\r\n"):
+            if line.lower().startswith("content-type:"):
+                mime = line.split(":", 1)[1].strip()
+        if content.endswith(b"\r\n"):
+            content = content[:-2]
+        return filename.replace("%22", '"'), mime, content
+    return None
+
+
 def make_handler(state):
     class Handler(BaseHTTPRequestHandler):
         server_version = "stub-txwtf/1"
@@ -906,6 +966,15 @@ def make_handler(state):
                 return None
             return body if isinstance(body, dict) else None
 
+        def raw_body(self):
+            n = int(self.headers.get("Content-Length") or 0)
+            return self.rfile.read(n) if n else b""
+
+        def uploaded(self, record):
+            """The log's line for a file uploaded whole: its name, size and sha256."""
+            state.log({"upload": record["name"], "size": len(record["data"]),
+                       "sha256": hashlib.sha256(record["data"]).hexdigest()})
+
         def reply_bytes(self, status, data, content_type):
             self.send_response(status)
             self.send_header("Content-Type", content_type)
@@ -945,6 +1014,10 @@ def make_handler(state):
                 return self.reply(200, value), None
             if method == "GET" and (path.startswith("/uploads/") or path.startswith("/static/")):
                 # no auth, as txwtf serves them
+                with state.lock:
+                    up = next((f for f in state.files.values() if f["url"] == path), None)
+                if up:
+                    return self.reply_bytes(200, up["data"], up["mime"]), None
                 mime, source = FILES.get(path, ("image/png", None))
                 if isinstance(source, str):  # a recording in tests/fixtures
                     with open(os.path.join(FIXTURES, source), "rb") as f:
@@ -1038,6 +1111,8 @@ def make_handler(state):
                 return self.reply(200, {"message": "Marked viewed", "code": 0, "data": None}), user
             if method == "POST" and path == "/social/posts":
                 return self.create_post(user), user
+            if path == "/social/files" or path.startswith("/social/files/resumable"):
+                return self.files(method, path, user), user
             parts = path.split("/")  # ['', 'social', 'posts', ID, ...]
             if path.startswith("/social/posts/") and len(parts) >= 4 and parts[3].isdigit():
                 pid = int(parts[3])
@@ -1086,6 +1161,90 @@ def make_handler(state):
             if path.startswith("/social/dm/") or path.startswith("/e2ee/"):
                 return self.direct(method, path, query, user), user
             return self.reply(404, {"detail": "Not Found"}), user
+
+        def files(self, method, path, user):
+            """POST /social/files, and the resumable upload's endpoints (txwtf's social.py)."""
+            if method == "POST" and path == "/social/files":
+                body = self.raw_body()
+                if len(body) > MAX_UPLOAD + 65536:
+                    return self.reply(413, {"detail": "File too large. Max size: %d bytes" % MAX_UPLOAD})
+                got = multipart_file(self.headers.get("Content-Type", ""), body, "file")
+                if got is None:
+                    return self.reply(422, {"detail": [{"loc": ["body", "file"],
+                                                        "msg": "Field required", "type": "missing"}]})
+                name, mime, data = got
+                with state.lock:
+                    made = upload_record(user, name, mime, data, state)
+                    record = state.files[made["id"]]
+                self.uploaded(record)
+                return self.reply(200, made)
+            if method == "POST" and path == "/social/files/resumable":
+                body = self.json_body() or {}
+                total = body.get("total_size")
+                if not isinstance(total, int) or total <= 0:
+                    return self.reply(400, {"detail": "total_size must be positive"})
+                if total > MAX_UPLOAD:
+                    return self.reply(413, {"detail": "File too large. Max size: %d bytes" % MAX_UPLOAD})
+                upload_id = str(uuid.uuid4())
+                with state.lock:
+                    state.resumable[upload_id] = {
+                        "user": user, "name": body.get("filename") or "upload",
+                        "mime": body.get("mime_type") or "application/octet-stream",
+                        "total": total, "data": bytearray()}
+                return self.reply(200, {"upload_id": upload_id, "offset": 0,
+                                        "chunk_size": RESUMABLE_CHUNK, "total_size": total})
+            parts = path.split("/")  # ['', 'social', 'files', 'resumable', ID, ...]
+            upload_id = parts[4] if len(parts) > 4 else ""
+            with state.lock:
+                up = state.resumable.get(upload_id)
+            if up is None or up["user"] != user:
+                self.raw_body()
+                return self.reply(404, {"detail": "Upload session not found"})
+            rest = "/".join(parts[5:])
+            if method == "GET" and rest == "":
+                return self.reply(200, {"upload_id": upload_id, "offset": len(up["data"]),
+                                        "total_size": up["total"]})
+            if method == "PATCH" and rest == "":
+                chunk = self.raw_body()
+                with state.lock:
+                    have = len(up["data"])
+                    if self.headers.get("Upload-Offset") != str(have):
+                        mismatch = True
+                    else:
+                        mismatch = False
+                        if not chunk:
+                            return self.reply(400, {"detail": "Empty chunk"})
+                        if have + len(chunk) > up["total"]:
+                            return self.reply(413, {"detail": "Chunk exceeds declared total_size"})
+                        up["data"].extend(chunk)
+                        have = len(up["data"])
+                if mismatch:
+                    data = json.dumps({"detail": "Offset mismatch. Expected %d" % have}).encode()
+                    self.send_response(409)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Upload-Offset", str(have))
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return 409
+                return self.reply(200, {"upload_id": upload_id, "offset": have,
+                                        "total_size": up["total"]})
+            if method == "POST" and rest == "complete":
+                self.raw_body()
+                with state.lock:
+                    if len(up["data"]) != up["total"]:
+                        short = len(up["data"])
+                    else:
+                        short = None
+                        state.resumable.pop(upload_id, None)
+                        made = upload_record(user, up["name"], up["mime"], up["data"], state)
+                        record = state.files[made["id"]]
+                if short is not None:
+                    return self.reply(409, {"detail": "Upload incomplete: %d/%d bytes received"
+                                                      % (short, up["total"])})
+                self.uploaded(record)
+                return self.reply(200, made)
+            return self.reply(404, {"detail": "Not Found"})
 
         # --- direct messages and the E2EE key directory -------------------------------------
 
@@ -1253,10 +1412,21 @@ def make_handler(state):
             return self.reply(404, {"detail": "Not Found"})
 
         def create_post(self, user):
-            """POST /social/posts (PostCreate): a post, a reply (reply_to_id) or a repost."""
+            """POST /social/posts (PostCreate): a post, a reply (reply_to_id) or a repost, with
+            the files the user uploaded that attachment_ids names."""
             body = self.json_body()
             if body is None:
                 return self.reply(422, {"detail": "Invalid body"})
+            attached = []
+            for fid in body.get("attachment_ids") or []:
+                with state.lock:
+                    f = state.files.get(fid) if isinstance(fid, int) else None
+                if f is None or f["user"] != user:
+                    return self.reply(404, {"detail": "Attachment %s not found" % fid})
+                attached.append({"id": fid, "filename": f["name"], "mime_type": f["mime"],
+                                 "file_size": len(f["data"]), "url": f["url"],
+                                 "preview_url": None, "display_order": len(attached),
+                                 "alt_text": None, "description": None, "deleted": False})
             content = body.get("content") or ""
             if len(content) > 4096:
                 return self.reply(422, {"detail": "content: at most 4096 characters"})
@@ -1265,13 +1435,13 @@ def make_handler(state):
                 repost = next((p for p in all_posts() if p["id"] == body["repost_id"]), None)
                 if repost is None:
                     return self.reply(404, {"detail": "Post not found"})
-            elif not content.strip():
+            elif not content.strip() and not attached:
                 return self.reply(400, {"detail": "A post needs content or attachments"})
             with state.lock:
                 pid = state.next_id
                 state.next_id += 1
                 made = post(user, pid, "2026-10-31T09:00:00", content, body.get("reply_to_id"),
-                            repost=repost)
+                            repost=repost, attachments=attached)
                 state.made.insert(0, made)
             return self.reply(201, post_response(made, user))
 
@@ -1347,6 +1517,9 @@ def make_handler(state):
 
         def do_DELETE(self):
             self.run("DELETE")
+
+        def do_PATCH(self):
+            self.run("PATCH")
 
         def do_PUT(self):
             self.run("PUT")

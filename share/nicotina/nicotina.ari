@@ -57,6 +57,9 @@ requires:
   - {name: ui.fullscreen, optional: true}  # the viewer's Full screen; without it, the window
   - {name: image.badge, optional: true}  # "+N" over the grid's last tile; else a line under it
   - {name: e2ee-seal, optional: true}  # end-to-end encrypted DMs; without it they stay locked
+  - {name: file-pick, optional: true}  # Attach on a new post; without it, a post is text only
+  - {name: http-upload, optional: true}  # ... and the upload of what Attach picked
+  - {name: file-forget, optional: true}  # ... and Remove, letting go of a picked file
   - json-parse
   - state-set-tree
 
@@ -118,6 +121,9 @@ init: |
   ;; runs: a post's text as rich text, its mentions, hashtags and URLs links (text.runs,
   ;; transfix/libcvc#1180); elsewhere its lines, plain
   (state-set "app.runs" (if (has? "text.runs") "1" ""))
+  ;; attach: a new post's files, picked with the host's file picker and uploaded from the host
+  ;; (file-pick and http-upload, libcvc 3.7.14); elsewhere a post is text only
+  (state-set "app.attach" (if (and (has? "file-pick") (has? "http-upload")) "1" ""))
   ;; icons: the bar's buttons and the feed's choices as symbols (a back arrow, a house, ...),
   ;; where a window draws emoji (text.emoji: libcvc 3.7.13); elsewhere words
   (state-set "app.icons" (if (and (has? "text.emoji") (not (has? "term"))) "1" ""))
@@ -131,8 +137,8 @@ init: |
   (state-set-tree "tags" (dict "rows" (list) "more" "" "offset" 0 "head" ""))
   (state-set-tree "alerts" (dict "rows" (list) "head" "" "badge" "" "badge_n" ""))
   (state-set-tree "search" (dict "q" "" "rows" (list) "note" "Find posts and people."))
-  (state-set-tree "compose" (dict "text" "" "visibility" "Public"
-                                  "note" "Text only for now: attaching files comes later."))
+  (state-set-tree "compose" (dict "text" "" "visibility" "Public" "files" (list) "drop" ""
+                                  "uploading" "" "progress" 0 "focus" "a" "note" ""))
   (state-set-tree "viewer" (dict "url" "" "kind" "" "where" "" "row" "" "i" 0))
   (state-set-tree "dm" (dict "rows" (list) "head" "" "e2ee" "" "keys_line" "" "keys_note" ""
                              "pass" "" "want" "" "lines" (list) "draft" "" "send" ""
@@ -202,7 +208,11 @@ init: |
 #   like, repost  on card act.i's post: a heart (POST or DELETE .../reactions), a repost (POST
 #            /social/posts with repost_id, or DELETE your repost); post-like, post-repost on the
 #            post shown; delete, your own post shown
-#   reply    post.reply_send as a reply to the post shown; post, compose.send as a new post
+#   reply    post.reply_send as a reply to the post shown; post, compose.send as a new post,
+#            with the files compose.files lists (each uploaded first: POST /social/files, or the
+#            resumable upload for one over 8 MiB), or compose.text when the view's Post sent it
+#   attach   the host's file picker: the files picked join compose.files; detach drops the one
+#            compose.drop names
 #   follow, unfollow  the profile shown (POST /social/follow, DELETE /social/follow/{id})
 #   search   search.q (GET /search/search); hit-open and alert-open go where a row points
 #   view-prev, view-next  the viewer's other attachments
@@ -324,6 +334,7 @@ on_tick: |
           (state-set-tree "alerts" (dict "rows" (list) "head" "" "badge" "" "badge_n" ""))
           (state-set-tree "search" (dict "q" "" "rows" (list) "note" "Find posts and people."))
           (state-set "compose.text" "")
+          (state-set-tree "compose.files" (list))
           (state-set-tree "dm.rows" (list))
           (state-set-tree "dm.lines" (list))
           (state-set "dm.draft" "")
@@ -2392,15 +2403,85 @@ on_tick: |
       ;; don't name one, were pressed.
       (defun card-list ()
         (let ((l (text (state-get "act.list")))) (if (= l "") "feed.items" l)))
-      ;; A new post, or a reply (reply_to set): POST /social/posts. Its id, or nil.
-      (defun publish (content reply-to visibility)
-        (let ((r (send-authed "POST" "/social/posts"
-                   (if (= reply-to "")
-                     (dict "content" content "visibility" visibility)
-                     (dict "content" content "visibility" visibility "reply_to_id" (int reply-to))))))
-          (if (ok? r)
-            (text (opt (reply-json r) "id" ""))
-            (begin (act-failed r (if (= reply-to "") "post it" "send the reply")) nil))))
+      ;; A new post, or a reply (reply_to set): POST /social/posts, with the ids of the files it
+      ;; attaches (attachment_ids), if any. Its id, or nil.
+      (defun publish (content reply-to visibility ids)
+        (let ((payload (if (= reply-to "")
+                         (dict "content" content "visibility" visibility)
+                         (dict "content" content "visibility" visibility
+                               "reply_to_id" (int reply-to)))))
+          (begin
+            (if (> (length ids) 0) (set-attr payload "attachment_ids" ids))
+            (let ((r (send-authed "POST" "/social/posts" payload)))
+              (if (ok? r)
+                (text (opt (reply-json r) "id" ""))
+                (begin (act-failed r (if (= reply-to "") "post it" "send the reply")) nil))))))
+      ;; The files a new post attaches (compose.files), as dicts: handle, name, size, type. (A set
+      ;; inside a let binds the let's own name, so the loop's variables are all this let's.)
+      (defun compose-files ()
+        (let ((out (list)) (n (int (state-get "compose.files"))) (at ""))
+          (begin
+            (for i (range n)
+              (begin
+                (set at (str-concat "compose.files." (text i) "."))
+                (set out (append out (dict "handle" (state-get (str-concat at "handle"))
+                                           "name" (state-get (str-concat at "name"))
+                                           "size" (int (state-get (str-concat at "size")))
+                                           "type" (state-get (str-concat at "type"))
+                                           "label" (state-get (str-concat at "label")))))))
+            out)))
+      ;; One file, uploaded as the web app uploads it: in one multipart POST /social/files, or,
+      ;; over 8 MiB, in the resumable upload's chunks (POST /social/files/resumable, then a PATCH
+      ;; per chunk at its Upload-Offset, which the host resumes after a dropped one, then POST
+      ;; .../complete). The host reads the file and sends it; compose.progress shows how far it
+      ;; is. Its id, or nil (the status line says why).
+      (defun upload-file (f)
+        (let ((h (get-attr f "handle")) (size (int (get-attr f "size")))
+              (what (str-concat "upload " (get-attr f "name"))))
+          (if (<= size 8388608)
+            (let ((r (http-upload (str-concat (base) "/social/files") h
+                       (dict "auth" "txwtf" "headers" (dict "Accept" "application/json")
+                             "progress" "compose.progress"))))
+              (if (get-attr r "done") (opt (reply-json r) "id" nil)
+                (begin (act-failed r what) nil)))
+            (let ((s (send-authed "POST" "/social/files/resumable"
+                       (dict "filename" (get-attr f "name") "total_size" size
+                             "mime_type" (get-attr f "type")))))
+              (if (not (ok? s)) (begin (act-failed s what) nil)
+                (let ((url (str-concat (base) "/social/files/resumable/"
+                                       (text (opt (reply-json s) "upload_id" ""))))
+                      (chunk (int (opt (reply-json s) "chunk_size" 8388608))))
+                  (let ((r (http-upload url h
+                             (dict "as" "chunks" "chunk_size" chunk "status_url" url
+                                   "auth" "txwtf" "headers" (dict "Accept" "application/json")
+                                   "progress" "compose.progress"))))
+                    (if (not (get-attr r "done")) (begin (act-failed r what) nil)
+                      (let ((c (send-authed "POST" (str-concat "/social/files/resumable/"
+                                                               (text (opt (reply-json s) "upload_id" ""))
+                                                               "/complete")
+                                            (dict))))
+                        (if (ok? c) (opt (reply-json c) "id" nil)
+                          (begin (act-failed c what) nil)))))))))))
+      ;; The focus back in a new post's text: the other copy of the field appears, with autofocus.
+      (defun compose-refocus ()
+        (state-set "compose.focus" (if (= (state-get "compose.focus") "b") "a" "b")))
+      ;; Every file of a new post, one after another: their ids, or nil when one failed.
+      (defun upload-all (files)
+        (let ((ids (list)) (i 0) (n (length files)) (f nil) (id nil))
+          (begin
+            (state-set "compose.uploading" "1")
+            (while (and (!= (type-of ids) "nil") (< i n))
+              (begin
+                (set f (nth files i))
+                (say (str-concat "Uploading " (get-attr f "name")
+                                 (if (> n 1) (str-concat " (" (text (+ i 1)) " of " (text n) ")") "")
+                                 "..."))
+                (state-set "compose.progress" 0)
+                (set id (upload-file f))
+                (if (= (type-of id) "nil") (set ids nil) (set ids (append ids id)))
+                (set i (+ i 1))))
+            (state-set "compose.uploading" "")
+            ids)))
 
       (try
         (begin
@@ -2542,7 +2623,7 @@ on_tick: |
           (if (= cmd "reply")
             (let ((txt (string.trim (text (state-get "post.reply_send")))))
               (if (= txt "") (say "Write something first.")
-                (let ((id (publish txt (text (state-get "post.pid")) "public")))
+                (let ((id (publish txt (text (state-get "post.pid")) "public" (list))))
                   (if id
                     (begin
                       (state-set "post.reply_text" "")
@@ -2551,15 +2632,45 @@ on_tick: |
                       (new-view) ;; the post again, its reply below: the focus back on Back
                       (say "Replied.")))))))
           (if (= cmd "post")
-            (let ((txt (string.trim (text (state-get "compose.send")))))
-              (if (= txt "") (say "Write something first.")
-                (let ((id (publish txt "" (string.lower (state-get "compose.visibility")))))
-                  (if id
-                    (begin
-                      (state-set "compose.text" "")
-                      ;; the new post takes the composer's place: Back goes where it was opened
-                      (state-set "ui.here" "")
-                      (if (go (str-concat "post|" id)) (say "Posted."))))))))
+            (let ((txt (string.trim (text (state-get "compose.send"))))
+                  (files (compose-files)))
+              (if (and (= txt "") (= (length files) 0)) (say "Write something first.")
+                (let ((ids (upload-all files)))
+                  (if (!= (type-of ids) "nil")
+                    (let ((id (publish txt "" (string.lower (state-get "compose.visibility")) ids)))
+                      (if id
+                        (begin
+                          (state-set "compose.text" "")
+                          (state-set-tree "compose.files" (list))
+                          ;; the new post takes the composer's place: Back goes where it was opened
+                          (state-set "ui.here" "")
+                          (if (go (str-concat "post|" id)) (say "Posted."))))))))))
+          ;; The host's file picker (the system's dialog, a browser's, or in a terminal an Open
+          ;; file window): the files picked join the post's. The program waits while it is open.
+          (if (= cmd "attach")
+            (let ((picked (file-pick (dict "multiple" true "title" "Attach to the post")))
+                  (files (compose-files)))
+              (if (= (length picked) 0) (say "")
+                (begin
+                  (for f picked
+                    (set files (append files
+                                 (dict "handle" (get-attr f "handle") "name" (get-attr f "name")
+                                       "size" (get-attr f "size") "type" (get-attr f "type")
+                                       "label" (str-concat (get-attr f "name") " · "
+                                                           (human-size (get-attr f "size")))))))
+                  (state-set-tree "compose.files" files)
+                  (compose-refocus)
+                  (say (str-concat (text (length files))
+                                   (if (= (length files) 1) " file" " files") " to attach."))))))
+          (if (= cmd "detach")
+            (let ((drop (int (state-get "compose.drop"))) (files (compose-files)) (kept (list)))
+              (begin
+                (for i (range (length files))
+                  (if (= i drop) (file-forget (get-attr (nth files i) "handle"))
+                    (set kept (append kept (nth files i)))))
+                (state-set-tree "compose.files" kept)
+                (compose-refocus)
+                (say ""))))
           (if (or (= cmd "follow") (= cmd "unfollow"))
             (let ((id (text (state-get "prof.id"))))
               (let ((r (if (= cmd "follow")

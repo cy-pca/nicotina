@@ -38,7 +38,7 @@ on TX.WTF is tracked as T-items in the TX.WTF repository.
 | L15 | Rich text: runs with links (hashtags, @mentions, URLs) a click follows, and word wrap, built on the emoji runs of transfix/libcvc#1052 (`runs:` on a `text:`, token `text.runs`: transfix/libcvc#1180) | M2 |
 | L16 | Fullscreen for `video:` and `image:`: the OS window, or the browser's fullscreen | M2 |
 | L17 | `message_input:` tells the document each edit (a live count, and #tag and @mention completion) | M2 |
-| L18 | A file picker that hands the document a host-held file, read in chunks into TX.WTF's resumable upload: attachments | M2 |
+| L18 | A file picker that hands the document a host-held file, read in chunks into TX.WTF's resumable upload: attachments (`file-pick` and `http-upload`, transfix/libcvc#1190; the compose view's Attach) | M2 |
 | L19 | `(time-now)`: the wall clock, for "2h ago" | M2 |
 | L20 | Wheel scrolling of a window in FTXUI and tvision | M2 |
 | L21 | End-to-end encrypted messaging in the host: TX.WTF's X3DH and Double Ratchet over libsodium (X25519, Ed25519, XChaCha20-Poly1305, BLAKE2b, Argon2id backup), wire-compatible with the web app, its keys held by the host as the session token is (never in state). Needs a libsodium package on cvcpkg. Drafted: cy-pca/cvcpkg#612 (libsodium), the libcvc E2EE PR (the `e2ee-*` verbs, `--e2ee-store`), and DMs here (ui/dm.ari) | M2 |
