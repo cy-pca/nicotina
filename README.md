@@ -344,6 +344,13 @@ The client uses only an instance's public API:
   yet, so the whole window scrolls.
 - "In browser" (open a post in the web app) needs libcvc's `open-url` (libcvc 3.7.6 and later).
   Without it, the post's URL is shown instead.
+- A post's text is rich text where the host draws it (the optional capability `text.runs`,
+  transfix/libcvc#1180, in the libcvc release after 3.7.13): bold, italic and code as the post
+  has them, its paragraphs on lines of their own, and its mentions, hashtags and URLs links,
+  wrapped to the card's width (three lines on a card). A hashtag's link opens its posts, a
+  mention's the account's profile, a link to a post here the post. Any other link is copied
+  (Copy link), never opened in a browser. In a terminal each link is a Tab stop and Enter
+  follows it. An older host shows the text as plain lines, as before.
 - Attach on a new post needs libcvc's `file-pick` and `http-upload` (transfix/libcvc#1190,
   not released yet). The file is the host's: the document holds a handle and the host reads and
   sends the file, so its bytes never pass through the document's state. `arigl` asks with the

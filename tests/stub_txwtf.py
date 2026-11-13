@@ -24,6 +24,8 @@ and with the errors tx.wtf answers that the schema doesn't list:
                              for and withheld, one has a custom and a standard emoji (its
                              content_html renders them as txwtf does)
   GET  /social/posts/{id}    Bearer -> PostResponse, with its reactions_summary
+  GET  /user/by-username/{name}
+                             Bearer -> {id, username, name, avatar_url}: who a mention names
   POST /social/posts         Bearer, PostCreate -> PostResponse: a post, a reply or a repost;
                              attachment_ids attaches files the user uploaded
   POST /social/files         Bearer, multipart/form-data with the file in part "file"
@@ -104,9 +106,11 @@ file, once whole, gets a line of its own with its name, size and sha256.
 """
 
 import argparse
+import html
 import hashlib
 import json
 import os
+import re
 import struct
 import sys
 import threading
@@ -350,7 +354,8 @@ def post(author, pid, created, content, reply_to=None, counts=(0, 0, 0, 0), atta
     """A post: counts are replies, reposts, reactions and views. Content is what txwtf stores:
     plain text, or the rich editor's HTML. repost is the reposted post; price makes it a paid
     post this viewer hasn't unlocked, which txwtf withholds. content_html is what txwtf renders
-    when the content has emoji shortcodes (render_content_html)."""
+    (render_content_html): given here for emoji shortcodes, else rendered from the content as
+    the post is answered."""
     return {"author": author, "id": pid, "created": created, "content": content,
             "reply_to": reply_to, "counts": counts, "attachments": list(attachments),
             "repost": repost, "price": price, "content_html": content_html}
@@ -365,6 +370,41 @@ def custom_emoji_html(name, emoji_id):
 
 def unicode_emoji_html(name, char):
     return f'<span class="emoji" title=":{name}:">{char}</span>'
+
+
+# txwtf's links in a post's text (social.py render_content_html, links.py URL_PATTERN): a mention
+# links /user/NAME, a hashtag /tag/NAME, a URL itself; the text is escaped first. Plain text's
+# newlines become <br>; in the rich editor's HTML only the text between tags is linked, and not
+# inside an <a>, <pre> or <code>.
+MENTION = re.compile(r"@(\w+)", re.UNICODE)
+HASHTAG = re.compile(r"(?<!&)#(\w+(?:-\w+)*)", re.UNICODE)
+URL = re.compile(r"https?://(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,63}\.?|localhost|"
+                 r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?::\d+)?(?:/[^\s]*)?", re.IGNORECASE)
+
+
+def link_text(escaped):
+    escaped = MENTION.sub(r'<a href="/user/\1" class="mention">@\1</a>', escaped)
+    escaped = HASHTAG.sub(r'<a href="/tag/\1" class="hashtag">#\1</a>', escaped)
+    return URL.sub(lambda m: f'<a href="{m.group(0)}" target="_blank" rel="noopener noreferrer" '
+                             f'class="post-link" data-original-url="{m.group(0)}">{m.group(0)}</a>',
+                   escaped)
+
+
+def render_content_html(content):
+    if not content:
+        return ""
+    if not re.search(r"<[a-zA-Z][^>]*>", content):
+        return link_text(html.escape(content)).replace("\n", "<br>")
+    out, skip = [], 0
+    for piece in re.split(r"(<[^>]*>)", content):
+        if piece.startswith("<"):
+            name = piece[1:].split()[0].strip("/>").lower() if len(piece) > 2 else ""
+            if name in ("a", "pre", "code"):
+                skip += -1 if piece.startswith("</") else 1
+            out.append(piece)
+        else:
+            out.append(piece if skip > 0 else link_text(piece))
+    return "".join(out)
 
 
 # Each account's posts, newest first.
@@ -413,7 +453,10 @@ FEED = [
          [attachment(904, "/uploads/media/moth.png", 30120, "The moth, taped into the log book")]),
     post("charles", 307, "2026-10-30T12:00:00", "Plans for the Analytical Engine, all of them.",
          None, (0, 0, 2, 40), price="5"),
-    post("alan@peer.example", 306, "2026-10-29T20:00:00", "Can machines think?", None,
+    # A mention and a URL (rendered as links in its content_html): a profile here, and a link
+    # nicotina copies rather than open.
+    post("alan@peer.example", 306, "2026-10-29T20:00:00",
+         "Can machines think? Ask @ada, or read https://example.org/computing-machinery", None,
          (40, 12, 88, 2000)),
     post("grace", 305, "2026-10-29T16:20:00", "Notes from the COBOL meeting, and the log.", None,
          (1, 0, 4, 60),
@@ -514,7 +557,8 @@ def post_response(p, viewer=None):
         # txwtf withholds a locked post's content and attachments (_redact_locked_post)
         "content": f"\U0001f512 This post is locked. Pay {p['price']} scrip to unlock." if locked
         else p["content"],
-        "content_html": None if locked else p["content_html"],
+        "content_html": None if locked else (p["content_html"] if p["content_html"] is not None
+                                             else render_content_html(p["content"])),
         "visibility": "public",
         "reply_to_id": p["reply_to"],
         "repost_id": r["id"] if r else None,
@@ -1017,6 +1061,14 @@ def make_handler(state):
                 return self.reply(200, tag_list(query)), user
             if method == "GET" and path == "/search/search":
                 return self.reply(200, search(query.get("q", [""])[0], user)), user
+            if method == "GET" and path.startswith("/user/by-username/"):
+                # who a mention names (txwtf's get_user_by_username: id, username, name, avatar)
+                name = path.rsplit("/", 1)[1]
+                u = USERS.get(name) or AUTHORS.get(name)
+                if u is None:
+                    return self.reply(404, {"detail": "User not found"}), user
+                return self.reply(200, {"id": u["id"], "username": name, "name": u["name"],
+                                        "avatar_url": u.get("avatar_url", DEFAULT_AVATAR)}), user
             if method == "GET" and path.startswith("/user/profile/"):
                 tail = path.rsplit("/", 1)[1]
                 found = public_profile(int(tail)) if tail.isdigit() else None

@@ -35,7 +35,7 @@ on TX.WTF is tracked as T-items in the TX.WTF repository.
 | L12 | `{i}` substituted in a repeated widget's `on_click`, `on_hover`, `on_drag*`, `on_top`, `hint` and `send` (today only `on:` and the binds are) | M2 |
 | L13 | A whole group clickable (`on_click:` on a card), with a hover highlight; in a terminal the group takes the focus and Enter fires it. Then a card opens its post and a picture the viewer | M2 |
 | L14 | `(clipboard-set TEXT)`: the system clipboard in ImGui and the browser, OSC 52 in a terminal. Copy link | M2 |
-| L15 | Rich text: runs with links (hashtags, @mentions, URLs) a click follows, and word wrap, built on the emoji runs of transfix/libcvc#1052 | M2 |
+| L15 | Rich text: runs with links (hashtags, @mentions, URLs) a click follows, and word wrap, built on the emoji runs of transfix/libcvc#1052 (`runs:` on a `text:`, token `text.runs`: transfix/libcvc#1180) | M2 |
 | L16 | Fullscreen for `video:` and `image:`: the OS window, or the browser's fullscreen | M2 |
 | L17 | `message_input:` tells the document each edit (a live count, and #tag and @mention completion) | M2 |
 | L18 | A file picker that hands the document a host-held file, read in chunks into TX.WTF's resumable upload: attachments (`file-pick` and `http-upload`, transfix/libcvc#1190; the compose view's Attach) | M2 |
@@ -84,6 +84,11 @@ on TX.WTF is tracked as T-items in the TX.WTF repository.
     counts are icons to press (reply, repost, like, coloured once you have); its hashtags are chips
     to click; Copy link; the viewer's Full screen. A terminal and older hosts keep the buttons.
     Hashtags clickable inside the text, and text that wraps as the window narrows, wait for L15.
+  - Drafted, for the libcvc release after 3.7.13 (L15): a post's text as rich text, read from
+    txwtf's `content_html` as the emoji are: bold, italic and code, its paragraphs, and its
+    mentions, hashtags and URLs links. A hashtag opens its posts, a mention the profile
+    (`GET /user/by-username/{name}`), a post link the post; anything else is copied. On cards
+    (three lines), a post opened whole and its replies (two lines). Older hosts keep the lines.
   - Next, with L12-L20 (transfix/libcvc, the next release): a card and a picture clickable,
     Copy link, fullscreen video, hashtags and mentions clickable in the text, a live character
     count, "2h ago", attachments, wheel scrolling in a terminal. Then direct messages: plain

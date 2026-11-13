@@ -121,6 +121,12 @@ tokens_from() { awk '!/^#/ && NF == 3 { print $3 }' "$1" >>"$work/secrets"; }
 pictures=
 "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement image.url" || pictures=1
 ada_card="(AL) Ada Lovelace"
+# Whether this ari draws a post's text as rich text (text.runs, transfix/libcvc#1180), as run.sh
+# asks: then a post's #hashtag is a link in its text, one more focus stop before its Tags.
+runs=
+"$ARI" check --net "$main" 2>&1 | grep -q "optional requirement text.runs" || runs=1
+post_links=0
+[ -n "$runs" ] && post_links=1
 # The bar along the main window's top: its seven buttons are the first seven focus stops, and
 # each new view starts with the focus on Back (stop 1): Tab k times reaches stop k + 1.
 bar="[ Back ][ Home ][ Tags ][ Search ][ Alerts ][ Profile ][ Post ][ DMs ]"
@@ -201,13 +207,13 @@ for backend in ftxui tvision; do
   keys Enter
   step "$t: posted: the post, with its hashtag" "Posted." \
     "Hello from nicotina on $backend. #nicotina" "Tags: (*) #nicotina" "[ Delete ]"
-  for _ in $(seq 9); do keys Tab; done
-  keys Enter # Open tag
+  for _ in $(seq $((9 + post_links))); do keys Tab; done
+  keys Enter # Open tag (past the bar, the text's #nicotina where it is a link, and Tags)
   step "$t: the hashtag's posts, from the server" "#nicotina  ·  1 post" \
     "Hello from nicotina on $backend. #nicotina"
   keys Enter # Back
   step "$t: Back: the post" "Hello from nicotina on $backend. #nicotina" "[ Delete ]"
-  for _ in $(seq 13); do keys Tab; done
+  for _ in $(seq $((13 + post_links))); do keys Tab; done
   keys Enter # Delete
   step "$t: deleted: back to the feed" "Deleted." "Show: (*) Following"
   # A post with a picture, where the host picks and uploads files (file-pick, http-upload): the
