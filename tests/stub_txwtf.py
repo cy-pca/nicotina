@@ -37,12 +37,34 @@ and with the errors tx.wtf answers that the schema doesn't list:
   POST /social/files/resumable/{id}/complete  Bearer -> FileUploadResponse (409 if short)
   GET  /social/emojis/12/image
                              no auth: the custom emoji :gear:'s picture
+  GET  /site/title, /site/description, ... (public); the admin routes (users, groups, invite
+                             codes, site settings, the system log) are in tests/stub_admin.py
   GET  /uploads/..., /static/img/...
                              no auth (as txwtf's /uploads mount): a small PNG drawn here, the
                              same picture for the same path, or a recording from
                              tests/fixtures (engine.mp4, lecture.ogg), or a file uploaded
                              here (/uploads/attached/{id}/{name}); 404 for a path nothing
                              names
+
+Direct messages (ConversationResponse, DMResponse), and the end-to-end encrypted ones as
+txwtf/api/e2ee.py keeps them: opaque ciphertext and per-recipient wrapped keys, never a key
+it could open them with:
+
+  GET  /social/dm/conversations            Bearer -> the user's conversations, latest first
+  POST /social/dm/conversations?other_user_id=N
+                                           -> the 1:1 conversation with N, made if need be
+  GET  /social/dm/conversations/{id}/messages?limit=&before_id=
+                                           -> DMResponse list, newest first ([] once encrypted)
+  POST /social/dm/conversations/{id}/messages {content}  -> DMResponse (409 once encrypted)
+  POST /social/dm/conversations/{id}/read  -> {"message": ...}
+  POST /e2ee/keys, POST /e2ee/keys/one-time, GET /e2ee/keys/me, GET /e2ee/keys/{username}
+                                           the key directory (a bundle consumes a one-time key)
+  PUT, GET, DELETE /e2ee/backup            the passphrase-wrapped backup, opaque
+  POST /e2ee/dm/conversations/{id}/encrypt, POST and GET /e2ee/dm/conversations/{id}/messages
+
+ada's conversations: 900 with grace (plaintext, three messages), 901 with charles (encrypted on
+a device that isn't here: ciphertext with no envelope for ada), 902 with mary (encrypted, empty:
+a peer script, tests/e2ee_peer.js, writes in it).
 
 Accounts (password "correct horse" for all of them):
 
@@ -56,6 +78,13 @@ Accounts (password "correct horse" for all of them):
   bob@peer.example
          a brokered account, named as txwtf names one: <user>@<home domain>. Like a real
          one it has no password here (resumed only)
+
+  eve, ivy
+         the emailed second factor too (codes 654321 and 765432): the accounts the admin tests
+         disable, enable and turn two-step sign-in off for, one for each terminal backend (no
+         API turns the second factor back on)
+
+ada is the instance's administrator (is_admin): the admin routes answer her alone.
 
 The instance may sit below a path (--instance http://host:port/txwtf): a route matches from
 the first of its known top-level segments (/user/, /billing/, /social/, /uploads/, /static/).
@@ -85,13 +114,20 @@ import time
 import uuid
 import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, unquote
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # python -I leaves it out
+import stub_admin  # noqa: E402
 
 PASSWORD = "correct horse"
 TOP_LEVEL = ("/user/", "/billing/", "/social/", "/uploads/", "/static/", "/notifications",
-             "/search/", "/site/")
+             "/search/", "/site/", "/group/", "/invite/", "/logs/", "/perms/", "/e2ee/")
 TWO_FACTOR_CODE = "123456"
 CHALLENGE = "Q9mUj4Z1x0bR7nVt2LcYw8sDp3HkGfA5"
+# Each account with the second factor: its challenge and its emailed code.
+CHALLENGES = {"grace": (CHALLENGE, TWO_FACTOR_CODE),
+              "eve": ("Ev7nTq2LmW9xKc4RbY1sZd8HgJ3pFa6U", "654321"),
+              "ivy": ("Iv4wPn8QaT2mZr6YcB9kLd3HsX7gFj1E", "765432")}
 
 # JWT-shaped, as txwtf's are. Tests import these to scan output for them.
 TOKENS = {
@@ -101,6 +137,8 @@ TOKENS = {
     "mary": "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjo0LCJ1dWlkIjoibWFyeSJ9.c3R1Yi1zaWctbWFyeS1uaWNvdGluYQ",
     "bob@peer.example": "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjo1LCJ1dWlkIjoiYm9iIn0.c3R1Yi1zaWctYm9iLXBlZXItZXhhbXA",
     "slowpoke": "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjo2LCJ1dWlkIjoic2xvdyJ9.c3R1Yi1zaWctc2xvd3Bva2UtbmljbwA",
+    "eve": "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjo5LCJ1dWlkIjoiZXZlIn0.c3R1Yi1zaWctZXZlLW5pY290aW5hLWFk",
+    "ivy": "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoxMCwidXVpZCI6Iml2eSJ9.c3R1Yi1zaWctaXZ5LW5pY290aW5hLWFk",
 }
 # A well-formed token this server never issued: a session that has expired.
 STALE_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoxLCJ1dWlkIjoib2xkIn0.c3R1Yi1zaWctZXhwaXJlZC10b2tlbg"
@@ -187,6 +225,34 @@ USERS = {
         "shadow": True,
         # a video avatar, which txwtf's web app plays as a muted loop
         "avatar_url": "/uploads/u5/avatar-loop.mp4",
+        "balance": "0E-10",
+        "runway_days": None,
+        "cents": 0,
+        "groups": ["users"],
+    },
+    "eve": {
+        "id": 9,
+        "name": "Eve Example",
+        "email": "eve@example.org",
+        "description": None,
+        "post_count": 0,
+        "created_time": "2026-04-01T08:00:00",
+        "login_2fa_email_enabled": True,
+        "force_password_change": False,
+        "balance": "0E-10",
+        "runway_days": None,
+        "cents": 0,
+        "groups": ["users"],
+    },
+    "ivy": {
+        "id": 10,
+        "name": "Ivy Lane",
+        "email": "ivy@example.org",
+        "description": None,
+        "post_count": 0,
+        "created_time": "2026-04-02T08:00:00",
+        "login_2fa_email_enabled": True,
+        "force_password_change": False,
         "balance": "0E-10",
         "runway_days": None,
         "cents": 0,
@@ -391,9 +457,38 @@ REACTIONS = {312: [{"emoji": "thumbsup", "count": 12}, {"emoji": "heart", "count
              308: [{"emoji": "bug", "count": 30}, {"emoji": "laughing", "count": 3}]}
 
 
+# ada's direct messages, oldest first (DirectMessage), by conversation.
+CONVERSATIONS = [
+    {"id": 900, "a": "ada", "b": "grace", "encrypted": False, "created_at": "2026-10-20T10:00:00",
+     "messages": [
+         ("grace", "2026-10-31T08:58:00", "Ada, did you see Charles's engine post?"),
+         ("ada", "2026-10-31T09:02:00", "I did. The carry mechanism is lovely."),
+         ("grace", "2026-10-31T09:10:00", "Lunch on Thursday? I'll bring the compiler notes, "
+                                          "all three binders of them, and the bugs we found."),
+     ]},
+    {"id": 901, "a": "ada", "b": "charles", "encrypted": True, "created_at": "2026-10-22T10:00:00",
+     "messages": []},
+    {"id": 902, "a": "ada", "b": "mary", "encrypted": True, "created_at": "2026-10-25T10:00:00",
+     "messages": []},
+]
+# 901's encrypted messages, sealed on charles's and ada's other devices: opaque here, and with no
+# X3DH envelope a device without that session could start from.
+SEALED_ELSEWHERE = [
+    {"id": 7001, "sender": "charles", "at": "2026-10-29T12:00:00",
+     "ciphertext": "c3RhbmQtaW4gY2lwaGVydGV4dCwgbm90IGEgcmVhbCBvbmU=",
+     "wrapped_key": "c3RhbmQtaW4gd3JhcHBlZCBrZXk=",
+     "header": "eyJkaCI6IkFBRUNBd1FGQmdjSUNRb0xEQTBPRHhBUkVoTVVGUllYR0JrYUd4d2RIaDg9IiwicG4iOjAsIm4iOjB9"},
+    {"id": 7002, "sender": "ada", "at": "2026-10-29T12:05:00",
+     "ciphertext": "YW5vdGhlciBzdGFuZC1pbg==", "wrapped_key": None, "header": None},
+]
+
+
 # What the people signed in have done since the stub started: their likes, follows and posts.
 # main() makes it; post_response reads it for the viewer's own fields.
 LIVE = None
+# The admin side (tests/stub_admin.py): accounts disabled, admins, groups, invite codes, the
+# site's settings, the system log. main() makes it.
+ADMIN = None
 
 
 def all_posts():
@@ -623,6 +718,23 @@ class State:
         self.files = {}  # file id -> an uploaded file (upload_record)
         self.next_file = 900
         self.resumable = {}  # upload id -> a resumable upload under way
+        # Direct messages: conversations by id, each with its plaintext and its sealed messages.
+        self.convs = {}
+        for c in CONVERSATIONS:
+            self.convs[c["id"]] = {
+                "id": c["id"], "a": c["a"], "b": c["b"], "encrypted": c["encrypted"],
+                "created_at": c["created_at"],
+                "plain": [{"id": 80000 + 10 * c["id"] + i, "sender": m[0], "at": m[1],
+                           "content": m[2]} for i, m in enumerate(c["messages"])],
+                "sealed": [dict(m, envelope=None, algorithm="dr-v1",
+                                keys={"ada": {"wrapped_key": m["wrapped_key"], "header": m["header"]}}
+                                if m["wrapped_key"] else {})
+                           for m in (SEALED_ELSEWHERE if c["id"] == 901 else [])],
+            }
+        self.next_conv = 950
+        self.next_dm = 90000
+        self.keys = {}     # username -> the published identity, signed prekey, one-time prekeys
+        self.backups = {}  # username -> the backup blob, as given
 
     def log(self, entry):
         if not self.log_path:
@@ -663,7 +775,7 @@ DEFAULT_AVATAR = "/static/img/atxcf_logo_small.jpg"
 
 def profile_response(username):
     u = USERS[username]
-    return {
+    body = {
         "id": u["id"],
         "username": username,
         "email": u["email"],
@@ -698,10 +810,15 @@ def profile_response(username):
             for i, g in enumerate(u["groups"])
         ],
     }
+    return ADMIN.patch_profile(username, body) if ADMIN else body
 
 
 def names_by_id():
     return {v["id"]: n for n, v in list(USERS.items()) + list(AUTHORS.items())}
+
+
+def names_to_id(username):
+    return (USERS.get(username) or AUTHORS[username])["id"]
 
 
 def public_profile(user_id):
@@ -711,13 +828,14 @@ def public_profile(user_id):
             return profile_response(n)
     for n, a in AUTHORS.items():
         if a["id"] == user_id:
-            return {"id": a["id"], "username": n, "name": a["name"],
+            body = {"id": a["id"], "username": n, "name": a["name"],
                     "avatar_url": a.get("avatar_url", DEFAULT_AVATAR), "header_image_url": None,
                     "card_image_url": None, "profile_bg_url": None, "description": None,
                     "created_time": "2025-01-01T00:00:00", "last_login_country": a.get("country"),
                     "view_count": 10, "post_count": sum(1 for p in all_posts() if p["author"] == n),
                     "status": a.get("status", "offline"), "is_admin": False, "emblems": [],
                     "groups": [], "enabled": True}
+            return ADMIN.patch_profile(n, body) if ADMIN else body
     return None
 
 
@@ -787,7 +905,13 @@ def make_handler(state):
                 return None, "Not authenticated"
             with state.lock:
                 user = state.live.get(token)
+            if user and ADMIN and ADMIN.disabled(user):  # an admin disabled the account
+                return None, f"Disabled user {user}({names_to_id(user)}) (DisabledUser)"
             return (user, None) if user else (None, "Invalid token (InvalidTokenSignature)")
+
+        def profile_of(self, username):
+            """GET /user/profile/{id}'s answer for an account (stub_admin's routes reply with it)."""
+            return public_profile(names_to_id(username))
 
         def json_body(self):
             n = int(self.headers.get("Content-Length") or 0)
@@ -837,9 +961,13 @@ def make_handler(state):
                 gear = png(32, 32, lambda x, y: (120, 120, 130) if 64 <= (x - 16) ** 2 + (y - 16) ** 2
                            <= 196 else (250, 200, 60))
                 return self.reply_bytes(200, gear, "image/png"), None
-            if method == "GET" and path == "/site/title":
-                # the site's name, public as txwtf's: the client's window is titled by it
-                return self.reply(200, "TX.WTF"), None
+            if method == "GET" and path.startswith("/site/"):
+                # the site's settings, public as txwtf's: the client's window is titled by
+                # /site/title; the Admin view's Site section shows the rest
+                value = ADMIN.site_value(path[len("/site/"):]) if ADMIN else None
+                if value is None:
+                    return self.reply(404, {"detail": "Not Found"}), None
+                return self.reply(200, value), None
             if method == "GET" and (path.startswith("/uploads/") or path.startswith("/static/")):
                 # no auth, as txwtf serves them
                 with state.lock:
@@ -858,6 +986,10 @@ def make_handler(state):
             user, refused = self.bearer_user()
             if refused:
                 return self.reply(401, {"detail": refused}), None
+            if ADMIN:
+                done = ADMIN.handle(self, method, unquote(path), query, user)
+                if done:
+                    return done[0], user
             if method == "GET" and path == "/user/":
                 time.sleep(USERS[user].get("profile_delay", 0))  # a slow instance, for the spinner
                 return self.reply(200, profile_response(user)), user
@@ -974,6 +1106,8 @@ def make_handler(state):
                     self.reply(200, {"message": "Successfully logged out", "code": 1, "data": None}),
                     user,
                 )
+            if path.startswith("/social/dm/") or path.startswith("/e2ee/"):
+                return self.direct(method, path, query, user), user
             return self.reply(404, {"detail": "Not Found"}), user
 
         def files(self, method, path, user):
@@ -1060,6 +1194,171 @@ def make_handler(state):
                 return self.reply(200, made)
             return self.reply(404, {"detail": "Not Found"})
 
+        # --- direct messages and the E2EE key directory -------------------------------------
+
+        def conv_response(self, c, user):
+            ids = {n: USERS.get(n, AUTHORS.get(n, {})).get("id") for n in (c["a"], c["b"])}
+            msgs = [m["at"] for m in c["plain"]] + [m["at"] for m in c["sealed"]]
+            return {"id": c["id"], "name": None, "is_group": False,
+                    "participant_1_id": ids[c["a"]], "participant_2_id": ids[c["b"]],
+                    "creator_id": ids[c["a"]], "last_message_at": max(msgs) if msgs else None,
+                    "created_at": c["created_at"], "default_message_ttl": None,
+                    "is_encrypted": c["encrypted"]}
+
+        def dm_response(self, c, m):
+            sid = USERS.get(m["sender"], AUTHORS.get(m["sender"], {})).get("id")
+            return {"id": m["id"], "conversation_id": c["id"], "sender_id": sid,
+                    "content": m["content"], "content_html": None, "created_at": m["at"],
+                    "attachments": None, "is_paid_content": False, "price_scrip": None,
+                    "is_locked": False, "unlock_count": 0, "reaction_count": 0, "reactions": None,
+                    "is_system": False}
+
+        def sealed_response(self, c, m, user):
+            """As txwtf/core/e2ee_dm.py's _serialize_message gives it to `user`."""
+            sid = USERS.get(m["sender"], AUTHORS.get(m["sender"], {})).get("id")
+            mine = m["sender"] == user
+            key = m["keys"].get(user)
+            return {"id": m["id"], "conversation_id": c["id"], "sender_id": sid,
+                    "algorithm": m["algorithm"], "envelope": m["envelope"],
+                    "is_paid_content": False, "price_scrip": None, "unlock_count": 0,
+                    "is_ephemeral": False, "expires_at": None, "reaction_count": 0,
+                    "is_sender": mine, "locked": False, "created_at": m["at"],
+                    "ciphertext": m["ciphertext"] if mine or key else None,
+                    "wrapped_key": key["wrapped_key"] if key and not mine else None,
+                    "header": key["header"] if key and not mine else None}
+
+        def direct(self, method, path, query, user):
+            parts = path.strip("/").split("/")
+            body = self.json_body() if method in ("POST", "PUT") else {}
+            if body is None:
+                return self.reply(422, {"detail": "Invalid body"})
+            with state.lock:
+                # the key directory
+                if parts[:2] == ["e2ee", "keys"]:
+                    return self.key_directory(method, parts[2:], body, user)
+                if parts == ["e2ee", "backup"]:
+                    if method == "PUT":
+                        state.backups[user] = body
+                        return self.reply(200, {"stored": True})
+                    if method == "DELETE":
+                        return self.reply(200, {"deleted": state.backups.pop(user, None) is not None})
+                    if user not in state.backups:
+                        return self.reply(404, {"detail": "No key backup (E2EEBackupNotFound)"})
+                    return self.reply(200, state.backups[user])
+                # conversations
+                if parts == ["social", "dm", "conversations"]:
+                    if method == "GET":
+                        mine = [c for c in state.convs.values() if user in (c["a"], c["b"])]
+                        out = [self.conv_response(c, user) for c in mine]
+                        out.sort(key=lambda c: c["last_message_at"] or c["created_at"], reverse=True)
+                        return self.reply(200, out)
+                    other = names_by_id().get(int((query.get("other_user_id") or ["0"])[0]))
+                    if other is None:
+                        return self.reply(404, {"detail": "User not found"})
+                    for c in state.convs.values():
+                        if {c["a"], c["b"]} == {user, other}:
+                            return self.reply(200, self.conv_response(c, user))
+                    c = {"id": state.next_conv, "a": user, "b": other, "encrypted": False,
+                         "created_at": "2026-11-01T10:00:00", "plain": [], "sealed": []}
+                    state.next_conv += 1
+                    state.convs[c["id"]] = c
+                    return self.reply(200, self.conv_response(c, user))
+                cid = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else None
+                c = state.convs.get(cid)
+                if c is None or user not in (c["a"], c["b"]):
+                    return self.reply(403 if c else 404, {"detail": "Conversation not found"})
+                other = c["b"] if user == c["a"] else c["a"]
+                rest = parts[4:]
+                if parts[:2] == ["social", "dm"] and rest == ["messages"]:
+                    if method == "GET":
+                        if c["encrypted"]:
+                            return self.reply(200, [])  # the legacy plaintext is hidden
+                        limit = int((query.get("limit") or ["50"])[0])
+                        return self.reply(200, [self.dm_response(c, m)
+                                                for m in reversed(c["plain"])][:limit])
+                    if c["encrypted"]:
+                        return self.reply(409, {"detail": "Conversation is end-to-end encrypted "
+                                                          "(E2EEConversationEncrypted)"})
+                    content = body.get("content") or ""
+                    if not content.strip() or len(content) > 4096:
+                        return self.reply(422, {"detail": "content: 1 to 4096 characters"})
+                    m = {"id": state.next_dm, "sender": user, "at": "2026-11-01T10:30:00",
+                         "content": content}
+                    state.next_dm += 1
+                    c["plain"].append(m)
+                    return self.reply(200, self.dm_response(c, m))
+                if parts[:2] == ["social", "dm"] and rest == ["read"]:
+                    return self.reply(200, {"message": "Marked read"})
+                if parts[:2] == ["e2ee", "dm"] and rest == ["encrypt"]:
+                    c["encrypted"] = True
+                    return self.reply(200, {"conversation_id": c["id"], "is_encrypted": True})
+                if parts[:2] == ["e2ee", "dm"] and rest == ["messages"]:
+                    if method == "GET":
+                        return self.reply(200, {"messages": [self.sealed_response(c, m, user)
+                                                             for m in reversed(c["sealed"])]})
+                    by = {}
+                    for k in body.get("recipient_keys") or []:
+                        r = k.get("recipient")
+                        name = names_by_id().get(r) if isinstance(r, int) else r
+                        by[name] = {"wrapped_key": k.get("wrapped_key"), "header": k.get("header")}
+                    if set(by) != {other} or not body.get("ciphertext"):
+                        return self.reply(400, {"detail": "recipient_keys must cover exactly the "
+                                                          "other participants (E2EERecipientKeyMissing)"})
+                    m = {"id": state.next_dm, "sender": user, "at": "2026-11-01T10:30:00",
+                         "ciphertext": body["ciphertext"],
+                         "algorithm": body.get("algorithm") or "dr-v1",
+                         "envelope": body.get("envelope"), "keys": by}
+                    state.next_dm += 1
+                    c["sealed"].append(m)
+                    c["encrypted"] = True
+                    return self.reply(200, {"id": m["id"], "conversation_id": c["id"],
+                                            "sender_id": USERS[user]["id"], "is_paid_content": False,
+                                            "is_ephemeral": False, "created_at": m["at"]})
+            return self.reply(404, {"detail": "Not Found"})
+
+        def key_directory(self, method, rest, body, user):
+            """POST /e2ee/keys[/one-time], GET /e2ee/keys/me, GET /e2ee/keys/{username}."""
+            if method == "POST" and rest == []:
+                old = state.keys.get(user)
+                same = old and old["identity_key_ed25519"] == body.get("identity_key_ed25519")
+                spk = body.get("signed_prekey") or {}
+                if not (isinstance(spk, dict) and spk.get("public_key") and spk.get("signature")
+                        and body.get("identity_key_ed25519") and body.get("identity_key_x25519")):
+                    return self.reply(400, {"detail": "Invalid key material (E2EEInvalidKeyMaterial)"})
+                # a new identity wipes the old one's prekeys, as txwtf's publish_identity does
+                opks = (old["opks"] if same else []) + list(body.get("one_time_prekeys") or [])
+                state.keys[user] = {"identity_key_ed25519": body["identity_key_ed25519"],
+                                    "identity_key_x25519": body["identity_key_x25519"],
+                                    "registration_id": body.get("registration_id") or 0,
+                                    "signed_prekey": spk, "opks": opks}
+                return self.reply(200, {"published": True, "available_one_time_prekeys": len(opks)})
+            if method == "POST" and rest == ["one-time"]:
+                k = state.keys.get(user)
+                if not k:
+                    return self.reply(404, {"detail": "No published keys (E2EEKeysNotFound)"})
+                added = list(body.get("one_time_prekeys") or [])
+                k["opks"] += added
+                return self.reply(200, {"added": len(added),
+                                        "available_one_time_prekeys": len(k["opks"])})
+            if method == "GET" and len(rest) == 1:
+                name = user if rest[0] == "me" else rest[0]
+                if name not in USERS and name not in AUTHORS:
+                    return self.reply(404, {"detail": "User not found"})
+                k = state.keys.get(name)
+                if not k:
+                    return self.reply(404 if rest[0] == "me" else 409,
+                                      {"detail": "No published keys (E2EEKeysNotFound)"})
+                out = {"user_id": USERS.get(name, AUTHORS.get(name, {})).get("id"), "username": name,
+                       "registration_id": k["registration_id"],
+                       "identity_key_ed25519": k["identity_key_ed25519"],
+                       "identity_key_x25519": k["identity_key_x25519"],
+                       "signed_prekey": k["signed_prekey"]}
+                if rest[0] != "me":  # a bundle for another user consumes one one-time prekey
+                    out["one_time_prekey"] = k["opks"].pop(0) if k["opks"] else None
+                out["available_one_time_prekeys"] = len(k["opks"])
+                return self.reply(200, out)
+            return self.reply(404, {"detail": "Not Found"})
+
         def create_post(self, user):
             """POST /social/posts (PostCreate): a post, a reply (reply_to_id) or a repost, with
             the files the user uploaded that attachment_ids names."""
@@ -1095,6 +1394,10 @@ def make_handler(state):
             return self.reply(201, post_response(made, user))
 
         def sign_in(self, username):
+            if ADMIN and ADMIN.disabled(username):
+                # as txwtf's authorized_session_launch refuses it (after the code too, for one
+                # disabled while its code was out)
+                return self.reply(400, {"detail": f"Disabled user {USERS[username]['id']} (DisabledUser)"})
             with state.lock:
                 state.live[TOKENS[username]] = username
             return self.reply(200, login_response(username))
@@ -1115,13 +1418,17 @@ def make_handler(state):
                 return self.reply(400, {"detail": "Access denied! (UserPasswordIncorrect)"})
             if body["password"] != PASSWORD:
                 return self.reply(400, {"detail": "Access denied! (UserPasswordIncorrect)"})
-            if USERS[username]["login_2fa_email_enabled"]:
+            # The emailed code, where the account has it (an administrator may have turned it
+            # off: stub_admin). A disabled account gets none, as txwtf's execute_login: it is
+            # refused here (sign_in), after the password.
+            uses_code = ADMIN.uses_code(username) if ADMIN else USERS[username]["login_2fa_email_enabled"]
+            if uses_code and not (ADMIN and ADMIN.disabled(username)):
                 return self.reply(
                     200,
                     {
                         "two_factor_required": True,
                         "method": "email",
-                        "challenge": CHALLENGE,
+                        "challenge": CHALLENGES[username][0],
                         "expires_in": 300,
                     },
                 )
@@ -1129,8 +1436,9 @@ def make_handler(state):
 
         def login_2fa(self):
             body = self.json_body() or {}
-            if body.get("challenge") == CHALLENGE and body.get("code") == TWO_FACTOR_CODE:
-                return self.sign_in("grace")
+            for username, (challenge, code) in CHALLENGES.items():
+                if body.get("challenge") == challenge and body.get("code") == code:
+                    return self.sign_in(username)
             return self.reply(
                 400, {"detail": "Invalid or expired verification code (LoginChallengeInvalid)"}
             )
@@ -1161,6 +1469,9 @@ def make_handler(state):
         def do_PATCH(self):
             self.run("PATCH")
 
+        def do_PUT(self):
+            self.run("PUT")
+
     return Handler
 
 
@@ -1179,9 +1490,14 @@ def main():
     )
     args = ap.parse_args()
 
-    global LIVE
+    global LIVE, ADMIN
     state = State(args.log)
     LIVE = state
+    ADMIN = stub_admin.Admin(
+        {**USERS, **AUTHORS},
+        avatar_of=lambda n: (USERS.get(n) or AUTHORS[n]).get("avatar_url", DEFAULT_AVATAR),
+        posts_of=lambda n: USERS[n]["post_count"] if n in USERS
+        else sum(1 for p in all_posts() if p["author"] == n))
     for user in args.signed_in:
         state.live[TOKENS[user]] = user
     server = ThreadingHTTPServer((args.host, args.port), make_handler(state))

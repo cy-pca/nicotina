@@ -1,0 +1,102 @@
+# Direct messages: the TX.WTF window's Messages (the bar's DMs), as the web app's.
+#
+#   dms   your conversations, the latest first: who, and when it last had a message. Open goes
+#         to one. Under them, what this host does with end-to-end encrypted ones, and your keys.
+#   dm    one conversation: its person, its last messages, oldest first, and a box to write in.
+#
+# A conversation is plaintext, or end-to-end encrypted (TX.WTF's lock): then the host seals and
+# opens its messages (the e2ee-* verbs, libcvc 3.7.14) with keys it keeps itself, and this
+# document never holds one. On a host without them (or whose key store did not open) an
+# encrypted conversation stays locked, saying why. The keys are this device's: a backup under a
+# passphrase (TX.WTF keeps it, opaque) lets another device read them.
+#
+# A terminal is 80x24 here too: every row fits the window's 74 columns.
+
+units:
+  dms_view:
+    type: group
+    children:
+      - type: group
+        layout: {kind: horizontal}
+        children:
+          - text: ""
+            bind: dm.head
+            color: [0.6, 0.6, 0.6]
+          - button: Refresh
+            on: (state-set "ui.cmd" "refresh")
+      - type: group
+        repeat: (state-get "dm.rows")
+        children:
+          - type: group
+            layout: {kind: horizontal}
+            children:
+              - text: ""
+                bind: dm.rows.{i}.line
+              - button: Open
+                on: (begin (state-set "dm.want" (state-get "dm.rows.{i}.id")) (state-set "ui.cmd" "dm-open"))
+          - text: ""
+            bind: dm.rows.{i}.at
+            color: [0.6, 0.6, 0.6]
+      - separator
+      - text: ""
+        bind: dm.keys_line
+      - text: ""
+        bind: dm.keys_note
+        color: [0.6, 0.6, 0.6]
+        visible_when: (!= (state-get "dm.keys_note") "")
+      # The keys, where the host keeps them: back up, restore from a backup, or start over.
+      - type: group
+        visible_when: (= (state-get "dm.e2ee") "1")
+        children:
+          - input_text: Passphrase
+            bind: dm.pass
+            password: true
+            hint: for a backup of your keys
+          - type: group
+            layout: {kind: horizontal}
+            children:
+              - button: Back up keys
+                on: (state-set "ui.cmd" "dm-backup")
+              - button: Restore keys
+                on: (state-set "ui.cmd" "dm-restore")
+              - button: New keys
+                on: (state-set "ui.cmd" "dm-new-keys")
+                tooltip: Make and publish new keys; messages sealed for the old ones stay unreadable here
+
+  dm_view:
+    type: group
+    children:
+      - text: ""
+        bind: dm.conv.title
+      - text: ""
+        bind: dm.conv.sub
+        color: [0.6, 0.6, 0.6]
+      - separator
+      - type: group
+        repeat: (state-get "dm.lines")
+        children:
+          - text: ""
+            bind: dm.lines.{i}.text
+            visible_when: (!= (state-get "dm.lines.{i}.dim") "1")
+          - text: ""
+            bind: dm.lines.{i}.text
+            color: [0.6, 0.6, 0.6]
+            visible_when: (= (state-get "dm.lines.{i}.dim") "1")
+      - separator
+      - message_input: Message
+        bind: dm.draft
+        hint: Write a message (Enter sends it)
+        max_length: 4096
+        max_lines: 4
+        send: Send
+        autofocus: true
+        on: (begin (state-set "dm.send" (get-attr event "text")) (state-set "ui.cmd" "dm-send"))
+        visible_when: (= (state-get "dm.conv.can_send") "1")
+      - text: ""
+        bind: dm.conv.note
+        color: [0.95, 0.75, 0.3]
+        visible_when: (!= (state-get "dm.conv.note") "")
+      - button: Encrypt this conversation
+        on: (state-set "ui.cmd" "dm-encrypt")
+        visible_when: (= (state-get "dm.conv.can_encrypt") "1")
+        tooltip: From now on its messages are end-to-end encrypted; this can't be undone
