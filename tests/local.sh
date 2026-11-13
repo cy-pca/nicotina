@@ -124,6 +124,16 @@ ada_card="(AL) Ada Lovelace"
 # The bar along the main window's top: its seven buttons are the first seven focus stops, and
 # each new view starts with the focus on Back (stop 1): Tab k times reaches stop k + 1.
 bar="[ Back ][ Home ][ Tags ][ Search ][ Alerts ][ Profile ][ Post ][ DMs ]"
+# Whether this ari picks and uploads files (file-pick, http-upload): then a post gets a picture,
+# a small PNG drawn by the stub's writer.
+attach=
+"$ARI" check --net "$main" 2>&1 | grep -q "optional requirement file-pick" || attach=1
+attach_file=$work/attach/kitten.png
+mkdir -p "$work/attach"
+python3 -I -B -c "
+import sys; sys.path.insert(0, sys.argv[1]); import stub_txwtf as s
+open(sys.argv[2], 'wb').write(s.png(24, 16, lambda x, y: (240, 160 if (x + y) % 2 else 120, 60)))" \
+  "$here" "$attach_file"
 [ -n "$pictures" ] && ada_card=" Ada Lovelace"
 
 # --- the client --------------------------------------------------------------------------------
@@ -200,6 +210,28 @@ for backend in ftxui tvision; do
   for _ in $(seq 13); do keys Tab; done
   keys Enter # Delete
   step "$t: deleted: back to the feed" "Deleted." "Show: (*) Following"
+  # A post with a picture, where the host picks and uploads files (file-pick, http-upload): the
+  # server's own upload (POST /social/files), then the post, its attachment from the server.
+  if [ -n "$attach" ]; then
+    for _ in $(seq 6); do keys Tab; done
+    keys Enter # Post
+    step "$t: a new post, with Attach" "[ Attach ]"
+    type_text "A picture from nicotina on $backend."
+    keys Tab
+    keys Enter # Attach
+    step "$t: Attach: the Open file window" "Attach to the post" "Name: ["
+    type_text "$attach_file"
+    keys Enter
+    step "$t: attached: the picture" "1 file to attach." "[ Remove ]kitten.png"
+    keys Enter # the text has the focus again
+    STEP_SECONDS=30 step "$t: posted with the picture, as the server has it" "Posted." \
+      "A picture from nicotina on $backend." "[image] kitten.png" "[ Delete ]"
+    for _ in $(seq 11); do keys Tab; done
+    keys Enter # Delete
+    step "$t: deleted it: back to the feed" "Deleted." "Show: (*) Following"
+  else
+    skip "$t: a post with a picture (this ari has no file-pick)"
+  fi
   # The notifications, the hashtags and search, as the server answers them.
   for _ in $(seq 4); do keys Tab; done
   keys Enter # Alerts
