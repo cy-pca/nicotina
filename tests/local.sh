@@ -27,7 +27,10 @@
 # Then ada, the instance's administrator, in the Admin view: each part as the server answers it;
 # eve (tests/txwtf_local.py's fourth account) disabled, refused at sign-in, enabled; a group made,
 # eve added and removed, a permission granted and revoked, the group deleted; an invite code made
-# and turned off, where this txwtf has invite codes.
+# and turned off, where this txwtf has invite codes. Then the moderation baseline: ada dislikes a
+# post eve made, a content filter of 0 leaves it out of the public timeline (it scores -1), the
+# default brings it back, and ada deletes it as the administrator (a txwtf from
+# atx-crypto-club/txwtf#324 on; an older one refuses, and that step is skipped).
 # Then, with txwtf's login rate limit on, a sign-in after ten failed ones is told to wait; and
 # with the server stopped, a stored session can't reach it. At the end every output is searched
 # for the password and for every token the host stored.
@@ -199,7 +202,7 @@ for backend in ftxui tvision; do
   start "$backend" "$xdg" "$base"
   step "$t: started again, still signed in" "$bar" "Show: (*) Following"
   # A post with a hashtag, against the server: Post, type, Enter; its hashtag's posts; Back;
-  # Delete (the bar, the post's Tags and Open tag, Like, Repost, Author, Delete).
+  # Delete (the bar, the post's Tags and Open tag, Like, Dislike, Repost, Author, Delete).
   for _ in $(seq 6); do keys Tab; done
   keys Enter # Post
   step "$t: a new post" "Who sees it: (*) Public"
@@ -213,7 +216,7 @@ for backend in ftxui tvision; do
     "Hello from nicotina on $backend. #nicotina"
   keys Enter # Back
   step "$t: Back: the post" "Hello from nicotina on $backend. #nicotina" "[ Delete ]"
-  for _ in $(seq $((13 + post_links))); do keys Tab; done
+  for _ in $(seq $((14 + post_links))); do keys Tab; done
   keys Enter # Delete
   step "$t: deleted: back to the feed" "Deleted." "Show: (*) Following"
   # A post with a picture, where the host picks and uploads files (file-pick, http-upload): the
@@ -232,7 +235,7 @@ for backend in ftxui tvision; do
     keys Enter # the text has the focus again
     STEP_SECONDS=30 step "$t: posted with the picture, as the server has it" "Posted." \
       "A picture from nicotina on $backend." "[image] kitten.png" "[ Delete ]"
-    for _ in $(seq 11); do keys Tab; done
+    for _ in $(seq 12); do keys Tab; done
     keys Enter # Delete
     step "$t: deleted it: back to the feed" "Deleted." "Show: (*) Following"
   else
@@ -381,6 +384,15 @@ step "$t: the form for eve again" "Username: [eve"
 sign_in "$work/password"
 step "$t: enabled: eve signs in" "$bar" "Your feed is empty."
 tokens_from "$work/xdg-eve/nicotina/credentials"
+# eve posts something, for ada to dislike and, as the administrator, to delete (below). Its id
+# is in the post's Link.
+for _ in $(seq 6); do keys Tab; done
+keys Enter # Post
+step "$t: eve: a new post" "Who sees it: (*) Public"
+type_text "Engines for sale, cheap."
+keys Enter
+step "$t: eve posted" "Posted." "Engines for sale, cheap."
+epost=$(grep -oE '/app/post/[0-9]+' "$out/tmux-$(slug "$t: eve posted").txt" | head -n 1 | sed 's#.*/##')
 
 # A group: made, eve added and removed, deleted (Delete group asks first).
 groups=$(grep -c '\[ Open \]' "$out/txwtf-admin-groups.txt")
@@ -445,6 +457,62 @@ step "$t: Events: Group Create: the group made here" ": Group Create, the newest
   "Group Create"
 keys Right
 step "$t: Events: Group Delete: and deleted" ": Group Delete, the newest first" "Group Delete"
+
+# The moderation baseline. ada dislikes eve's post (past the bar and Like), so it scores -1; her
+# content filter at 0 (Settings: past the bar, Refresh, Sign out, Admin and the tabs) leaves it
+# out of the public timeline, and the default (-3) brings it back. Then she deletes it, as the
+# administrator: Delete asks first.
+if [ -n "${epost:-}" ]; then
+  start ftxui "$admin_xdg" "$base" -- --start "post:$epost"
+  step "$t: eve's post, for ada" "Engines for sale, cheap." \
+    "[ Like ][ Dislike ][ Repost ][ Author ][ Delete ]"
+  for _ in $(seq 9); do keys Tab; done
+  keys Enter # Dislike
+  step "$t: Dislike: the server has it" "Disliked." "· disliked"
+  start ftxui "$admin_xdg" "$base" -- --start settings
+  step "$t: Settings: the server's content filter" "(*) Settings" \
+    "Hiding posts scored below -3 (hide flagged), the default."
+  for _ in $(seq 12); do keys Tab; done
+  keys Right; keys Right
+  step "$t: Hide below 0: saved" "Hiding posts scored below 0 (neutral and up)."
+  start ftxui "$admin_xdg" "$base"
+  step "$t: the feed, filtered" "Show: (*) Following"
+  for _ in $(seq 8); do keys Tab; done
+  keys Right # Show: Everyone
+  step "$t: Everyone: eve's post, scored -1, left out" "(*) Everyone" \
+    "Hello from the analytical engine."
+  check_not "$t: ... not eve's" \
+    "$out/tmux-$(slug "$t: Everyone: eve's post, scored -1, left out").txt" \
+    "Engines for sale, cheap."
+  start ftxui "$admin_xdg" "$base" -- --start settings
+  step "$t: Settings again" "Hiding posts scored below 0 (neutral and up)."
+  for _ in $(seq 12); do keys Tab; done
+  keys Left; keys Left
+  step "$t: Hide below -3 again: the default" \
+    "Hiding posts scored below -3 (hide flagged), the default."
+  start ftxui "$admin_xdg" "$base"
+  step "$t: the feed again" "Show: (*) Following"
+  for _ in $(seq 8); do keys Tab; done
+  keys Right
+  step "$t: Everyone: eve's post is back" "(*) Everyone" "Engines for sale, cheap."
+  start ftxui "$admin_xdg" "$base" -- --start "post:$epost"
+  step "$t: eve's post, to delete" "Engines for sale, cheap." "[ Delete ]"
+  for _ in $(seq 12); do keys Tab; done
+  keys Enter # Delete
+  step "$t: Delete: it asks" "Delete @eve@127.0.0.1:$port's post as an administrator?"     "[ Yes, delete it ][ Keep it ]"
+  keys Tab; keys Enter # Yes, delete it
+  name="$t: Yes, delete it"
+  if wait_for "$name" "Deleted @eve@127.0.0.1:$port's post." 10; then
+    pass "$name: the server deleted it"
+  elif grep -qF "This server doesn't let its administrators delete others' posts." \
+    "$out/tmux-$(slug "$name").txt"; then
+    skip "$name (this txwtf refuses it: before atx-crypto-club/txwtf#324)"
+  else
+    fail "$name: neither deleted nor refused" "$out/tmux-$(slug "$name").txt"
+  fi
+else
+  fail "$t: eve's post: no id in its Link" "$out/tmux-$(slug "$t: eve posted").txt"
+fi
 stop
 
 # --- the rate limit ----------------------------------------------------------------------------

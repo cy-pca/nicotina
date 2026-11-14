@@ -24,6 +24,15 @@ and with the errors tx.wtf answers that the schema doesn't list:
                              for and withheld, one has a custom and a standard emoji (its
                              content_html renders them as txwtf does)
   GET  /social/posts/{id}    Bearer -> PostResponse, with its reactions_summary
+  POST/DELETE /social/posts/{id}/dislike  Bearer -> {message, post_id, disliked}: a private
+                             thumbs-down, which clears the user's like (and a like clears it)
+  DELETE /social/posts/{id}  Bearer: the author's own post, or for an administrator anyone's
+                             (as txwtf does from atx-crypto-club/txwtf#324); else 403
+                             "... (PostAccessDenied)"
+  GET/PUT /social/settings/read-level  Bearer, {read_level} -> {read_level, ...}: the user's
+                             content filter (default -3, clamped to -100..100). The timelines
+                             leave out posts scored (likes less dislikes) below it, but never
+                             the user's own
   GET  /user/by-username/{name}
                              Bearer -> {id, username, name, avatar_url}: who a mention names
   POST /social/posts         Bearer, PostCreate -> PostResponse: a post, a reply or a repost;
@@ -478,6 +487,12 @@ FOLLOWS = {"ada": {"charles", "grace", "alan@peer.example"}}
 # In the public feed only: someone ada doesn't follow.
 PUBLIC_ONLY = [post("linus", 313, "2026-10-30T23:00:00", "Hello from someone you don't follow.",
                     None, (0, 0, 1, 3))]
+# A post's dislikes before anyone here dislikes it (Post.dislike_count). Its score is its likes
+# (Post.like_count: the hearts alone) less these; each user's timelines leave out the posts
+# scored below their read level (txwtf's _read_level_condition). 301 scores -2: shown at the
+# default -3, gone at -1.
+DISLIKES = {301: 2}
+DEFAULT_READ_LEVEL = -3
 # Replies, oldest first, as GET /social/posts/{id}/replies lists them (never in a feed).
 REPLIES = [
     post("grace", 314, "2026-10-30T22:50:00", "Splendid. How many digits?", 312, (1, 0, 2, 20)),
@@ -541,6 +556,31 @@ def all_posts():
     return [p for p in made + FEED + PUBLIC_ONLY + POSTS["ada"] + REPLIES if p["id"] not in gone]
 
 
+def like_count(p):
+    """Post.like_count: a post's hearts (REACTIONS's, else every reaction taken for one), and
+    the ones given here."""
+    base = next((r["count"] for r in REACTIONS.get(p["id"], []) if r["emoji"] == "heart"), None)
+    if base is None:
+        base = p["counts"][2]
+    return base + sum(1 for (_, pid) in (LIVE.likes if LIVE else set()) if pid == p["id"])
+
+
+def dislike_count(p):
+    return DISLIKES.get(p["id"], 0) + sum(1 for (_, pid) in (LIVE.dislikes if LIVE else set())
+                                          if pid == p["id"])
+
+
+def read_level(username):
+    return LIVE.read_level.get(username, DEFAULT_READ_LEVEL) if LIVE and username \
+        else DEFAULT_READ_LEVEL
+
+
+def readable(posts, viewer):
+    """The posts a viewer's read level lets through: scored at it or above, or their own."""
+    level = read_level(viewer)
+    return [p for p in posts if like_count(p) - dislike_count(p) >= level or p["author"] == viewer]
+
+
 def post_response(p, viewer=None):
     replies, reposts, reactions, views = p["counts"]
     replies += sum(1 for q in (LIVE.made if LIVE else []) if q["reply_to"] == p["id"])
@@ -549,6 +589,9 @@ def post_response(p, viewer=None):
     reposted = bool(LIVE and viewer and any(q["repost"] is p and q["author"] == viewer
                                             for q in LIVE.made))
     locked = p["price"] is not None
+    disliked = bool(LIVE and viewer and (viewer, p["id"]) in LIVE.dislikes)
+    # only its author is told how many dislike it, and its score
+    by_viewer = viewer is not None and viewer == p["author"]
     a = brief(p["author"])
     r = p["repost"]
     return {  # PostResponse: the fields a client reads, and the required ones
@@ -585,6 +628,9 @@ def post_response(p, viewer=None):
         "promotion_tier": None,
         "author": a,
         "user_has_reacted": liked,
+        "user_has_disliked": disliked,
+        "dislike_count": dislike_count(p) if by_viewer else None,
+        "score": like_count(p) - dislike_count(p) if by_viewer else None,
         "user_has_reposted": reposted,
         "reactions_summary": None,  # the timeline leaves it out
         "attachments": [] if locked else p["attachments"],
@@ -616,7 +662,7 @@ def user_timeline(user_id, query, viewer=None):
     """GET /social/timeline/user/{id}: offset paging, as the web app pages a profile's posts."""
     username = next((n for n, u in list(USERS.items()) + list(AUTHORS.items())
                      if u["id"] == user_id), None)
-    posts = [p for p in all_posts() if p["author"] == username]
+    posts = readable([p for p in all_posts() if p["author"] == username], viewer)
     if query.get("include_replies", ["true"])[0] == "false":
         posts = [p for p in posts if p["reply_to"] is None]
     limit = min(int(query.get("limit", ["20"])[0]), 100)
@@ -627,7 +673,7 @@ def user_timeline(user_id, query, viewer=None):
 def tag_feed(tag, query, viewer):
     """GET /social/timeline/tag/{tag}: the posts naming #tag, newest first, offset paging."""
     want = "#" + tag.lower()
-    posts = sorted((p for p in all_posts()
+    posts = sorted((p for p in readable(all_posts(), viewer)
                     if any(w.strip(".,;:!?").lower() == want for w in p["content"].split())),
                    key=lambda p: p["id"], reverse=True)
     limit = min(int(query.get("limit", ["20"])[0]), 100)
@@ -701,7 +747,7 @@ def feed(username, which, query):
         posts = [p for p in top if p["author"] == "grace" and username == "ada"]
     else:
         posts = top
-    posts = sorted(posts, key=lambda p: p["id"], reverse=True)
+    posts = sorted(readable(posts, username), key=lambda p: p["id"], reverse=True)
     before = query.get("before_id", [None])[0]
     if before is not None:
         posts = [p for p in posts if p["id"] < int(before)]
@@ -754,6 +800,8 @@ class State:
         self.live = {}  # token -> username
         self.log_path = log_path
         self.likes = set()  # (username, post id): a heart from that user
+        self.dislikes = set()  # (username, post id): a thumbs-down; never with a heart
+        self.read_level = {}  # username -> their content filter, where they set one
         self.follows = {u: set(f) for u, f in FOLLOWS.items()}
         self.made = []  # posts made here, newest first
         self.deleted = set()
@@ -1109,6 +1157,17 @@ def make_handler(state):
                 with state.lock:
                     state.viewed |= {x["id"] for x in NOTIFICATIONS}
                 return self.reply(200, {"message": "Marked viewed", "code": 0, "data": None}), user
+            if path == "/social/settings/read-level" and method in ("GET", "PUT"):
+                if method == "PUT":
+                    body = self.json_body()
+                    v = body.get("read_level") if isinstance(body, dict) else None
+                    if not isinstance(v, int) or isinstance(v, bool):
+                        return self.reply(422, {"detail": "read_level: an integer"}), user
+                    with state.lock:
+                        state.read_level[user] = max(-100, min(100, v))
+                    return self.reply(200, {"read_level": read_level(user)}), user
+                return self.reply(200, {"read_level": read_level(user), "min": -100, "max": 100,
+                                        "default": DEFAULT_READ_LEVEL}), user
             if method == "POST" and path == "/social/posts":
                 return self.create_post(user), user
             if path == "/social/files" or path.startswith("/social/files/resumable"):
@@ -1125,14 +1184,26 @@ def make_handler(state):
                 if method == "POST" and rest == "reactions":
                     with state.lock:
                         state.likes.add((user, pid))
+                        state.dislikes.discard((user, pid))
                     return self.reply(200, {"message": "Reaction added", "emoji": "heart"}), user
                 if method == "DELETE" and rest == "reactions":
                     with state.lock:
                         state.likes.discard((user, pid))
                     return self.reply(200, {"message": "Reaction removed"}), user
+                if method in ("POST", "DELETE") and rest == "dislike":
+                    with state.lock:
+                        if method == "POST":
+                            state.dislikes.add((user, pid))
+                            state.likes.discard((user, pid))
+                        else:
+                            state.dislikes.discard((user, pid))
+                    return self.reply(200, {"message": "Post disliked" if method == "POST"
+                                            else "Dislike removed", "post_id": pid,
+                                            "disliked": method == "POST"}), user
                 if method == "DELETE" and rest == "":
-                    if target["author"] != user:
-                        return self.reply(403, {"detail": "Not your post"}), user
+                    if target["author"] != user and not (ADMIN and ADMIN.is_admin(user)):
+                        return self.reply(403, {"detail": "Access denied to post %d "
+                                                          "(PostAccessDenied)" % pid}), user
                     with state.lock:
                         state.deleted.add(pid)
                     return self.reply(200, {"message": "Post deleted"}), user

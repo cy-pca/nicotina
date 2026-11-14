@@ -566,10 +566,11 @@ units:
             color: [0.6, 0.6, 0.6]
             visible_when: (!= (state-get "{list}.{i}.mmore") "")
       # Where a click on a group is its own, outside a terminal: the counts are icons to press,
-      # reply (the post, its reply box focused), repost and like, green and red once you have;
-      # the card itself opens the post.
+      # reply (the post, its reply box focused), repost, like and dislike, green, red and blue
+      # once you have; the card itself opens the post. (A terminal's card has no room for a
+      # Dislike button: its post has one.)
       - type: group
-        layout: {kind: horizontal, col_widths: [auto, auto, auto, auto, auto]}
+        layout: {kind: horizontal, col_widths: [auto, auto, auto, auto, auto, auto]}
         visible_when: (= (state-get "{list}.{i}.v_click") "1")
         children:
           - type: group
@@ -603,6 +604,18 @@ units:
                 bind: "{list}.{i}.c_like"
                 color: [0.6, 0.6, 0.6]
                 visible_when: (!= (state-get "{list}.{i}.liked") "1")
+          - type: group
+            on_click: (if (has? "ui.group_click") (begin (state-set "act.list" "{list}") (state-set "act.i" "{i}") (state-set "ui.cmd" "dislike")))
+            hover: highlight
+            children:
+              - text: ""
+                bind: "{list}.{i}.c_dislike"
+                color: [0.45, 0.6, 0.95]
+                visible_when: (= (state-get "{list}.{i}.disliked") "1")
+              - text: ""
+                bind: "{list}.{i}.c_dislike"
+                color: [0.6, 0.6, 0.6]
+                visible_when: (!= (state-get "{list}.{i}.disliked") "1")
           - text: ""
             bind: "{list}.{i}.c_views"
             color: [0.6, 0.6, 0.6]

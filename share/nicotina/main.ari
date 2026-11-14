@@ -19,7 +19,7 @@ args:
   instance: {type: string, default: "https://tx.wtf", help: "The TX.WTF instance (its base URL)"}
   user: {type: string, help: "Fill in this username on the sign-in form"}
   start: {type: string, default: feed,
-          help: "The first view once signed in: feed, profile, tags, alerts, search, compose, dms, post:ID, dm:ID, tag:NAME, user:ID, view:ID[:N] or search:TEXT; for an administrator also admin[:users|groups|invites|site|log], auser:ID, agroup:ID or agperm:ID"}
+          help: "The first view once signed in: feed, profile, settings, tags, alerts, search, compose, dms, post:ID, dm:ID, tag:NAME, user:ID, view:ID[:N] or search:TEXT; for an administrator also admin[:users|groups|invites|site|log], auser:ID, agroup:ID or agperm:ID"}
 
 # Without --net (or --net-allow) the host has no http-request and keeps no credentials, and the
 # load fails here, naming what is missing. (nicotina.ari lists the rest.)
