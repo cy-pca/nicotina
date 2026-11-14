@@ -211,7 +211,7 @@ units:
             on: (begin (state-set "tag.want" (state-get "post.tag_pick")) (state-set "ui.cmd" "tag"))
             visible_when: (= (state-get "post.v_term") "1")
       - type: group
-        layout: {kind: horizontal, col_widths: [auto, auto, auto, auto]}
+        layout: {kind: horizontal, col_widths: [auto, auto, auto, auto, auto]}
         visible_when: (= (state-get "post.v_click") "1")
         children:
           - type: group
@@ -245,6 +245,18 @@ units:
                 bind: post.c_like
                 color: [0.6, 0.6, 0.6]
                 visible_when: (!= (state-get "post.liked") "1")
+          - type: group
+            on_click: (if (has? "ui.group_click") (state-set "ui.cmd" "post-dislike"))
+            hover: highlight
+            children:
+              - text: ""
+                bind: post.c_dislike
+                color: [0.45, 0.6, 0.95]
+                visible_when: (= (state-get "post.disliked") "1")
+              - text: ""
+                bind: post.c_dislike
+                color: [0.6, 0.6, 0.6]
+                visible_when: (!= (state-get "post.disliked") "1")
           - text: ""
             bind: post.c_views
             color: [0.6, 0.6, 0.6]
@@ -255,7 +267,8 @@ units:
       - text: ""
         bind: post.reactions
         visible_when: (!= (state-get "post.reactions") "")
-      # What you can do with it. Delete is there for your own posts only.
+      # What you can do with it. Delete is there for your own posts, and for an administrator
+      # on anyone's, where it asks first.
       - type: group
         layout: {kind: horizontal}
         children:
@@ -264,6 +277,9 @@ units:
           - button: Like
             on: (state-set "ui.cmd" "post-like")
             visible_when: (= (state-get "post.v_btns") "1")
+          - button: Dislike
+            on: (state-set "ui.cmd" "post-dislike")
+            visible_when: (= (state-get "post.v_btns") "1")
           - button: Repost
             on: (state-set "ui.cmd" "post-repost")
             visible_when: (= (state-get "post.v_btns") "1")
@@ -271,7 +287,16 @@ units:
             on: (begin (state-set "user.want" (state-get "post.author_id")) (state-set "ui.cmd" "user"))
           - button: Delete
             on: (state-set "ui.cmd" "delete")
-            visible_when: (= (state-get "post.mine") "1")
+            visible_when: (= (state-get "post.can_delete") "1")
+      # An administrator's Delete of someone else's post asks: these two follow it while it asks.
+      - type: group
+        layout: {kind: horizontal}
+        visible_when: (= (state-get "post.confirm") "1")
+        children:
+          - button: Yes, delete it
+            on: (state-set "ui.cmd" "delete-yes")
+          - button: Keep it
+            on: (state-set "ui.cmd" "delete-keep")
       # Its address on the instance, and Copy link where the host has a clipboard
       # (clipboard-set: libcvc 3.7.13).
       - type: group

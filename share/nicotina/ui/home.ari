@@ -3,7 +3,7 @@
 #
 # The web app's profile is a header banner, then a card (the avatar beside the name, handle,
 # badges, description and counts, then the groups and an action bar), then tabs: Posts, Replies
-# and, on your own, Balances. profile_view is that, for an 80x24 terminal first: 74 columns wide
+# and, on your own, Balances and Settings (your content filter). profile_view is that, for an 80x24 terminal first: 74 columns wide
 # (the banner's crop). It shows prof.*: your own profile (prof.self "1", a copy of me.*) or
 # anyone else's (GET /user/profile/{id}), with Follow or Unfollow in its action bar.
 #
@@ -130,7 +130,7 @@ units:
       # label even when it is empty (a lone ":"), so it has one.
       - radio_row: Show
         bind: ui.tab
-        options: (if (= (state-get "prof.self") "1") (list "Posts" "Replies" "Balances") (list "Posts" "Replies"))
+        options: (if (= (state-get "prof.self") "1") (list "Posts" "Replies" "Balances" "Settings") (list "Posts" "Replies"))
         on: (state-set "ui.cmd" "tab")
       - separator
       # Posts and Replies, a page of them, newest first. In a window, cards (ui/card.ari), as the
@@ -138,14 +138,15 @@ units:
       # overflows on a deep enough tree, libcvc before the fix.)
       - text: ""
         bind: tab.empty
-        visible_when: (and (!= (state-get "ui.tab") "Balances") (!= (state-get "app.term") "1")
-                           (!= (state-get "tab.empty") ""))
+        visible_when: (and (or (= (state-get "ui.tab") "Posts") (= (state-get "ui.tab") "Replies"))
+                           (!= (state-get "app.term") "1") (!= (state-get "tab.empty") ""))
       - include: card_list
         args: {list: tab.items}
       # In a terminal, a row each with Open: a page of five fits 80x24.
       - type: group
         repeat: (state-get "tab.rows")
-        visible_when: (and (!= (state-get "ui.tab") "Balances") (= (state-get "app.term") "1"))
+        visible_when: (and (or (= (state-get "ui.tab") "Posts") (= (state-get "ui.tab") "Replies"))
+                           (= (state-get "app.term") "1"))
         children:
           - type: group
             layout: {kind: horizontal}
@@ -156,7 +157,7 @@ units:
                 on: (begin (state-set "post.want" (state-get "tab.rows.{i}.id")) (state-set "post.focus_reply" "") (state-set "ui.cmd" "open"))
                 visible_when: (!= (state-get "tab.rows.{i}.id") "")
       - type: group
-        visible_when: (!= (state-get "ui.tab") "Balances")
+        visible_when: (or (= (state-get "ui.tab") "Posts") (= (state-get "ui.tab") "Replies"))
         children:
           - type: group
             layout: {kind: horizontal}
@@ -187,6 +188,31 @@ units:
           - text: " "
           - text: " "
           - text: " "
+          - text: " "
+      # Settings: your content filter (GET and PUT /social/settings/read-level). The feeds leave
+      # out posts scored below the level picked, a post's score being its likes less its
+      # dislikes; your own posts and promoted ones always show. The levels run -10 to 20, as the
+      # web app's slider does. Six rows, as the lists take.
+      - type: group
+        visible_when: (= (state-get "ui.tab") "Settings")
+        children:
+          - text: ""
+            bind: set.head
+          - combo: Hide below
+            bind: set.level
+            options: ["-10  show everything", "-5  hide flagged", "-3  hide flagged (default)",
+                      "-1  hide flagged", "0  neutral and up", "1  well received only",
+                      "3  well received only", "5  well received only", "10  well received only",
+                      "20  only top-rated"]
+            values: [-10, -5, -3, -1, 0, 1, 3, 5, 10, 20]
+            on: (state-set "ui.cmd" "read-level")
+            visible_when: (= (state-get "set.v_level") "1")
+          - text: ""
+            bind: set.note
+            color: [0.6, 0.6, 0.6]
+          - text: "Your own posts, and promoted ones, always show."
+            visible_when: (= (state-get "set.v_level") "1")
+            color: [0.6, 0.6, 0.6]
           - text: " "
 
   details_window:

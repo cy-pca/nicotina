@@ -137,9 +137,11 @@ bin/nicotina --backend tvision --instance https://dev.tx.wtf    # tvision
 In the terminal, Tab moves between fields and buttons and Enter presses a button. Signed in,
 you see your home feed: Left or Right on its Show row picks Following or Everyone, Tab walks the
 cards (the window scrolls to keep the focused one in view), a card's Open shows the whole post,
-and Load more, at the end, adds the next page. Profile opens the profile: Tab reaches its tabs
-(Posts, Replies, Balances) and Left or Right picks one; Older and Newer page through the posts;
-Feed goes back. F10 opens the menu (Home feed, Profile, Refresh, Sign out, Quit); Ctrl-C quits.
+and Load more, at the end, adds the next page. A post opened whole has Like, Dislike, Repost and
+Author (and Delete on your own). Profile opens the profile: Tab reaches its tabs (Posts, Replies,
+Balances, Settings) and Left or Right picks one; Older and Newer page through the posts; Settings
+is your content filter, Hide below, the score (likes less dislikes) under which the instance
+leaves posts out of your feeds. Feed goes back. F10 opens the menu (Home feed, Profile, Refresh, Sign out, Quit); Ctrl-C quits.
 
 ### With cvcpkg
 
@@ -211,8 +213,10 @@ ARI=$NICOTINA_ARI ARIGL=$NICOTINA_ARIGL tests/run.sh
 - `ari snapshot`, FTXUI and tvision: the sign-in form; a stored session resumed (the home feed,
   and the profile); every kind of card (pictures, a video, a recording, a PDF, a repost, a paid
   post, rich text); an empty feed; an expired session (back to the form, and the host forgets
-  it); an instance that doesn't answer. The Admin view's parts, an account and a group, as ada,
-  the stub's administrator, and none of it for anyone else.
+  it); an instance that doesn't answer; your content filter (the profile's Settings), and a
+  hashtag's posts with a post scored below it left out. The Admin view's parts, an account and a
+  group, as ada, the stub's administrator, with Delete on anyone's post, and none of it for
+  anyone else.
 - `arigl snapshot`, as text (`--terminal`) and as a PNG.
 - `ari snapshot`, direct messages: the conversations, a plaintext one with its box, and an
   encrypted one on a host that keeps no keys (locked, saying why, with no box).
@@ -221,7 +225,9 @@ ARI=$NICOTINA_ARI ARIGL=$NICOTINA_ARIGL tests/run.sh
   with a picture and a big file attached (the Open file window, then the uploads, which the stub
   must get whole), where the host can; start again still signed in, sign out; a wrong password;
   the emailed code, wrong and then right; an account that must change its password first; the
-  whole feed and profile in an 80x24 pane. And
+  whole feed and profile in an 80x24 pane; Hide below changed and back; Dislike, a Like taking
+  it off and it taking the Like off; an administrator's Delete on someone else's post, which asks
+  first (Keep it, then Yes, delete it). And
   the Admin view: an account disabled (its sign-in refused), enabled and made an administrator; a
   group's members and its permissions; a group made and deleted; sign-up and invite codes; the
   site's title; the log; an administrator whose rights went, refused by the instance but still
@@ -259,7 +265,10 @@ signs in with the code from the real email. It also checks:
 - a server that has gone away;
 - the Admin view against the server's own admin routes: an account disabled (the server refuses
   its sign-in) and enabled, a group made, a member added and removed, a permission granted and
-  revoked, the group deleted, an invite code made and turned off, the system log.
+  revoked, the group deleted, an invite code made and turned off, the system log;
+- the moderation baseline: a post disliked, a content filter of 0 leaving it out of the public
+  timeline and the default bringing it back, and the post deleted by the administrator (where
+  the txwtf has atx-crypto-club/txwtf#324; an older one refuses it, and that step is skipped).
 
 ```bash
 # once, from a txwtf checkout (atx-crypto-club/txwtf):
@@ -302,7 +311,9 @@ The client uses only an instance's public API:
   `GET /billing/scrip/balance` and `POST /user/logout`. A new post's files go up as the web
   app sends them: `POST /social/files` (multipart), or for one over 8 MiB the resumable upload
   (`POST /social/files/resumable`, a `PATCH` per chunk at its `Upload-Offset`, then
-  `POST .../complete`), and the post names them in `attachment_ids`. For an administrator, the
+  `POST .../complete`), and the post names them in `attachment_ids`. Dislike is
+  `POST`/`DELETE /social/posts/{id}/dislike`, and the content filter
+  `GET`/`PUT /social/settings/read-level`. For an administrator, the
   Admin view uses `GET /user/list`, `PUT /user/update`, `PUT /group/user/sysadmin`, `/group/...`,
   `/perms/...`, `/invite/...`, `/site/...` and `GET /logs/` (see
   [ui/admin.ari](share/nicotina/ui/admin.ari)). The stub in `tests/` follows

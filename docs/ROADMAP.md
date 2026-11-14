@@ -100,10 +100,15 @@ on TX.WTF is tracked as T-items in the TX.WTF repository.
     not) and what each grants (permissions granted by name and revoked), sign-up (open or
     invite-only) and invite codes, the site's title, description and time zone, and the system
     log. The way in is the profile's Admin, the nicotina menu, and the bar where it is icons.
-    txwtf has no reports queue, and its post delete doesn't honour an administrator yet, so
-    there is no post moderation. Next: emoji and tag moderation, content retention, federation
-    peers and settings, OIDC clients, mail status. Billing, wallet and monetization admin wait
-    for M3.
+    Next: emoji and tag moderation, content retention, federation peers and settings, OIDC
+    clients, mail status. Billing, wallet and monetization admin wait for M3.
+  - Drafted: the moderation baseline, as the owner set it (2026-11-14): txwtf's dislike score and
+    each reader's threshold first, with an administrator's delete; a reports queue waits.
+    Dislike on a post (and on a card's icons where they are clickable); your content filter on
+    your profile's Settings tab (txwtf's read level, -10 to 20 as the web app's slider; the
+    instance leaves out of your feeds the posts whose likes less dislikes are below it); and an
+    administrator's Delete on anyone's post, which asks first. That Delete needs a txwtf with
+    atx-crypto-club/txwtf#324; an older one refuses it, and nicotina says so.
 - **M3, SCRIP:** live balance, top-up through hosted checkout in the system
   browser, and the metered prompt chat.
 - **M4, ship:** publish the cvcpkg recipe for linux-x86_64, macOS and Windows,

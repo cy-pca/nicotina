@@ -8,17 +8,20 @@
 #  2. ari check: without the network flags the document refuses to load, and says why.
 #  3. ari snapshot, FTXUI and tvision: the sign-in form; a stored session, resumed (the TX.WTF
 #     window: its bar, the feed; the profile, laid out as the web app's: the banner and avatar
-#     slots, the card, the Posts tab); a stored session the server no longer knows (back to the
-#     form, and the host forgets it). Then each view --start opens: a post with its replies, a
-#     hashtag's posts, the hashtags, the notifications, search, a new post, another's profile, the
+#     slots, the card, the Posts tab; the Settings tab, your content filter); a stored session the
+#     server no longer knows (back to the form, and the host forgets it). Then each view --start
+#     opens: a post with its replies, a hashtag's posts (and one left out below a content filter of
+#     -1), the hashtags, the notifications, search, a new post, another's profile, the
 #     viewer; and for ada, the stub's administrator, the Admin view's parts (the accounts, the
 #     groups, the invite codes, the site's settings, the system log), an account and a group,
 #     none of which someone who isn't an administrator sees or asks the instance for.
 #  4. arigl snapshot, if arigl is here: the resumed session as text (--terminal) and in a window
 #     (a PNG; checked only for being drawn, since nothing here reads pixels).
 #  5. bin/nicotina --terminal in a tmux pane, FTXUI and tvision, typed at the way a person types:
-#     sign in, see the profile, the Replies and Balances tabs and an older page of posts, open a
-#     post and go Back, like a post and take it back, write a post and a reply, attach a picture
+#     sign in, see the profile, the Replies, Balances and Settings tabs (Hide below changed and
+#     back) and an older page of posts, open a post and go Back, like a post and take it back,
+#     dislike one (a like and a dislike each taking the other off), delete someone else's post as
+#     the administrator (it asks first), write a post and a reply, attach a picture
 #     and a big file to a post where the host picks and uploads files (the Open file window, then
 #     the uploads the stub must get whole), open a hashtag,
 #     follow someone and stop, send a direct message, start again still signed in, sign out; a
@@ -280,6 +283,21 @@ for backend in ftxui tvision; do
   else
     fail "ari snapshot ($backend): the profile runs past 80x24" "$out/snap-$backend-resume.txt"
   fi
+  # Your content filter, the profile's Settings tab: the level the server keeps (txwtf's
+  # default, -3), what it means, and that your own posts always show.
+  snap "snap-$backend-settings" "$backend" "$store" --start settings
+  check "ari snapshot ($backend): --start settings: your content filter" \
+    "$out/snap-$backend-settings.txt" "Show: ( ) Posts  ( ) Replies  ( ) Balances  (*) Settings" \
+    "Your content filter: a post's score is its likes less its dislikes." \
+    "Hide below: < -3  hide flagged (default) >" \
+    "Hiding posts scored below -3 (hide flagged), the default." \
+    "Your own posts, and promoted ones, always show."
+  grep -v '^ari: ' "$out/snap-$backend-settings.txt" >"$work/frame.txt"
+  if [ "$(wc -l <"$work/frame.txt")" -le 24 ] && [ "$(wc -L <"$work/frame.txt")" -le 80 ]; then
+    pass "ari snapshot ($backend): the Settings tab fits 80x24"
+  else
+    fail "ari snapshot ($backend): the Settings tab runs past 80x24" "$out/snap-$backend-settings.txt"
+  fi
 
   seed_store "$store" stale
   snap "snap-$backend-expired" "$backend" "$store"
@@ -305,15 +323,15 @@ check "ari snapshot: a post: its text, hashtags, counts, reactions, buttons and 
   "$out/snap-view-post.txt" "$bar" " Charles Babbage  @charles@$hostport" \
   "The Difference Engine No. 2, working at last. #engines #brass" \
   "Tags: (*) #engines  ( ) #brass  [ Open tag ]" "↩5 ⇄3 ♥21 · 310 views" \
-  "Reactions: :thumbsup: 12  :heart: 9" "[ Like ][ Repost ][ Author ]" \
+  "Reactions: :thumbsup: 12  :heart: 9" "[ Like ][ Dislike ][ Repost ][ Author ][ Delete ]" \
   "Link: $base/app/post/312" "[image] engine-diagram.png · 47 KB · The engine, from the side" \
   "[ View ]"
 check "ari snapshot: ... its replies, oldest first, and the reply box" "$out/snap-view-post.txt" \
   "2 replies" "Grace Hopper  @grace@$hostport  2026-10-30 22:50  ↩1" "Splendid. How many digits?" \
   "Alan Turing  @alan@peer.example  2026-10-30 23:10" "A fine machine. #engines" \
   "Reply: [Write a reply (Enter sends it)"
-check_not "ari snapshot: ... not someone else's Delete, nor a reply's reply" \
-  "$out/snap-view-post.txt" "[ Delete ]" "Thirty-one"
+# (Delete, on Charles's post: ada is the stub's administrator. grace's view of it, below, has none.)
+check_not "ari snapshot: ... not a reply's reply" "$out/snap-view-post.txt" "Thirty-one"
 view mention post:306
 check "ari snapshot: a post with a mention and a URL, wrapped at the window's width" \
   "$out/snap-view-mention.txt" "Can machines think? Ask @ada, or read" \
@@ -336,13 +354,32 @@ fi
 view reply post:315
 check "ari snapshot: a reply: the post it replies to, and your own post's Delete" \
   "$out/snap-view-reply.txt" "[ In reply to ]" "Grace Hopper: Splendid. How many digits?" \
-  "Thirty-one, and seven orders of differences." "[ Like ][ Repost ][ Author ][ Delete ]" \
+  "Thirty-one, and seven orders of differences." "[ Like ][ Dislike ][ Repost ][ Author ][ Delete ]" \
   "No replies yet."
 view tag tag:engines
 check "ari snapshot: a hashtag's posts, newest first, as cards" "$out/snap-view-tag.txt" \
   "#engines  ·  3 posts" "A fine machine. #engines" \
   "The Difference Engine No. 2, working at last. #engines #brass" "Nanoseconds, in wire. #engines" \
   "[ Load more ]"
+# A content filter of -1 (set here through the API, as Settings sets it): the post scored -2 (the
+# stub's two dislikes on "The engine needs more #brass.") is left out of the hashtag's posts.
+read_level() { # read_level AS LEVEL, through the stub's API
+  curl -s -o /dev/null -w '%{http_code}' -X PUT -H "Authorization: Bearer $(token "$1")" \
+    -H 'Content-Type: application/json' -d "{\"read_level\": $2}" "$base/social/settings/read-level"
+}
+view brass tag:brass
+check "ari snapshot: a hashtag's posts, at the default content filter" "$out/snap-view-brass.txt" \
+  "#brass  ·  2 posts" "The engine needs more #brass."
+if [ "$(read_level ada -1)" = 200 ]; then
+  view brass-filtered tag:brass
+  check "ari snapshot: ... at -1: the post scored -2 left out" "$out/snap-view-brass-filtered.txt" \
+    "#brass  ·  1 post" "The Difference Engine No. 2, working at last. #engines #brass"
+  check_not "ari snapshot: ... not the post scored -2" "$out/snap-view-brass-filtered.txt" \
+    "The engine needs more #brass."
+else
+  fail "the stub took no read level for ada"
+fi
+read_level ada -3 >/dev/null
 check_not "ari snapshot: ... no feed choice, no posts without it" "$out/snap-view-tag.txt" \
   "Show: (*) Following" "A ship in port"
 view tags tags
@@ -495,6 +532,12 @@ check_not "ari snapshot: ... and no Admin view" "$out/snap-view-nonadmin.txt" "A
 check "ari snapshot: ... her profile: Refresh and Sign out" "$out/snap-view-nonadmin-profile.txt" \
   "@grace@$hostport  Grace Hopper" "[ Refresh ][ Sign out ]"
 check_not "ari snapshot: ... and no Admin" "$out/snap-view-nonadmin-profile.txt" "[ Admin ]"
+"$ARI" snapshot --width 80 --height 60 --net-allow "$base" \
+  --credential-store "$work/snap-nonadmin/credentials" "$main" --instance "$base" --start post:312 \
+  >"$out/snap-view-nonadmin-post.txt" 2>&1
+check "ari snapshot: ... someone else's post: Like, Dislike, Repost, Author" \
+  "$out/snap-view-nonadmin-post.txt" "[ Like ][ Dislike ][ Repost ][ Author ]"
+check_not "ari snapshot: ... and no Delete" "$out/snap-view-nonadmin-post.txt" "[ Delete ]"
 if grep -F '"user": "grace"' "$out/stub.log" | grep -qE '"path": "/(user/list|group/|invite/|logs/)'; then
   fail "the client asked the instance's admin routes for someone who isn't an administrator" \
     "$out/stub.log"
@@ -751,6 +794,23 @@ else
       "SCRIP    1234.56789" "Value    \$1234.57"
     check_not "$t: ... no runway" "$out/tmux-$(slug "$t: the Balances tab: SCRIP and its value, and no runway").txt" \
       "Runway" "days"
+    # Settings: the content filter. Tab to Hide below; Right is the next level, which is saved at
+    # once (PUT /social/settings/read-level); Left goes back to the default. BTab is the tabs.
+    keys Right
+    step "$t: the Settings tab: the content filter" "(*) Settings" \
+      "Hide below: < -3  hide flagged (default) >" "Hiding posts scored below -3 (hide flagged), the default."
+    keys Tab; keys Right
+    step "$t: Hide below -1: saved" "Hiding posts scored below -1 (hide flagged)." \
+      "Content filter: hide flagged."
+    keys Left
+    step "$t: Hide below -3 again: the default" \
+      "Hiding posts scored below -3 (hide flagged), the default."
+    if grep -F '"path": "/social/settings/read-level"' "$out/stub.log" | grep -qF '"method": "PUT"'; then
+      pass "$t: ... each saved on the server"
+    else
+      fail "$t: ... no PUT /social/settings/read-level in the stub's log" "$out/stub.log"
+    fi
+    keys BTab
     keys Right # round to Posts again, then past the five rows' Open (and Newer, off on the
     # first page) to Older
     step "$t: back to Posts" "(*) Posts" "Finished the notes on Menabrea's paper."
@@ -843,9 +903,9 @@ else
     type_text "Posted from $backend, by hand."
     keys Enter
     step "$t: posted: the new post, yours" "Posted." "Posted from $backend, by hand." \
-      "[ Like ][ Repost ][ Author ][ Delete ]" "No replies yet."
-    for _ in $(seq 11); do keys Tab; done
-    keys Enter # Delete: past the bar, Like, Repost and Author
+      "[ Like ][ Dislike ][ Repost ][ Author ][ Delete ]" "No replies yet."
+    for _ in $(seq 12); do keys Tab; done
+    keys Enter # Delete: past the bar, Like, Dislike, Repost and Author
     step "$t: Delete: gone, back to the feed" "Deleted." "Show: (*) Following" " Charles Babbage"
     check_not "$t: ... and not in the feed" "$out/tmux-$(slug "$t: Delete: gone, back to the feed").txt" \
       "Posted from $backend"
@@ -884,7 +944,7 @@ else
       else
         fail "$t: ... the big one by the resumable upload: no PATCH in the stub's log" "$out/stub.log"
       fi
-      for _ in $(seq 11); do keys Tab; done
+      for _ in $(seq 12); do keys Tab; done
       keys Enter # Delete
       step "$t: Delete: the post with the picture gone" "Deleted." "Show: (*) Following"
     else
@@ -903,8 +963,8 @@ else
       "Ada Lovelace  @ada@$hostport"
 
     # Author, then Unfollow and Follow: ada follows grace.
-    for _ in $(seq 10); do keys Tab; done
-    keys Enter # Author: past the bar, Like and Repost
+    for _ in $(seq 11); do keys Tab; done
+    keys Enter # Author: past the bar, Like, Dislike and Repost
     step "$t: Author: her profile, followed" "@grace@$hostport  Grace Hopper" "[ Unfollow ]"
     for _ in $(seq 8); do keys Tab; done
     keys Enter
@@ -930,6 +990,57 @@ else
       step "$t: Next: the video plays, looping, with its controls" "2 of 2" "[ Pause ]" \
         "[ ] Mute"
     fi
+    # Dislike, on a post: its mark, a like taking it off and it taking the like off, and taken
+    # back. Past the bar, the post's links (where its text has them), Tags, Open tag and Like.
+    start "$backend" "$xdg" "$base" -- --start post:312
+    step "$t: a post, to dislike" "Reactions: :thumbsup: 12" "[ Like ][ Dislike ]"
+    for _ in $(seq $((11 + card1_links))); do keys Tab; done
+    keys Enter # Dislike
+    step "$t: Dislike: disliked" "Disliked." "↩5 ⇄3 ♥21 · 310 views · disliked"
+    keys BTab; keys Enter # Like
+    step "$t: Like: liked, the dislike gone" "Liked." "↩5 ⇄3 ♥22 · 310 views · liked"
+    check_not "$t: ... no dislike" "$out/tmux-$(slug "$t: Like: liked, the dislike gone").txt" \
+      "· disliked"
+    keys Tab; keys Enter # Dislike
+    step "$t: Dislike: the like gone" "Disliked." "↩5 ⇄3 ♥21 · 310 views · disliked"
+    keys Enter
+    step "$t: Dislike again: taken back" "Dislike taken back." "↩5 ⇄3 ♥21 · 310 views"
+    check_not "$t: ... no mark" "$out/tmux-$(slug "$t: Dislike again: taken back").txt" \
+      "· disliked" "· liked"
+
+    # An administrator's Delete, on someone else's post (bob's, made through the API: bob is
+    # never signed out here): it asks first. Keep it keeps it; Yes, delete it deletes it, back to
+    # the feed. Past the bar, Like, Dislike, Repost and Author.
+    gpost=$(curl -s -X POST -H "Authorization: Bearer $(token bob@peer.example)" \
+      -H 'Content-Type: application/json' \
+      -d "{\"content\": \"Buy engines cheap, from $backend.\", \"visibility\": \"public\"}" \
+      "$base/social/posts" | python3 -I -B -c 'import json, sys; print(json.load(sys.stdin)["id"])')
+    start "$backend" "$xdg" "$base" -- --start "post:$gpost"
+    step "$t: bob's post, for the administrator" "Buy engines cheap, from $backend." \
+      "[ Like ][ Dislike ][ Repost ][ Author ][ Delete ]"
+    for _ in $(seq 12); do keys Tab; done
+    keys Enter # Delete
+    step "$t: Delete someone else's post: it asks" \
+      "Delete @bob@peer.example's post as an administrator?" \
+      "[ Yes, delete it ][ Keep it ]"
+    keys Tab; keys Tab; keys Enter # Keep it
+    step "$t: Keep it: kept" "Kept." "Buy engines cheap, from $backend."
+    check_not "$t: ... and not asking" "$out/tmux-$(slug "$t: Keep it: kept").txt" "[ Yes, delete it ]"
+    start "$backend" "$xdg" "$base" -- --start "post:$gpost"
+    step "$t: bob's post again" "Buy engines cheap, from $backend." "[ Delete ]"
+    for _ in $(seq 12); do keys Tab; done
+    keys Enter # Delete
+    step "$t: Delete again: it asks" "[ Yes, delete it ][ Keep it ]"
+    keys Tab; keys Enter # Yes, delete it
+    step "$t: Yes, delete it: gone, back to the feed" "Deleted @bob@peer.example's post." \
+      "Show: (*) Following"
+    if grep -F '"user": "ada"' "$out/stub.log" | grep -F '"method": "DELETE"' |
+      grep -qF "\"path\": \"/social/posts/$gpost\""; then
+      pass "$t: ... deleted on the server, by ada"
+    else
+      fail "$t: ... no DELETE /social/posts/$gpost by ada in the stub's log" "$out/stub.log"
+    fi
+
     # --- the Admin view, for ada (the stub's administrator) ---
     # Each backend acts on an account of its own, since nothing turns the emailed code back on:
     # eve in FTXUI, ivy in tvision. A new view starts with the focus on Back (Tab k reaches stop
