@@ -504,7 +504,7 @@ if [ -n "${epost:-}" ]; then
   name="$t: Yes, delete it"
   if wait_for "$name" "Deleted @eve@127.0.0.1:$port's post." 10; then
     pass "$name: the server deleted it"
-  elif grep -qF "This server doesn't let its administrators delete others' posts." \
+  elif grep -qF "This server won't let administrators delete others' posts." \
     "$out/tmux-$(slug "$name").txt"; then
     skip "$name (this txwtf refuses it: before atx-crypto-club/txwtf#324)"
   else

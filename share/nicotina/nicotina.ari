@@ -2484,7 +2484,7 @@ on_tick: |
                   (begin (state-set "ui.here" (if (= entry "") "feed" entry)) (new-view)))
                 (say done)))
             (if (and (= (status r) 403) (!= (state-get "post.mine") "1"))
-              (say "This server doesn't let its administrators delete others' posts.")
+              (say "This server won't let administrators delete others' posts.")
               (act-failed r "delete it")))))
       ;; The list the card pressed is in (act.list): the feed's when a terminal's buttons, which
       ;; don't name one, were pressed.
