@@ -904,8 +904,10 @@ else
     # A post's links, where its text is rich (text.runs): a hashtag opens its posts, a mention
     # its account's profile (GET /user/by-username/{name}), and a URL elsewhere is copied, never
     # opened. The bar and Show are the first nine stops; the first card's #engines is next.
+    # 40 rows: a host that draws pictures shows the second #engines post's picture in its card,
+    # which takes the third post (grace's, only in #engines) below a 30-row fold.
     if [ -n "$runs" ]; then
-      start "$backend" "$xdg" "$base"
+      PANE=100x40 start "$backend" "$xdg" "$base"
       step "$t: the feed, to follow a link" "$bar" " Charles Babbage"
       for _ in $(seq 9); do keys Tab; done
       keys Enter # #engines, in the first card's text
@@ -944,8 +946,12 @@ else
     # focus in its name field. The picture's path and Enter: it is listed, and the focus is in the
     # text again. Tab past its Remove to Attach for the second, the same way. Enter posts it: the
     # picture uploaded first (POST /social/files), then the big file in the resumable upload's
-    # chunks. Delete takes it away.
+    # chunks. Delete takes it away. It runs in a 40-row pane of its own, started again at the feed
+    # as the steps before leave it: a host that draws pictures shows the posted picture (about 14
+    # rows) above the file, which takes the file below a 30-row fold.
     if [ -n "$attach" ]; then
+      PANE=100x40 start "$backend" "$xdg" "$base"
+      step "$t: started again, taller, for a post with files" "$bar" " Charles Babbage"
       for _ in $(seq 6); do keys Tab; done
       keys Enter # Post
       step "$t: Post again: the new post's view, with Attach" "[ Attach ]" "Who sees it: (*) Public"
