@@ -27,13 +27,31 @@ install_into() { # install_into PREFIX COMPONENT...
   sed -n '/^- name: \(ari\|ari-media\|arigl\|libcvc\)$/{p;n;p;}' \
     "$prefix/share/libcvc-deps/lockfile.yaml"
 }
-# The newest linux x86_64 release build of a package on cvcpkg.org, as "3.7.13+cvc.3"; with a
-# second argument, the newest of that upstream version.
+# The newest linux x86_64 shared release build of a package on cvcpkg.org, as "3.7.13+cvc.3";
+# with a second argument, the newest of that upstream version. cvcpkg search matches its query
+# anywhere (every host's description names libcvc) and pages by 200, so this reads the JSON,
+# every page, and keeps the rows named exactly NAME.
 newest() { # newest NAME [UPSTREAM]
-  cvcpkg search "$1" --limit 500 |
-    awk -v n="$1" -v u="${2:-}" '$1 == n && $3 == "linux" && $4 == "x86_64" && $5 == "shared" &&
-                                 $6 == "release" && (u == "" || index($2, u "+") == 1) { print $2 }' |
-    sort -uV | tail -n 1
+  python3 - "$@" <<'PY'
+import json, re, subprocess, sys
+name, upstream = sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else ""
+versions, offset = [], 0
+while True:
+    out = subprocess.run(
+        ["cvcpkg", "search", name, "--platform", "linux", "--arch", "x86_64", "--link", "shared",
+         "--build-type", "release", "--limit", "200", "--offset", str(offset), "--json"],
+        check=True, capture_output=True, text=True).stdout
+    page = json.loads(out).get("packages") or []
+    versions += [p["version"] for p in page if p.get("name") == name and not p.get("yanked")
+                 and (not upstream or p["version"].startswith(upstream + "+"))]
+    offset += len(page)
+    if len(page) < 200:
+        break
+def key(v):  # 3.7.13+cvc.3 -> ((3, 7, 13), 3)
+    up, _, rev = v.partition("+cvc.")
+    return tuple(int(x) for x in re.findall(r"\d+", up)), int(rev or 0)
+print(max(versions, key=key) if versions else "")
+PY
 }
 
 # One prefix holds one libcvc, and each host links the libcvc of its own release. So ari-media
