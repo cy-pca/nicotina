@@ -90,7 +90,10 @@ for host in ari ari-media; do
       || { echo "::error::this $host has no $want" >&2; printf '%s\n' "$info" >&2; exit 1; }
   done
 done
-if ldd "$deps/bin/ari" "$deps/bin/ari-media" "$deps/bin/arigl" | grep 'not found'; then
+# ldd of the files themselves: through a link, ldd takes $ORIGIN from the link's directory, which
+# running the program does not (deps/bin/ari-media may link into ROOT/media).
+if ldd "$(readlink -f "$deps/bin/ari")" "$(readlink -f "$deps/bin/ari-media")" \
+  "$(readlink -f "$deps/bin/arigl")" | grep 'not found'; then
   echo "::error::ari, ari-media or arigl cannot find a shared library" >&2
   exit 1
 fi
