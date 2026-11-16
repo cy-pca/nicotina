@@ -28,20 +28,22 @@ install_into() { # install_into PREFIX COMPONENT...
     "$prefix/share/libcvc-deps/lockfile.yaml"
 }
 # The newest linux x86_64 shared release build of a package on cvcpkg.org, as "3.7.13+cvc.3";
-# with a second argument, the newest of that upstream version. cvcpkg search matches its query
-# anywhere (every host's description names libcvc) and pages by 200, so this reads the JSON,
-# every page, and keeps the rows named exactly NAME.
+# with a second argument, the newest of that upstream version. It asks the registry's search API
+# (GET /v1/search) itself: `cvcpkg search` needs httpx, cvcpkg's optional "remote" extra, which a
+# plain install of the CLI lacks. The query matches anywhere (every host's description names
+# libcvc) and a page holds at most 200, so it reads every page and keeps the rows named NAME.
 newest() { # newest NAME [UPSTREAM]
   python3 - "$@" <<'PY'
-import json, re, subprocess, sys
+import json, os, re, sys, urllib.parse, urllib.request
 name, upstream = sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else ""
+server = os.environ.get("CVCPKG_SERVER_URL", "https://cvcpkg.org").rstrip("/")
 versions, offset = [], 0
 while True:
-    out = subprocess.run(
-        ["cvcpkg", "search", name, "--platform", "linux", "--arch", "x86_64", "--link", "shared",
-         "--build-type", "release", "--limit", "200", "--offset", str(offset), "--json"],
-        check=True, capture_output=True, text=True).stdout
-    page = json.loads(out).get("packages") or []
+    q = urllib.parse.urlencode({"q": name, "platform": "linux", "arch": "x86_64", "link": "shared",
+                                "build_type": "release", "limit": 200, "offset": offset})
+    req = urllib.request.Request(f"{server}/v1/search?{q}", headers={"Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        page = json.load(r).get("packages") or []
     versions += [p["version"] for p in page if p.get("name") == name and not p.get("yanked")
                  and (not upstream or p["version"].startswith(upstream + "+"))]
     offset += len(page)
