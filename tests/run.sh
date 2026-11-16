@@ -922,10 +922,11 @@ else
     # A post's links, where its text is rich (text.runs): a hashtag opens its posts, a mention
     # its account's profile (GET /user/by-username/{name}), and a URL elsewhere is copied, never
     # opened. The bar and Show are the first nine stops; the first card's #engines is next.
-    # 40 rows: a host that draws pictures shows the second #engines post's picture in its card,
-    # which takes the third post (grace's, only in #engines) below a 30-row fold.
+    # 50 rows: a host that draws pictures shows the second #engines post's picture in its card,
+    # which takes the third post (grace's, only in #engines) below a 30-row fold; one with a player
+    # (ari-media) draws its video's poster too, which takes it below a 40-row one.
     if [ -n "$runs" ]; then
-      PANE=100x40 start "$backend" "$xdg" "$base"
+      PANE=100x50 start "$backend" "$xdg" "$base"
       step "$t: the feed, to follow a link" "$bar" " Charles Babbage"
       for _ in $(seq 9); do keys Tab; done
       keys Enter # #engines, in the first card's text
