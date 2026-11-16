@@ -190,6 +190,11 @@ page1_links=0
 # post then has Attach. ari has no picker of its own, so the Runtime draws an Open file window.
 attach=
 "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement file-pick" || attach=1
+# Whether a window's title bar has a maximize button (ui.maximize, libcvc 3.7.13's #1086): the
+# nicotina menu's Maximize the window is on then, and the tmux walk below uses it.
+maximize=
+ari_info=$("$ARI" info 2>/dev/null || true) # whole: grep -q on a pipe can SIGPIPE ari under pipefail
+awk '$1 == "ui.maximize" && $2 == "yes" { f = 1 } END { exit !f }' <<<"$ari_info" && maximize=1
 # The picture the tmux cases attach: a small PNG, drawn by the stub's own writer.
 attach_file=$work/attach/kitten.png
 mkdir -p "$work/attach"
@@ -848,6 +853,19 @@ else
     step "$t: Older: the next page" "Page 2" "2026-10-23  Testing, testing."
     keys BTab; keys Enter
     step "$t: Newer: the first page again" "Page 1" "Finished the notes on Menabrea's paper."
+
+    # The nicotina menu's Maximize the window, where the backend has the title bar's button
+    # (ui.maximize: FTXUI; tvision's zoom box is its own): F10, Down past Show the window (a fresh
+    # start has Back and Forward off, which the menu skips), Enter. The button becomes the restore
+    # one and the window takes the whole width; the same again, and it goes back to its size.
+    if [ "$backend" = ftxui ] && [ -n "$maximize" ]; then
+      start "$backend" "$xdg" "$base"
+      step "$t: started again, for the menu's Maximize" "$bar" " Charles Babbage"
+      keys F10; keys Down; keys Down; keys Enter
+      step "$t: the menu's Maximize the window: the window fills the terminal" "┏ TX.WTF [↕][x]"
+      keys F10; keys Down; keys Down; keys Enter
+      step "$t: ... and again: back to its size" "  ┏ TX.WTF [↑][x]"
+    fi
 
     # The feed: a card's Open shows the whole post; Back; Load more adds the next page.
     start "$backend" "$xdg" "$base"
