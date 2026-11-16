@@ -77,6 +77,17 @@ ada's conversations: 900 with grace (plaintext, three messages), 901 with charle
 a device that isn't here: ciphertext with no envelope for ada), 902 with mary (encrypted, empty:
 a peer script, tests/e2ee_peer.js, writes in it).
 
+ivy's: 903 with grace (plaintext, one message). Right after ivy first asks for her conversations,
+grace writes her another, with a custom emoji (:gear:) and a standard one (:coffee:) in its
+content_html: a message that comes while the client runs, for its tray's mail icon and the host's
+notification feed (transfix/libcvc#1241).
+
+Notifications and the custom emoji list:
+
+  GET  /notifications/, GET /notifications/count, POST /notifications/viewed (all of ada's),
+  POST /notifications/{id}/viewed (one), Bearer
+  GET  /social/emojis?limit=&offset=      Bearer -> {emojis, total, limit, offset}: :gear:
+
 Accounts (password "correct horse" for all of them):
 
   ada    plain sign-in
@@ -528,7 +539,16 @@ CONVERSATIONS = [
      "messages": []},
     {"id": 902, "a": "ada", "b": "mary", "encrypted": True, "created_at": "2026-10-25T10:00:00",
      "messages": []},
+    {"id": 903, "a": "ivy", "b": "grace", "encrypted": False, "created_at": "2026-11-01T09:00:00",
+     "messages": [("grace", "2026-11-01T09:05:00", "Welcome aboard, Ivy.")]},
 ]
+# The message grace writes ivy right after ivy's first look at her conversations (conversation
+# 903): it comes while the client runs. Its content_html as txwtf renders it (render_emoji_html).
+ARRIVAL = {"conversation": 903, "sender": "grace", "at": "2026-11-01T09:30:00",
+           "content": "The engine runs :gear: and the tests pass :coffee:",
+           "html": "The engine runs " + '<img class="custom-emoji" src="/social/emojis/12/image" '
+                   'alt=":gear:" title=":gear:" draggable="false">'
+                   ' and the tests pass <span class="emoji" title=":coffee:">☕</span>'}
 # 901's encrypted messages, sealed on charles's and ada's other devices: opaque here, and with no
 # X3DH envelope a device without that session could start from.
 SEALED_ELSEWHERE = [
@@ -825,6 +845,7 @@ class State:
             }
         self.next_conv = 950
         self.next_dm = 90000
+        self.arrived = False  # whether ARRIVAL has come (on ivy's first GET of her conversations)
         self.keys = {}     # username -> the published identity, signed prekey, one-time prekeys
         self.backups = {}  # username -> the backup blob, as given
 
@@ -1157,6 +1178,22 @@ def make_handler(state):
                 with state.lock:
                     state.viewed |= {x["id"] for x in NOTIFICATIONS}
                 return self.reply(200, {"message": "Marked viewed", "code": 0, "data": None}), user
+            m = re.fullmatch(r"/notifications/(\d+)/viewed", path)
+            if method == "POST" and m:
+                nid = int(m.group(1))
+                if user != "ada" or nid not in {x["id"] for x in NOTIFICATIONS}:
+                    return self.reply(404, {"detail": "Notification not found"}), user
+                with state.lock:
+                    state.viewed.add(nid)
+                return self.reply(200, {"message": "Marked viewed", "code": 0, "data": None}), user
+            if method == "GET" and path == "/social/emojis":
+                # the custom emoji to use (txwtf's list_emojis): :gear:, image-backed
+                return self.reply(200, {"emojis": [
+                    {"id": 12, "name": "gear", "shortcode": "gear", "url": "/social/emojis/12/image",
+                     "unicode": None, "description": "A gear", "custom": True, "enabled": True,
+                     "owner_user_id": 1, "owner_group_id": None,
+                     "created_at": "2026-10-01T10:00:00"}],
+                    "total": 1, "limit": 50, "offset": 0}), user
             if path == "/social/settings/read-level" and method in ("GET", "PUT"):
                 if method == "PUT":
                     body = self.json_body()
@@ -1331,7 +1368,7 @@ def make_handler(state):
         def dm_response(self, c, m):
             sid = USERS.get(m["sender"], AUTHORS.get(m["sender"], {})).get("id")
             return {"id": m["id"], "conversation_id": c["id"], "sender_id": sid,
-                    "content": m["content"], "content_html": None, "created_at": m["at"],
+                    "content": m["content"], "content_html": m.get("html"), "created_at": m["at"],
                     "attachments": None, "is_paid_content": False, "price_scrip": None,
                     "is_locked": False, "unlock_count": 0, "reaction_count": 0, "reactions": None,
                     "is_system": False}
@@ -1374,6 +1411,14 @@ def make_handler(state):
                         mine = [c for c in state.convs.values() if user in (c["a"], c["b"])]
                         out = [self.conv_response(c, user) for c in mine]
                         out.sort(key=lambda c: c["last_message_at"] or c["created_at"], reverse=True)
+                        if user == "ivy" and not state.arrived:
+                            # grace writes, just after this reply: the next look finds it
+                            state.arrived = True
+                            state.convs[ARRIVAL["conversation"]]["plain"].append(
+                                {"id": state.next_dm, "sender": ARRIVAL["sender"],
+                                 "at": ARRIVAL["at"], "content": ARRIVAL["content"],
+                                 "html": ARRIVAL["html"]})
+                            state.next_dm += 1
                         return self.reply(200, out)
                     other = names_by_id().get(int((query.get("other_user_id") or ["0"])[0]))
                     if other is None:

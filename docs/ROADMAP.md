@@ -45,6 +45,7 @@ on TX.WTF is tracked as T-items in the TX.WTF repository.
 | L22 | Loop as a player control: a Loop box beside Mute, and a `loop` key the document reads and writes, as `muted` | M2 |
 | L23 | `badge:` on `image:` and `video:`, a label drawn over the picture (the grid's "+N"), with a capability token (`image.badge`). Not `overlay:`, a widget type the loader would take it for | M2 |
 | L24 | A reactive expression the per-frame budget skipped is not the document's error: no warning (a big feed's first frame in wasm showed one) | M2 |
+| L25 | A tray at the menu bar's right end, icons with a count on them, and the host's notification feed with a bell (`tray_icon:`, `(notify ...)`: transfix/libcvc#1241, the release after 4.0.0): the web app's bar, its bell and an unread-messages count | M2 |
 
 ## Milestones
 
@@ -109,6 +110,17 @@ on TX.WTF is tracked as T-items in the TX.WTF repository.
     instance leaves out of your feeds the posts whose likes less dislikes are below it); and an
     administrator's Delete on anyone's post, which asks first. That Delete needs a txwtf with
     atx-crypto-club/txwtf#324; an older one refuses it, and nicotina says so.
+  - Drafted, for the libcvc release after 4.0.0 (L25): the web app's bar in the menu bar's tray.
+    What's new is asked for every 30 s while signed in (txwtf's own polling interval; a WebSocket
+    would make it live, L6). TX.WTF's unread notifications go to the host's notification feed,
+    whose bell shows them, and a click on one opens its post or profile and marks it read at the
+    instance. A direct message that comes while its conversation isn't shown is unread here: the
+    tray's mail icon counts those conversations, the DMs list marks them, and the feed has an
+    entry that opens it. txwtf's conversation list carries no unread count, so this client keeps
+    one from each conversation's last message, as the web app does. A direct message's emoji draw
+    as a post's do (its content_html; an encrypted one's custom emoji from the instance's list).
+    The nicotina menu has Maximize the window, as the title bar's button does, where the backend
+    has one (ui.maximize: ImGui and FTXUI). Older hosts keep the Alerts count beside the bar.
 - **M3, SCRIP:** live balance, top-up through hosted checkout in the system
   browser, and the metered prompt chat.
 - **M4, ship:** publish the cvcpkg recipe for linux-x86_64, macOS and Windows,
