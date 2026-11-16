@@ -62,7 +62,7 @@ token() { awk -v n="$1" '$1 == n { print $2 }' "$work/token-names"; } # never ec
 
 python3 -I -B "$here/stub_txwtf.py" --port 0 --port-file "$work/port" --log "$out/stub.log" \
   --signed-in ada --signed-in grace --signed-in mary --signed-in bob@peer.example \
-  --signed-in slowpoke \
+  --signed-in slowpoke --signed-in ivy \
   2>"$out/stub.stderr" &
 stub_pid=$!
 for _ in $(seq 100); do [ -s "$work/port" ] && break; sleep 0.05; done
@@ -449,6 +449,35 @@ check "ari snapshot: an encrypted conversation where the host keeps no keys: loc
   "These messages are end-to-end encrypted, and stay locked here:"
 check_not "ari snapshot: ... no box to write in, and no ciphertext" "$out/snap-view-dm-locked.txt" \
   "Message: [" "c3RhbmQtaW4"
+
+# The tray (transfix/libcvc#1241, the release after libcvc 4.0.0), where the host keeps a
+# notification feed: TX.WTF's unread notifications and the direct messages that come while the
+# client runs go to the feed, which the tray's bell shows (🔔 and the unread count), and the mail
+# icon counts the conversations with a message not read here (✉ and the count).
+tray=
+"$ARI" check --net "$main" 2>&1 | grep -q "optional requirement notify" || tray=1
+if [ -n "$tray" ]; then
+  check "ari snapshot: the tray: the mail icon, and the bell with ada's two unread notifications" \
+    "$out/snap-ftxui-feed.txt" "✉" "🔔2"
+  # ivy: grace writes her right after she signs in (the stub's ARRIVAL), and the first poll finds
+  # it. Her conversations, the one with grace marked.
+  tray_store=$work/snap-tray/credentials
+  seed_store "$tray_store" ivy
+  "$ARI" snapshot --width 80 --height 30 --net-allow "$base" --credential-store "$tray_store" \
+    "$main" --instance "$base" --start dms >"$out/snap-tray-dms.txt" 2>&1
+  check "ari snapshot: the tray: a message that came while it ran: the mail icon counts one" \
+    "$out/snap-tray-dms.txt" "✉1" "🔔1" "1 conversation " "● @grace@$hostport  Grace Hopper"
+  # ... and in its conversation, the message's emoji: the standard one's character; the custom
+  # one (a picture) stays its :name: in a terminal, which can't put a picture in a line of text.
+  "$ARI" snapshot --width 80 --height 30 --net-allow "$base" --credential-store "$tray_store" \
+    "$main" --instance "$base" --start dm:903 >"$out/snap-tray-dm.txt" 2>&1
+  check "ari snapshot: a direct message's emoji, as a post's" "$out/snap-tray-dm.txt" \
+    "  Welcome aboard, Ivy." "  The engine runs :gear: and the tests pass ☕"
+  check_not "ari snapshot: ... the conversation open, nothing unread" "$out/snap-tray-dm.txt" "✉1"
+else
+  skip "the tray: this host has no notification feed (transfix/libcvc#1241)"
+  check_not "ari snapshot: ... and nothing of it is drawn" "$out/snap-ftxui-feed.txt" "✉" "🔔"
+fi
 
 # The Admin view, for ada, the stub's administrator: each of its parts, one account, one group.
 view admin admin

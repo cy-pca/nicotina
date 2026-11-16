@@ -90,10 +90,29 @@ The host holds the token, never the documents:
 The document declares `requires: [net, net.auth, ...]`, so a host started without `--net`
 refuses to load it and says what is missing.
 
+### The tray: notifications and new messages
+
+Where the host has the menu bar's tray and its notification feed (transfix/libcvc#1241, in the
+release after libcvc 4.0.0), the bar's right end is the web app's bar:
+- **The bell** is the host's notification feed. TX.WTF's unread notifications go into it, and so
+  does a direct message that comes while its conversation isn't open. Its badge is the unread
+  count; a click on an entry opens its post, profile or conversation, and marks a notification
+  read at the instance. Opening Alerts marks them all read, as the web app does.
+- **The mail icon** counts the conversations with a message you haven't read here; a click opens
+  DMs, where they are marked ●.
+
+What's new is asked for every 30 s while you're signed in, as the web app polls. txwtf's
+conversation list carries no unread count, so nicotina counts the messages that come while it
+runs. An older host keeps the count beside Alerts, and the ● in DMs.
+
+The nicotina menu's **Maximize the window** does what the title bar's maximize button does
+(ImGui and FTXUI; tvision's zoom box is its own).
+
 ### Direct messages, and the encryption keys
 
 The bar's **DMs** (or Message on someone's profile) lists your conversations and opens one: its
-last 30 messages, oldest first, and a box that sends.
+last 30 messages, oldest first, and a box that sends. A message's emoji draw as a post's do: a
+standard one's character, a custom one's picture (its `:name:` in a terminal).
 - **A plaintext conversation** goes through `/social/dm/...`.
 - **An end-to-end encrypted one**, TX.WTF's lock, goes through the host's `e2ee-*` verbs
   (libcvc 3.7.14). The host seals and opens the messages, wire-compatible with the web app (X3DH
