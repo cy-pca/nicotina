@@ -1,6 +1,7 @@
 # Direct messages: the TX.WTF window's Messages (the bar's DMs), as the web app's.
 #
-#   dms   your conversations, the latest first: who, and when it last had a message. Open goes
+#   dms   your conversations, the latest first: who, and when it last had a message, ● before
+#         one with a message not yet read here (the tray's mail icon counts them). Open goes
 #         to one. Under them, what this host does with end-to-end encrypted ones, and your keys.
 #   dm    one conversation: its person, its last messages, oldest first, and a box to write in.
 #
@@ -72,11 +73,14 @@ units:
         bind: dm.conv.sub
         color: [0.6, 0.6, 0.6]
       - separator
+      # A message's words carry its emoji (emoji:, where the host draws them: text.emoji), a
+      # standard one's character and a custom one's picture, as a post's do.
       - type: group
         repeat: (state-get "dm.lines")
         children:
           - text: ""
             bind: dm.lines.{i}.text
+            emoji: dm.lines.{i}.emoji
             visible_when: (!= (state-get "dm.lines.{i}.dim") "1")
           - text: ""
             bind: dm.lines.{i}.text

@@ -62,7 +62,7 @@ token() { awk -v n="$1" '$1 == n { print $2 }' "$work/token-names"; } # never ec
 
 python3 -I -B "$here/stub_txwtf.py" --port 0 --port-file "$work/port" --log "$out/stub.log" \
   --signed-in ada --signed-in grace --signed-in mary --signed-in bob@peer.example \
-  --signed-in slowpoke \
+  --signed-in slowpoke --signed-in ivy \
   2>"$out/stub.stderr" &
 stub_pid=$!
 for _ in $(seq 100); do [ -s "$work/port" ] && break; sleep 0.05; done
@@ -190,6 +190,11 @@ page1_links=0
 # post then has Attach. ari has no picker of its own, so the Runtime draws an Open file window.
 attach=
 "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement file-pick" || attach=1
+# Whether a window's title bar has a maximize button (ui.maximize, libcvc 3.7.13's #1086): the
+# nicotina menu's Maximize the window is on then, and the tmux walk below uses it.
+maximize=
+ari_info=$("$ARI" info 2>/dev/null || true) # whole: grep -q on a pipe can SIGPIPE ari under pipefail
+awk '$1 == "ui.maximize" && $2 == "yes" { f = 1 } END { exit !f }' <<<"$ari_info" && maximize=1
 # The picture the tmux cases attach: a small PNG, drawn by the stub's own writer.
 attach_file=$work/attach/kitten.png
 mkdir -p "$work/attach"
@@ -449,6 +454,35 @@ check "ari snapshot: an encrypted conversation where the host keeps no keys: loc
   "These messages are end-to-end encrypted, and stay locked here:"
 check_not "ari snapshot: ... no box to write in, and no ciphertext" "$out/snap-view-dm-locked.txt" \
   "Message: [" "c3RhbmQtaW4"
+
+# The tray (transfix/libcvc#1241, the release after libcvc 4.0.0), where the host keeps a
+# notification feed: TX.WTF's unread notifications and the direct messages that come while the
+# client runs go to the feed, which the tray's bell shows (🔔 and the unread count), and the mail
+# icon counts the conversations with a message not read here (✉ and the count).
+tray=
+"$ARI" check --net "$main" 2>&1 | grep -q "optional requirement notify" || tray=1
+if [ -n "$tray" ]; then
+  check "ari snapshot: the tray: the mail icon, and the bell with ada's two unread notifications" \
+    "$out/snap-ftxui-feed.txt" "✉" "🔔2"
+  # ivy: grace writes her right after she signs in (the stub's ARRIVAL), and the first poll finds
+  # it. Her conversations, the one with grace marked.
+  tray_store=$work/snap-tray/credentials
+  seed_store "$tray_store" ivy
+  "$ARI" snapshot --width 80 --height 30 --net-allow "$base" --credential-store "$tray_store" \
+    "$main" --instance "$base" --start dms >"$out/snap-tray-dms.txt" 2>&1
+  check "ari snapshot: the tray: a message that came while it ran: the mail icon counts one" \
+    "$out/snap-tray-dms.txt" "✉1" "🔔1" "1 conversation " "● @grace@$hostport  Grace Hopper"
+  # ... and in its conversation, the message's emoji: the standard one's character; the custom
+  # one (a picture) stays its :name: in a terminal, which can't put a picture in a line of text.
+  "$ARI" snapshot --width 80 --height 30 --net-allow "$base" --credential-store "$tray_store" \
+    "$main" --instance "$base" --start dm:903 >"$out/snap-tray-dm.txt" 2>&1
+  check "ari snapshot: a direct message's emoji, as a post's" "$out/snap-tray-dm.txt" \
+    "  Welcome aboard, Ivy." "  The engine runs :gear: and the tests pass ☕"
+  check_not "ari snapshot: ... the conversation open, nothing unread" "$out/snap-tray-dm.txt" "✉1"
+else
+  skip "the tray: this host has no notification feed (transfix/libcvc#1241)"
+  check_not "ari snapshot: ... and nothing of it is drawn" "$out/snap-ftxui-feed.txt" "✉" "🔔"
+fi
 
 # The Admin view, for ada, the stub's administrator: each of its parts, one account, one group.
 view admin admin
@@ -820,6 +854,19 @@ else
     keys BTab; keys Enter
     step "$t: Newer: the first page again" "Page 1" "Finished the notes on Menabrea's paper."
 
+    # The nicotina menu's Maximize the window, where the backend has the title bar's button
+    # (ui.maximize: FTXUI; tvision's zoom box is its own): F10, Down past Show the window (a fresh
+    # start has Back and Forward off, which the menu skips), Enter. The button becomes the restore
+    # one and the window takes the whole width; the same again, and it goes back to its size.
+    if [ "$backend" = ftxui ] && [ -n "$maximize" ]; then
+      start "$backend" "$xdg" "$base"
+      step "$t: started again, for the menu's Maximize" "$bar" " Charles Babbage"
+      keys F10; keys Down; keys Down; keys Enter
+      step "$t: the menu's Maximize the window: the window fills the terminal" "┏ TX.WTF [↕][x]"
+      keys F10; keys Down; keys Down; keys Enter
+      step "$t: ... and again: back to its size" "  ┏ TX.WTF [↑][x]"
+    fi
+
     # The feed: a card's Open shows the whole post; Back; Load more adds the next page.
     start "$backend" "$xdg" "$base"
     step "$t: started again, still signed in: the feed" "$bar" " Charles Babbage"
@@ -875,10 +922,11 @@ else
     # A post's links, where its text is rich (text.runs): a hashtag opens its posts, a mention
     # its account's profile (GET /user/by-username/{name}), and a URL elsewhere is copied, never
     # opened. The bar and Show are the first nine stops; the first card's #engines is next.
-    # 40 rows: a host that draws pictures shows the second #engines post's picture in its card,
-    # which takes the third post (grace's, only in #engines) below a 30-row fold.
+    # 50 rows: a host that draws pictures shows the second #engines post's picture in its card,
+    # which takes the third post (grace's, only in #engines) below a 30-row fold; one with a player
+    # (ari-media) draws its video's poster too, which takes it below a 40-row one.
     if [ -n "$runs" ]; then
-      PANE=100x40 start "$backend" "$xdg" "$base"
+      PANE=100x50 start "$backend" "$xdg" "$base"
       step "$t: the feed, to follow a link" "$bar" " Charles Babbage"
       for _ in $(seq 9); do keys Tab; done
       keys Enter # #engines, in the first card's text

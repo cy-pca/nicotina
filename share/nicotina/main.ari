@@ -46,6 +46,14 @@ menubar:
       # The window closes with its X; this brings it back.
       - menu_item: Show the window
         on: (state-set "ui.cmd" "show-window")
+      # Its title bar's maximize button, as a menu item: the window fills the screen, or goes
+      # back to its size. Where the backend has the button (ui.maximize: ImGui and FTXUI;
+      # tvision's zoom box is its own).
+      - menu_item: Maximize the window
+        on: (state-set "ui.cmd" "maximize")
+        enabled_when: (and (has? "ui.maximize")
+                           (!= (state-get "ui.screen") "signin") (!= (state-get "ui.screen") "2fa")
+                           (!= (state-get "ui.screen") "boot"))
       - menu_item: New post
         on: (state-set "ui.cmd" "compose")
         enabled_when: (and (!= (state-get "ui.screen") "signin") (!= (state-get "ui.screen") "2fa")
@@ -73,6 +81,19 @@ menubar:
       - separator
       - menu_item: Quit
         on: quit
+  # The tray, at the bar's right end, as the web app's bar has its bell (transfix/libcvc#1241, the
+  # release after libcvc 4.0.0; an older host loads this as nothing, with a warning):
+  #   the mail icon  how many conversations have a message not yet read here; a click opens the
+  #                  DMs view
+  #   the bell       the host's own, before the clock: TX.WTF's notifications and the direct
+  #                  messages that came while their conversation wasn't shown (nicotina.ari posts
+  #                  them to the host's notification feed). A click on one opens what it is about.
+  - tray_icon: mail
+    badge: (state-get "ui.dm_unread")
+    tooltip: Direct messages
+    on: (state-set "ui.cmd" "dms")
+    visible_when: (and (!= (state-get "ui.screen") "signin") (!= (state-get "ui.screen") "2fa")
+                       (!= (state-get "ui.screen") "boot"))
 
 # The client's view state lives here (ui), where the menu reaches it: the link below needs it to
 # exist before the client starts.
