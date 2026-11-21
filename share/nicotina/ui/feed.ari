@@ -63,7 +63,29 @@ units:
         bind: feed.mode_pick
         options: ["👥 Following", "🌐 Everyone", "🤝 Friends"]
         on: (begin (state-set "feed.mode" (if (string.ends-with (state-get "feed.mode_pick") "Following") "Following" (if (string.ends-with (state-get "feed.mode_pick") "Everyone") "Everyone" "Friends"))) (state-set "ui.cmd" "feed"))
-        visible_when: (and (!= (state-get "feed.source") "tag") (= (state-get "app.icons") "1"))
+        visible_when: (and (!= (state-get "feed.source") "tag") (= (state-get "app.icons") "1")
+                           (!= (state-get "app.choices") "1"))
+      # Where the host draws the chosen button of a row pressed in (button.selected): a button each,
+      # its emoji (or the instance's custom one, nav.icon.KEY), the one showing pressed in.
+      - type: group
+        layout: {kind: horizontal}
+        visible_when: (and (!= (state-get "feed.source") "tag") (= (state-get "app.choices") "1"))
+        children:
+          - button: "👥"
+            icon: (state-get "nav.icon.following")
+            tooltip: Following
+            selected: (= (state-get "feed.mode") "Following")
+            on: (begin (state-set "feed.mode" "Following") (state-set "ui.cmd" "feed"))
+          - button: "🌐"
+            icon: (state-get "nav.icon.everyone")
+            tooltip: Everyone
+            selected: (= (state-get "feed.mode") "Everyone")
+            on: (begin (state-set "feed.mode" "Everyone") (state-set "ui.cmd" "feed"))
+          - button: "🤝"
+            icon: (state-get "nav.icon.friends")
+            tooltip: Friends
+            selected: (= (state-get "feed.mode") "Friends")
+            on: (begin (state-set "feed.mode" "Friends") (state-set "ui.cmd" "feed"))
       - text: ""
         bind: feed.title
         color: [0.45, 0.65, 0.95]
