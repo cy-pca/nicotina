@@ -185,6 +185,9 @@ init: |
   (state-set "login.password" "")
   (state-set "login.code" "")
   (state-set "login.challenge" "")
+  ;; The sign-in form's Advanced options: shut, and the session an hour (txwtf's default).
+  (state-set "login.advanced" 0)
+  (state-set "login.expire" 3600)
   (state-set "ui.busy" "")
   (if (or (string.starts-with base "https://") (string.starts-with base "http://"))
     (begin
@@ -2800,7 +2803,12 @@ on_tick: |
                   (fail "Enter your username and password.")
                   (begin
                     (say "Signing in...")
-                    (after-login (post-json "/user/login" (dict "username" u "password" p) true)))))))
+                    ;; expire_delta: the session's length in seconds (Advanced options); it
+                    ;; holds through the emailed code too, which txwtf keeps with the challenge
+                    (after-login (post-json "/user/login"
+                                            (dict "username" u "password" p
+                                                  "expire_delta" (int (state-get "login.expire")))
+                                            true)))))))
           (if (= cmd "verify")
             (let ((code (string.trim (state-get "login.code"))))
               (if (= code "")

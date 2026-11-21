@@ -226,7 +226,10 @@ view_row="│[image] engine-diagram.png · 47 KB · The engine, from the ... [ V
 for backend in ftxui tvision; do
   snap "snap-$backend-signin" "$backend" "" --user ada
   check "ari snapshot ($backend): the sign-in form" "$out/snap-$backend-signin.txt" \
-    "Sign in to TX.WTF" "Instance: $base" "Username: [ada" "Password: []" "[ Sign in ]"
+    "Sign in to TX.WTF" "Instance: $base" "Username: [ada" "Password: []" "[ Sign in ]" \
+    "[ ] Advanced options"
+  check_not "ari snapshot ($backend): ... the session's length only under them" \
+    "$out/snap-$backend-signin.txt" "Session:"
 
   store=$work/snap-$backend/credentials
   seed_store "$store" ada
@@ -808,6 +811,12 @@ else
       " Charles Babbage  @charles@$hostport" " 2026-10-30 22:40" \
       "The Difference Engine No. 2, working at last."
     check_store "$t: the host keeps the session, owner-only (0600 in 0700)" "$store"
+    # the session's length: an hour, Advanced options untouched
+    if grep -qF '"login": "ada", "expire_delta": 3600}' "$out/stub.log"; then
+      pass "$t: the session asked for is an hour"
+    else
+      fail "$t: the session asked for is an hour" "$out/stub.log"
+    fi
     check_not "$t: the password is not on the screen" \
       "$out/tmux-$(slug "$t: signed in, the home feed").txt" "correct horse"
     for _ in $(seq 5); do keys Tab; done

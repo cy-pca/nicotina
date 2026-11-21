@@ -61,6 +61,17 @@ units:
         on: (state-set "ui.cmd" "login")
         enabled_when: (!= (state-get "ui.busy") "1")
       - include: status_line
+      # Advanced options: how long the session lasts before you sign in again (txwtf's
+      # expire_delta, an hour unless you pick more). Under the button, as the web app has them, so
+      # Tab from the password still reaches Sign in. The pick stays while nicotina runs.
+      - checkbox: Advanced options
+        bind: login.advanced
+      - combo: Session
+        bind: login.expire
+        options: ["1 hour (default)", "4 hours", "8 hours", "12 hours", "1 day", "1 week",
+                  "30 days"]
+        values: [3600, 14400, 28800, 43200, 86400, 604800, 2592000]
+        visible_when: (= (state-get "login.advanced") "1")
 
   twofactor_window:
     window: Two-step verification
