@@ -31,8 +31,12 @@
 # drawn twice.
 
 units:
-  # The bar: words (nav_words), or where a window draws emoji (app.icons: libcvc 3.7.13) symbols,
-  # as the web app's (nav_icons), each with its word as a tooltip, and Forward beside Back.
+  # The bar: words (nav_words), or where a window draws emoji (app.icons: libcvc 3.7.13) a colour
+  # emoji each (nav_icons), with its word as a tooltip, and Forward beside Back. Each is one the
+  # emoji font has and the UI font doesn't, so none comes out as a plain glyph. Where the host draws
+  # a picture on a button (button.icon) one of the instance's custom emoji may stand in for it
+  # (nav.icon.KEY, named in main.ari's init), and where it draws the chosen one of a row pressed in
+  # (button.selected) the button of the view you're on is.
   nav_bar:
     type: group
     children:
@@ -49,37 +53,58 @@ units:
     type: group
     layout: {kind: horizontal}
     children:
-      - button: "←"
+      - button: "👈"
+        icon: (state-get "nav.icon.back")
         on: (state-set "ui.cmd" "back")
         tooltip: Back
         autofocus: true
-      - button: "→"
+        selected: false
+      - button: "👉"
+        icon: (state-get "nav.icon.forward")
         on: (state-set "ui.cmd" "forward")
         tooltip: Forward
+        selected: false
       - button: "🏠"
+        icon: (state-get "nav.icon.home")
         on: (state-set "ui.cmd" "home")
         tooltip: Home
-      - button: "#"
+        selected: (and (= (state-get "ui.screen") "feed") (!= (state-get "feed.source") "tag"))
+      - button: "🏷"
+        icon: (state-get "nav.icon.tags")
         on: (state-set "ui.cmd" "tags")
         tooltip: Hashtags
+        selected: (or (= (state-get "ui.screen") "tags")
+                      (and (= (state-get "ui.screen") "feed") (= (state-get "feed.source") "tag")))
       - button: "🔍"
+        icon: (state-get "nav.icon.search")
         on: (state-set "ui.cmd" "search-view")
         tooltip: Search
+        selected: (= (state-get "ui.screen") "search")
       - button: "🔔"
+        icon: (state-get "nav.icon.alerts")
         on: (state-set "ui.cmd" "alerts")
         tooltip: Alerts
+        selected: (= (state-get "ui.screen") "alerts")
       - button: "👤"
+        icon: (state-get "nav.icon.profile")
         on: (state-set "ui.cmd" "profile")
         tooltip: Profile
-      - button: "✏"
+        selected: (and (= (state-get "ui.screen") "profile") (= (state-get "prof.self") "1"))
+      - button: "📝"
+        icon: (state-get "nav.icon.compose")
         on: (state-set "ui.cmd" "compose")
         tooltip: New post
-      - button: "✉"
+        selected: (= (state-get "ui.screen") "compose")
+      - button: "💬"
+        icon: (state-get "nav.icon.dms")
         on: (state-set "ui.cmd" "dms")
         tooltip: Messages
+        selected: (or (= (state-get "ui.screen") "dms") (= (state-get "ui.screen") "dm"))
       - button: "🛠"
+        icon: (state-get "nav.icon.admin")
         on: (state-set "ui.cmd" "admin")
         tooltip: Admin
+        selected: (= (state-get "ui.screen") "admin")
         visible_when: (= (state-get "ui.admin") "1")
       - text: ""
         bind: alerts.badge
@@ -125,6 +150,7 @@ units:
     closable: true
     pos: [16, 32]
     size: [auto, "86%"]    # as wide as what it shows, 86% tall: what does not fit scrolls
+    maximized: phone       # on a phone it fills the screen under the menu bar (libcvc 4.0.3)
     visible_when: (and (!= (state-get "ui.screen") "boot") (!= (state-get "ui.screen") "signin")
                        (!= (state-get "ui.screen") "2fa"))
     # The account's page background (profile_bg_url), faint, behind a profile in ImGui, as the

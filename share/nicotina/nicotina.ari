@@ -133,6 +133,12 @@ init: |
   ;; icons: the bar's buttons and the feed's choices as symbols (a back arrow, a house, ...),
   ;; where a window draws emoji (text.emoji: libcvc 3.7.13); elsewhere words
   (state-set "app.icons" (if (and (has? "text.emoji") (not (has? "term"))) "1" ""))
+  ;; choices: the feed's Following / Everyone / Friends as a button each, the one showing pressed
+  ;; in, where the host draws a row's chosen button so (button.selected, libcvc 4.0.3) and emoji;
+  ;; elsewhere a radio row
+  (state-set "app.choices" (if (and (has? "button.selected") (= (state-get "app.icons") "1")) "1" ""))
+  ;; the bar's custom emoji (nav-icons): none until a sign-in looks them up
+  (state-set-tree "nav.icon" (dict))
   ;; notify: the host's notification feed and the tray's bell (transfix/libcvc#1241). What's new
   ;; is asked for every 30 s while signed in (news.next), and goes there: TX.WTF's notifications
   ;; and the direct messages that came while their conversation wasn't shown.
@@ -413,6 +419,8 @@ on_tick: |
           (state-set-tree "dm.feed" (dict))
           (state-set "ui.dm_unread" "")
           (state-set "app.site_emoji" "")
+          (state-set "app.site_emoji_id" "")
+          (state-set-tree "nav.icon" (dict))
           (if (feed?) (notify-clear-all))
           ;; the next account to sign in may not be an administrator
           (state-set "ui.admin" "")
@@ -2182,6 +2190,7 @@ on_tick: |
         (if (load-me)
           (let ((start (state-get "ui.start")))
             (begin
+              (nav-icons)
               (state-set "ui.back" "")
               (state-set "ui.here" "")
               (state-set "ui.start" "feed")
@@ -2412,6 +2421,7 @@ on_tick: |
             (begin
               ;; pages of 100, at most five: plain sets, so the loop's own counters are what change
               (set m (dict))
+              (set ids (dict))
               (set off 0)
               (set pages 0)
               (set more true)
@@ -2426,12 +2436,36 @@ on_tick: |
                         (url (picture-url (text (opt e "url" ""))))
                         (ch (text (opt e "unicode" ""))))
                     (if (!= name "")
-                      (if (!= url "") (set-attr m name url)
+                      (if (!= url "")
+                        (begin
+                          (set-attr m name url)
+                          ;; its picture as TX.WTF serves it, for the bar (nav-icons)
+                          (set-attr ids name (text (opt e "id" ""))))
                         (if (!= ch "") (set-attr m name ch))))))
                 (set off (+ off (length es)))
                 (set more (and (> (length es) 0) (< off (int (opt b "total" 0))))))
+              (state-set "app.site_emoji_id" (json-encode ids))
               (state-set "app.site_emoji" (json-encode m))))
           (try (json-parse (state-get "app.site_emoji")) (catch (e) (dict)))))
+      ;; The bar's pictures. main.ari's init names, for any of the bar's buttons and the feed's
+      ;; choices, the instance's custom emoji to show in place of its own (ui.nav_emoji.KEY: a name,
+      ;; or a few, comma separated, the first the instance has winning). Where the host draws a
+      ;; picture on a button (button.icon), nav.icon.KEY is the picture's URL at the instance
+      ;; (/social/emojis/ID/image), else "": the button shows its own emoji, as it does until the
+      ;; picture has loaded and if it can't be.
+      (defun nav-icons ()
+        (if (has? "button.icon")
+          (let ((ids (begin (site-emoji)
+                            (try (json-parse (state-get "app.site_emoji_id")) (catch (e) (dict))))))
+            (for k (list "back" "forward" "home" "tags" "search" "alerts" "profile" "compose" "dms"
+                         "admin" "following" "everyone" "friends")
+              (begin
+                (state-set (str-concat "nav.icon." k) "")
+                (for n (string.split (text (state-get (str-concat "ui.nav_emoji." k))) ",")
+                  (let ((id (text (opt ids (string.lower (string.trim n)) ""))))
+                    (if (and (!= id "") (= (state-get (str-concat "nav.icon." k)) ""))
+                      (state-set (str-concat "nav.icon." k)
+                                 (str-concat (state-get "app.origin") "/social/emojis/" id "/image"))))))))))
       (defun load-dm (id)
         (let ((c (dm-conversation id)))
           (if (= (type-of c) "nil") nil
