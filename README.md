@@ -106,7 +106,24 @@ conversation list carries no unread count, so nicotina counts the messages that 
 runs. An older host keeps the count beside Alerts, and the ● in DMs.
 
 The nicotina menu's **Maximize the window** does what the title bar's maximize button does
-(ImGui and FTXUI; tvision's zoom box is its own).
+(ImGui and FTXUI; tvision's zoom box is its own). On a phone the window starts maximized
+(`maximized: phone`, libcvc 4.0.3): it fills the screen under the menu bar until you restore it.
+
+### The bar's buttons and the feed's choices
+
+In a window the bar is a colour emoji a button: 👈 Back, 👉 Forward, 🏠 Home, 🏷 Hashtags, 🔍
+Search, 🔔 Alerts, 👤 Profile, 📝 New post, 💬 Messages and 🛠 Admin, each named in its tooltip.
+Where the host draws the chosen button of a row pressed in (`button.selected`, libcvc 4.0.3), the
+button of the view you're on is, and the feed's Following, Everyone and Friends are buttons too
+(👥 🌐 🤝), the one showing pressed in. An older host keeps the radio row.
+
+Any of them can show one of the instance's custom emoji instead: `main.ari`'s `init:` names them
+(`ui.nav_emoji`, a name or a few comma separated, the first the instance has). After a sign-in
+nicotina looks them up (`GET /social/emojis`) and, where the host draws a picture on a button
+(`button.icon`), shows TX.WTF's picture for it (`/social/emojis/ID/image`). The button keeps its own
+emoji until the picture loads, and if it can't: in a browser that needs the picture served with
+CORS, which tx.wtf's custom emoji (Slack-hosted, behind a redirect) aren't yet. A terminal keeps
+the words.
 
 ### Direct messages, and the encryption keys
 
