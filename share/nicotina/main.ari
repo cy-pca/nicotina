@@ -30,6 +30,9 @@ requires:
 # The views come and go with ui.screen, so there are no windows for a Windows menu to reopen.
 windows_menu: false
 
+# The tray's bell shows even with nothing in it (libcvc 4.0.5; an older host takes it as false).
+notifications: always
+
 menubar:
   - menu: nicotina
     items:
@@ -85,13 +88,23 @@ menubar:
   # release after libcvc 4.0.0; an older host loads this as nothing, with a warning):
   #   the mail icon  how many conversations have a message not yet read here; a click opens the
   #                  DMs view
-  #   the bell       the host's own, before the clock: TX.WTF's notifications and the direct
-  #                  messages that came while their conversation wasn't shown (nicotina.ari posts
-  #                  them to the host's notification feed). A click on one opens what it is about.
+  #   the bell       the host's own, shown always (notifications: always): TX.WTF's notifications
+  #                  and the direct messages that came while their conversation wasn't shown
+  #                  (nicotina.ari posts them to the host's notification feed). A click on one
+  #                  opens what it is about.
+  #   you            your avatar, round (it moves when it's an animation or a video: libcvc 4.0.5;
+  #                  an older host shows the user glyph); a click opens your profile
   - tray_icon: mail
     badge: (state-get "ui.dm_unread")
     tooltip: Direct messages
     on: (state-set "ui.cmd" "dms")
+    visible_when: (and (!= (state-get "ui.screen") "signin") (!= (state-get "ui.screen") "2fa")
+                       (!= (state-get "ui.screen") "boot"))
+  - bell
+  - tray_icon: user
+    icon: (state-get "me.avatar_url")
+    tooltip: Your profile
+    on: (state-set "ui.cmd" "profile")
     visible_when: (and (!= (state-get "ui.screen") "signin") (!= (state-get "ui.screen") "2fa")
                        (!= (state-get "ui.screen") "boot"))
 

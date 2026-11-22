@@ -97,9 +97,13 @@ release after libcvc 4.0.0), the bar's right end is the web app's bar:
 - **The bell** is the host's notification feed. TX.WTF's unread notifications go into it, and so
   does a direct message that comes while its conversation isn't open. Its badge is the unread
   count; a click on an entry opens its post, profile or conversation, and marks a notification
-  read at the instance. Opening Alerts marks them all read, as the web app does.
+  read at the instance. Opening Alerts marks them all read, as the web app does. It shows even
+  with nothing in it (`notifications: always`, libcvc 4.0.5).
 - **The mail icon** counts the conversations with a message you haven't read here; a click opens
   DMs, where they are marked ●.
+- **You**: your avatar, round, at the bar's right end (a tray icon's `icon:`, libcvc 4.0.5); it
+  moves when it's an animated GIF or WebP, or a video. A click opens your profile. An older host,
+  and a terminal, show the user glyph.
 
 What's new is asked for every 30 s while you're signed in, as the web app polls. txwtf's
 conversation list carries no unread count, so nicotina counts the messages that come while it
