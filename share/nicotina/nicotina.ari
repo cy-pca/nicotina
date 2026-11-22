@@ -366,8 +366,10 @@ on_tick: |
                   "body" (json-encode payload)))))
 
       ;; --- the client's cache: the state tree, for the run ------------------------------
-      ;; A post as txwtf sent it is kept POSTTTL seconds under cache.post.ID, as its JSON: the
-      ;; post's view, search's cards and a card's Open read it before asking txwtf again. A
+      ;; A whole post, as GET /social/posts/ID sent it, is kept POSTTTL seconds under
+      ;; cache.post.ID, as its JSON: the post's view, search's cards and a card's Open read it
+      ;; before asking txwtf again. A timeline's posts aren't whole (txwtf leaves their
+      ;; reactions_summary null), so they are kept only in their feed's entry. A
       ;; feed's posts (cache.feed.MODE: every page loaded, with where the next one starts) are
       ;; kept FEEDTTL seconds, so Home and the feed's choices show them again at once. What you
       ;; do to a post (like, dislike, repost, reply, delete, a new post) drops its entry and the
@@ -378,7 +380,8 @@ on_tick: |
       (defun cache-live? (k) (and (state-exists k) (not (state-is-expired k))))
       (defun cache-bypass? () (= (sget "cache.bypass") "1"))
       (defun cache-post (q)
-        (if (and (= (type-of q) "dict") (!= (word (opt q "id" "")) ""))
+        (if (and (= (type-of q) "dict") (!= (word (opt q "id" "")) "")
+                 (!= (type-of (opt q "reactions_summary" nil)) "nil"))
           (let ((k (str-concat "cache.post." (word (opt q "id" "")))))
             (begin (state-set k (json-encode q)) (state-expire k POSTTTL)))))
       (defun cached-post (id)
@@ -1356,7 +1359,6 @@ on_tick: |
             (if (ok? r)
               (let ((b (reply-json r)))
                 (begin
-                  (for q (opt b "posts" (list)) (cache-post q))
                   (if (not tagged) (feed-keep b first))
                   (feed-show b first tagged everyone)))
               (begin
