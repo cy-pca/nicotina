@@ -375,7 +375,9 @@ units:
             bind: post.media.{i}.player
             visible_when: (= (state-get "post.media.{i}.v_aud") "1")
       - separator
-      # The replies, oldest first: who and when, two lines of each, and Open.
+      # The replies, oldest first: who and when, then two lines of each. Where a click on a
+      # group is its own (outside a terminal) a click on who and when opens one; in a terminal,
+      # the line padded to a column, then Open.
       - text: ""
         bind: post.replies_head
         color: [0.6, 0.6, 0.6]
@@ -383,7 +385,15 @@ units:
         repeat: (state-get "post.replies")
         children:
           - type: group
+            visible_when: (= (state-get "post.replies.{i}.v_click") "1")
+            on_click: (if (has? "ui.group_click") (begin (state-set "post.want" (state-get "post.replies.{i}.id")) (state-set "post.focus_reply" "") (state-set "ui.cmd" "open")))
+            hover: highlight
+            children:
+              - text: ""
+                bind: post.replies.{i}.label
+          - type: group
             layout: {kind: horizontal}
+            visible_when: (= (state-get "post.replies.{i}.v_btns") "1")
             children:
               - text: ""
                 bind: post.replies.{i}.head

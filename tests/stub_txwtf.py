@@ -730,29 +730,48 @@ def replies_of(pid, query, viewer):
             "has_more": offset + limit < len(rs)}
 
 
-def search(q, viewer):
-    """GET /search/search?q=: posts, people and hashtags whose text or name has q, grouped as
-    txwtf groups them (results.<category> = {items, total}; an item's author is a brief)."""
-    q = q.lower()
+def highlight(text, q, max_len=160):
+    """A snippet as txwtf's search makes one (txwtf/core/search.py _highlight): the text
+    HTML-escaped around the match, the match in <mark>."""
+    if not text:
+        return None
+    i = text.lower().find(q.lower())
+    if i == -1:
+        return html.escape(text[:max_len]) + ("…" if len(text) > max_len else "")
+    start, end = max(0, i - max_len // 3), min(len(text), i + len(q) + max_len // 2)
+    return ("…" if start > 0 else "") + html.escape(text[start:i]) + "<mark>" + \
+        html.escape(text[i:i + len(q)]) + "</mark>" + html.escape(text[i + len(q):end]) + \
+        ("…" if end < len(text) else "")
+
+
+def search(q, viewer, categories=""):
+    """GET /search/search?q=&categories=: posts, people and hashtags whose text or name has q,
+    grouped as txwtf groups them (results.<category> = {items, total}; an item's author is a
+    brief), only the categories named when some are. A person's title is the username, the
+    snippet a line of their name, a post's a line of its text, as txwtf's."""
+    asked = {c for c in categories.split(",") if c}
     users, posts, tags = [], [], []
     for n, u in list(USERS.items()) + list(AUTHORS.items()):
-        if q in n.lower() or q in u["name"].lower():
-            users.append({"type": "user", "id": u["id"], "title": u["name"], "snippet": "@" + n,
+        if q.lower() in n.lower() or q.lower() in u["name"].lower():
+            users.append({"type": "user", "id": u["id"], "title": n,
+                          "snippet": highlight(u["name"], q),
                           "avatar_url": u.get("avatar_url", DEFAULT_AVATAR),
-                          "url": f"/app/profile/{u['id']}", "author": None})
+                          "url": f"/app/profile/{u['id']}"})
     for p in sorted(all_posts(), key=lambda p: p["id"], reverse=True):
-        if p["price"] is None and q in p["content"].lower():
+        if p["price"] is None and q.lower() in p["content"].lower():
             posts.append({"type": "post", "id": p["id"], "title": None,
-                          "snippet": p["content"][:140], "url": f"/app/post/{p['id']}",
-                          "author": {"username": p["author"], "name": brief(p["author"])["name"]}})
+                          "snippet": highlight(p["content"], q), "url": f"/app/post/{p['id']}",
+                          "author": {"id": brief(p["author"])["id"], "username": p["author"]}})
     for t in tag_list({})["tags"]:
-        if q in t["name"]:
+        if q.lower() in t["name"]:
             tags.append({"type": "hashtag", "id": t["id"], "title": "#" + t["name"],
                          "snippet": f"{t['post_count']} posts", "url": f"/app/tag/{t['name']}"})
     def bucket(items):
         return {"items": items[:10], "total": len(items)}
-    return {"query": q, "results": {"posts": bucket(posts), "users": bucket(users),
-                                    "hashtags": bucket(tags)}, "federated": {"items": []}}
+    found = {"posts": posts, "users": users, "hashtags": tags}
+    return {"query": q, "results": {k: bucket(v) for k, v in found.items()
+                                    if not asked or k in asked},
+            "federated": {"items": []}}
 
 
 def feed(username, which, query):
@@ -1129,7 +1148,8 @@ def make_handler(state):
             if method == "GET" and path == "/social/tags":
                 return self.reply(200, tag_list(query)), user
             if method == "GET" and path == "/search/search":
-                return self.reply(200, search(query.get("q", [""])[0], user)), user
+                return self.reply(200, search(query.get("q", [""])[0], user,
+                                              query.get("categories", [""])[0])), user
             if method == "GET" and path.startswith("/user/by-username/"):
                 # who a mention names (txwtf's get_user_by_username: id, username, name, avatar)
                 name = path.rsplit("/", 1)[1]

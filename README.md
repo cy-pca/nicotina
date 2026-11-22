@@ -107,13 +107,13 @@ runs. An older host keeps the count beside Alerts, and the ● in DMs.
 
 The nicotina menu's **Maximize the window** does what the title bar's maximize button does
 (ImGui and FTXUI; tvision's zoom box is its own). On a phone the window starts maximized
-(`maximized: phone`, libcvc 4.0.3): it fills the screen under the menu bar until you restore it.
+(`maximized: phone`, libcvc 4.0.4): it fills the screen under the menu bar until you restore it.
 
 ### The bar's buttons and the feed's choices
 
 In a window the bar is a colour emoji a button: 👈 Back, 👉 Forward, 🏠 Home, 🏷 Hashtags, 🔍
 Search, 🔔 Alerts, 👤 Profile, 📝 New post, 💬 Messages and 🛠 Admin, each named in its tooltip.
-Where the host draws the chosen button of a row pressed in (`button.selected`, libcvc 4.0.3), the
+Where the host draws the chosen button of a row pressed in (`button.selected`, libcvc 4.0.4), the
 button of the view you're on is, and the feed's Following, Everyone and Friends are buttons too
 (👥 🌐 🤝), the one showing pressed in. An older host keeps the radio row.
 
@@ -121,9 +121,29 @@ Any of them can show one of the instance's custom emoji instead: `main.ari`'s `i
 (`ui.nav_emoji`, a name or a few comma separated, the first the instance has). After a sign-in
 nicotina looks them up (`GET /social/emojis`) and, where the host draws a picture on a button
 (`button.icon`), shows TX.WTF's picture for it (`/social/emojis/ID/image`). The button keeps its own
-emoji until the picture loads, and if it can't: in a browser that needs the picture served with
-CORS, which tx.wtf's custom emoji (Slack-hosted, behind a redirect) aren't yet. A terminal keeps
-the words.
+emoji until the picture loads, and if it can't: a browser needs the picture served with CORS, as
+tx.wtf serves its own copies (atx-crypto-club/txwtf#350). A terminal keeps the words.
+
+Where a click on a group is its own (outside a terminal), a list's row is the click: a hashtag,
+a notification, a conversation, a reply. Its text is as long as it is, so a phone's narrow window
+reaches it. A terminal pads the row to a column and puts Open after it.
+
+### Search
+
+The search view looks in what its checkboxes tick: Posts, People and Hashtags (all three at
+first; a change asks again), as `GET /search/search?categories=`. A person found is a card of
+their picture, handle and what they say about themselves; a hashtag a card of its name and count;
+a post its card, as the feed shows it. A click on a card opens what it is.
+
+### What it keeps
+
+For the run, the client keeps what TX.WTF sent in its own state tree, under `cache.*`: each post
+it has read (`cache.post.ID`, five minutes) and each of the feed's choices (`cache.feed.MODE`,
+every page loaded, three minutes). Home, the feed's choices, a post's view and search's cards
+show what's kept at once instead of asking again. Anything you do to a post (like, dislike,
+repost, reply, delete, a new post) drops what's kept of it and of the feeds; Refresh asks
+TX.WTF again; signing out drops it all. Pictures and video are the host's to keep: its HTTP
+cache.
 
 ### Direct messages, and the encryption keys
 
