@@ -102,7 +102,7 @@ menubar:
                        (!= (state-get "ui.screen") "boot"))
   - bell
   - tray_icon: user
-    icon: (state-get "me.avatar_url")
+    icon: (state-get "ui.avatar")
     tooltip: Your profile
     on: (state-set "ui.cmd" "profile")
     visible_when: (and (!= (state-get "ui.screen") "signin") (!= (state-get "ui.screen") "2fa")

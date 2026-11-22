@@ -174,8 +174,10 @@ init: |
                              ;; feed.<id>, the notification feed's entries for it, read with it
                              "unread" "" "seen" (dict) "feed" (dict)))
   ;; The Admin view (ui/admin.ari): ui.admin is "1" for an account the instance makes an
-  ;; administrator (is_admin, from GET /user/), where main.ari's menu reads it too.
+  ;; administrator (is_admin, from GET /user/), where main.ari's menu reads it too; ui.avatar
+  ;; is your avatar's URL, for the tray's icon in main.ari's bar (me.* is this module's own).
   (state-set "ui.admin" "")
+  (state-set "ui.avatar" "")
   (state-set-tree "admin" (dict "tab" "Users" "uq" "" "uoff" 0 "ioff" 0 "loff" 0 "log_event" 0
                                 "users" (list) "groups" (list) "invites" (list) "log" (list)
                                 "users_head" "" "groups_head" "" "invites_head" "" "log_head" ""
@@ -469,8 +471,9 @@ on_tick: |
           (state-set "app.site_emoji_id" "")
           (state-set-tree "nav.icon" (dict))
           (if (feed?) (notify-clear-all))
-          ;; the next account to sign in may not be an administrator
+          ;; the next account to sign in may not be an administrator, nor have this avatar
           (state-set "ui.admin" "")
+          (state-set "ui.avatar" "")
           (state-set "admin.uq" "")
           (state-set "admin.tab" "Users")
           (state-set "ui.screen" "signin")
@@ -811,6 +814,7 @@ on_tick: |
             (begin
               (state-set "login.username" (text (opt p "username" "")))
               (state-set "ui.admin" (if admin "1" ""))
+              (state-set "ui.avatar" (text (get-attr d "avatar_url")))
               (state-set-tree "me" d)
               d))))
       (defun show-balance (b)
