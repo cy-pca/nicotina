@@ -25,19 +25,34 @@ units:
             color: [0.6, 0.6, 0.6]
           - button: Refresh
             on: (state-set "ui.cmd" "refresh")
+      # A conversation is a row to click where a click on a group is its own (outside a
+      # terminal); in a terminal, its line padded to a column, then Open.
       - type: group
         repeat: (state-get "dm.rows")
         children:
           - type: group
-            layout: {kind: horizontal}
+            visible_when: (= (state-get "dm.rows.{i}.v_click") "1")
+            on_click: (if (has? "ui.group_click") (begin (state-set "dm.want" (state-get "dm.rows.{i}.id")) (state-set "ui.cmd" "dm-open")))
+            hover: highlight
             children:
               - text: ""
-                bind: dm.rows.{i}.line
-              - button: Open
-                on: (begin (state-set "dm.want" (state-get "dm.rows.{i}.id")) (state-set "ui.cmd" "dm-open"))
-          - text: ""
-            bind: dm.rows.{i}.at
-            color: [0.6, 0.6, 0.6]
+                bind: dm.rows.{i}.label
+              - text: ""
+                bind: dm.rows.{i}.at
+                color: [0.6, 0.6, 0.6]
+          - type: group
+            visible_when: (= (state-get "dm.rows.{i}.v_btns") "1")
+            children:
+              - type: group
+                layout: {kind: horizontal}
+                children:
+                  - text: ""
+                    bind: dm.rows.{i}.line
+                  - button: Open
+                    on: (begin (state-set "dm.want" (state-get "dm.rows.{i}.id")) (state-set "ui.cmd" "dm-open"))
+              - text: ""
+                bind: dm.rows.{i}.at
+                color: [0.6, 0.6, 0.6]
       - separator
       - text: ""
         bind: dm.keys_line

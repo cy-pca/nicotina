@@ -159,7 +159,9 @@ init: |
   (state-set-tree "prof" (dict "self" "" "following" "" "bg_pic_shown" ""))
   (state-set-tree "tags" (dict "rows" (list) "more" "" "offset" 0 "head" ""))
   (state-set-tree "alerts" (dict "rows" (list) "head" "" "badge" "" "badge_n" ""))
-  (state-set-tree "search" (dict "q" "" "rows" (list) "note" "Find posts and people."))
+  (state-set-tree "search" (dict "q" "" "posts" (list) "people" (list) "tags" (list)
+                                 "head_people" "" "head_tags" "" "head_posts" ""
+                                 "note" "Find posts, people and hashtags."))
   (state-set-tree "compose" (dict "text" "" "visibility" "Public" "files" (list) "drop" ""
                                   "uploading" "" "progress" 0 "focus" "a" "note" ""))
   (state-set-tree "viewer" (dict "url" "" "kind" "" "where" "" "row" "" "i" 0))
@@ -247,7 +249,9 @@ init: |
 #   attach   the host's file picker: the files picked join compose.files; detach drops the one
 #            compose.drop names
 #   follow, unfollow  the profile shown (POST /social/follow, DELETE /social/follow/{id})
-#   search   search.q (GET /search/search); hit-open and alert-open go where a row points
+#   search   search.q in what search.in_* tick (GET /search/search): cards of the posts,
+#            people and hashtags found, each opening what it is; alert-open goes where an alert
+#            points
 #   view-prev, view-next  the viewer's other attachments
 #   link     link.href, a link in a post's text: a hashtag's posts, a profile or a post here;
 #            anything else copied (open-link)
@@ -361,6 +365,45 @@ on_tick: |
                   "headers" (dict "Accept" "application/json" "Content-Type" "application/json")
                   "body" (json-encode payload)))))
 
+      ;; --- the client's cache: the state tree, for the run ------------------------------
+      ;; A whole post, as GET /social/posts/ID sent it, is kept POSTTTL seconds under
+      ;; cache.post.ID, as its JSON: the post's view, search's cards and a card's Open read it
+      ;; before asking txwtf again. A timeline's posts aren't whole (txwtf leaves their
+      ;; reactions_summary null), so they are kept only in their feed's entry. A
+      ;; feed's posts (cache.feed.MODE: every page loaded, with where the next one starts) are
+      ;; kept FEEDTTL seconds, so Home and the feed's choices show them again at once. What you
+      ;; do to a post (like, dislike, repost, reply, delete, a new post) drops its entry and the
+      ;; feeds'; Refresh asks again (cache.bypass), and signing out drops it all. Pictures and
+      ;; videos are the host's: its HTTP cache keeps them.
+      (set POSTTTL 300)
+      (set FEEDTTL 180)
+      (defun cache-live? (k) (and (state-exists k) (not (state-is-expired k))))
+      (defun cache-bypass? () (= (sget "cache.bypass") "1"))
+      (defun cache-post (q)
+        (if (and (= (type-of q) "dict") (!= (word (opt q "id" "")) "")
+                 (!= (type-of (opt q "reactions_summary" nil)) "nil"))
+          (let ((k (str-concat "cache.post." (word (opt q "id" "")))))
+            (begin (state-set k (json-encode q)) (state-expire k POSTTTL)))))
+      (defun cached-post (id)
+        (let ((k (str-concat "cache.post." (word id))))
+          (if (and (not (cache-bypass?)) (cache-live? k))
+            (try (json-parse (state-get k)) (catch (e) nil))
+            nil)))
+      (defun cache-forget (id)
+        (if (!= (word id) "") (state-delete (str-concat "cache.post." (word id)))))
+      (defun feeds-forget () (state-delete "cache.feed"))
+      ;; A post txwtf just sent (GET /social/posts/ID's reply), kept, as a dict.
+      (defun kept-reply (r) (let ((q (reply-json r))) (begin (cache-post q) q)))
+      ;; GET /social/posts/ID, or the copy kept: {ok, post}, or {ok nil, r} with the reply that
+      ;; failed.
+      (defun fetch-post (id)
+        (let ((c (cached-post id)))
+          (if (= (type-of c) "dict") (dict "ok" true "post" c)
+            (let ((r (get-authed (str-concat "/social/posts/" (text id)))))
+              (if (ok? r)
+                (let ((q (reply-json r))) (begin (cache-post q) (dict "ok" true "post" q)))
+                (dict "ok" nil "r" r))))))
+
       ;; A decimal string as people write it: 1234.5678900000 -> 1234.56789. One in exponent
       ;; form (0E-10) becomes a float, which state-set-tree writes in its shortest form (0).
       (defun plain-number (s)
@@ -403,7 +446,11 @@ on_tick: |
           (state-set-tree "tab" (dict "rows" (list) "items" (list) "offset" 0 "more" "" "page" ""))
           (state-set-tree "prof" (dict "self" "" "following" "" "bg_pic_shown" ""))
           (state-set-tree "alerts" (dict "rows" (list) "head" "" "badge" "" "badge_n" ""))
-          (state-set-tree "search" (dict "q" "" "rows" (list) "note" "Find posts and people."))
+          (state-set-tree "search" (dict "q" "" "posts" (list) "people" (list) "tags" (list)
+                                         "head_people" "" "head_tags" "" "head_posts" ""
+                                         "note" "Find posts, people and hashtags."))
+          ;; another account's posts are not this one's to show
+          (state-delete "cache")
           (state-set "compose.text" "")
           (state-set-tree "compose.files" (list))
           (state-set-tree "dm.rows" (list))
@@ -749,10 +796,10 @@ on_tick: |
                     "bg_url" (picture-url (opt p "profile_bg_url" nil))
                     "bg_pic" (picture-only (picture-url (opt p "profile_bg_url" nil)))
                     "avatar_box" (avatar-box (initials (if (= name "") user name)))
-                    ;; Beside the action bar's buttons
-                    "groups_line" (pad (if (= (length groups) 0) " "
-                                         (str-concat "Groups: " (string.join groups ", ")))
-                                       (- WIDE bar))
+                    ;; Beside the action bar's buttons (padded to their column in a terminal)
+                    "groups_line" (col-pad (if (= (length groups) 0) " "
+                                             (str-concat "Groups: " (string.join groups ", ")))
+                                           (- WIDE bar))
                     "groups" groups))))
       ;; Yours: kept in me.* (the Details window, the sign-in form after signing out), and shown
       ;; in the profile view as prof.*. [ Refresh ][ Sign out ] take 23 columns, and an
@@ -1234,6 +1281,63 @@ on_tick: |
                   ;; columns
                   "counts" (pad (str-concat (counts-of q) (yours p)) (- CARDW 35)))))))
 
+      ;; A page of the feed on the cards (b: its posts, next_before_id, has_more): the first
+      ;; replaces them, a later one is added below.
+      (defun feed-show (b first tagged everyone)
+        (let ((cards (list)) (n 0) (total 0))
+        (begin
+          (set cards (collections.map (opt b "posts" (list)) feed-card))
+          (if first
+            (state-set-tree "feed.items" cards)
+            (begin
+              (set n (int (state-get "feed.items")))
+              (for c cards
+                (state-set-tree (str-concat "feed.items." (text n)) c)
+                (set n (+ n 1)))
+              (state-set "feed.items" n)))
+          (set total (int (state-get "feed.items")))
+          (state-set "feed.before" (text (opt b "next_before_id" "")))
+          (state-set "feed.offset" total)
+          (state-set "feed.more" (if (opt b "has_more" nil) "1" ""))
+          (state-set "feed.empty"
+            (if (> total 0) ""
+              (if tagged (str-concat "No posts name #" (state-get "feed.tag") ".")
+                (if everyone "No posts yet."
+                  (if (= (state-get "feed.mode") "Friends")
+                    "No posts from friends yet: people you follow who follow you."
+                    "Your feed is empty. Follow people, or pick Everyone.")))))
+          (if tagged
+            (state-set "feed.title"
+              (str-concat "#" (state-get "feed.tag") "  ·  "
+                          (text total) (if (= total 1) " post" " posts")
+                          (if (= (state-get "feed.more") "1") " so far" ""))))
+          (state-set "feed.tail"
+            (str-concat "  " (text total) (if (= total 1) " post" " posts")
+                        (if (= (state-get "feed.more") "1") "" "; no more")))
+          true)))
+      ;; The feed's mode's cache key, and what load-feed got kept there: the first page, or the
+      ;; pages so far with this one (a later page with nothing kept keeps nothing).
+      (defun feed-key () (str-concat "cache.feed." (word (state-get "feed.mode"))))
+      (defun feed-keep (b first)
+        (let ((k (feed-key))
+              (all (list)))
+          (if (or first (cache-live? k))
+            (begin
+              (if (not first)
+                (set all (opt (try (json-parse (state-get k)) (catch (e) (dict))) "posts" (list))))
+              (for q (opt b "posts" (list)) (set all (append all q)))
+              (state-set k (json-encode (dict "posts" all
+                                              "next_before_id" (opt b "next_before_id" "")
+                                              "has_more" (if (opt b "has_more" nil) true nil))))
+              (state-expire k FEEDTTL)))))
+      ;; The feed's cards again from the copy kept, while it's kept: true, else nil (ask txwtf).
+      (defun feed-from-cache ()
+        (if (or (cache-bypass?) (not (cache-live? (feed-key)))) nil
+          (let ((b (try (json-parse (state-get (feed-key))) (catch (e) nil))))
+            (if (= (type-of b) "dict")
+              (feed-show b true nil (= (state-get "feed.mode") "Everyone"))
+              nil))))
+
       ;; A page of the feed: Following is GET /social/timeline/home, Everyone the public one,
       ;; Friends /social/timeline/friends. mode=latest pages cleanly by before_id (the ranked
       ;; order re-ranks each page). A hashtag's posts (feed.source "tag") are GET
@@ -1255,35 +1359,8 @@ on_tick: |
             (if (ok? r)
               (let ((b (reply-json r)))
                 (begin
-                  (set cards (collections.map (opt b "posts" (list)) feed-card))
-                  (if first
-                    (state-set-tree "feed.items" cards)
-                    (begin
-                      (set n (int (state-get "feed.items")))
-                      (for c cards
-                        (state-set-tree (str-concat "feed.items." (text n)) c)
-                        (set n (+ n 1)))
-                      (state-set "feed.items" n)))
-                  (set total (int (state-get "feed.items")))
-                  (state-set "feed.before" (text (opt b "next_before_id" "")))
-                  (state-set "feed.offset" total)
-                  (state-set "feed.more" (if (opt b "has_more" nil) "1" ""))
-                  (state-set "feed.empty"
-                    (if (> total 0) ""
-                      (if tagged (str-concat "No posts name #" (state-get "feed.tag") ".")
-                        (if everyone "No posts yet."
-                          (if (= (state-get "feed.mode") "Friends")
-                            "No posts from friends yet: people you follow who follow you."
-                            "Your feed is empty. Follow people, or Show: Everyone.")))))
-                  (if tagged
-                    (state-set "feed.title"
-                      (str-concat "#" (state-get "feed.tag") "  ·  "
-                                  (text total) (if (= total 1) " post" " posts")
-                                  (if (= (state-get "feed.more") "1") " so far" ""))))
-                  (state-set "feed.tail"
-                    (str-concat "  " (text total) (if (= total 1) " post" " posts")
-                                (if (= (state-get "feed.more") "1") "" "; no more")))
-                  true))
+                  (if (not tagged) (feed-keep b first))
+                  (feed-show b first tagged everyone)))
               (begin
                 (if (session-over? r) (session-over)
                   (if (= (status r) 0) (unreachable r)
@@ -1299,7 +1376,11 @@ on_tick: |
           (begin
             (if (> (length lines) 2)
               (set lines (list (nth lines 0) (clip (str-concat (nth lines 1) " " (nth lines 2)) WIDE))))
-            (dict "id" (text (opt q "id" ""))
+            (collections.dict-merge (click-flags) (dict "id" (text (opt q "id" ""))
+                  ;; a reply to click, or in a terminal the line then Open
+                  "label" (str-concat (author-name a) "  " (handle (text (opt a "username" "?")))
+                                      "  " (posted-at (opt q "created_at" ""))
+                                      "  ↩" (text (opt q "reply_count" 0)))
                   "head" (pad (str-concat (author-name a) "  " (handle (text (opt a "username" "?")))
                                           "  " (posted-at (opt q "created_at" ""))
                                           "  ↩" (text (opt q "reply_count" 0)))
@@ -1312,7 +1393,7 @@ on_tick: |
                            (list))
                   "l0" (if (rich?) "" (if (= (length lines) 0) "(no text)" (nth lines 0)))
                   "l1" (if (rich?) "" (nth-or lines 1))
-                  "emoji" (emoji-of (opt q "content_html" nil))))))
+                  "emoji" (emoji-of (opt q "content_html" nil)))))))
       ;; The post's replies (GET /social/posts/{id}/replies), oldest first: the first page, or the
       ;; next one added below.
       (set REPLYPAGE 10)
@@ -1450,15 +1531,16 @@ on_tick: |
 
       ;; A post, whole, by id: GET /social/posts/{id}, then its replies.
       (defun load-post (id)
-        (let ((r (get-authed (str-concat "/social/posts/" (text id)))))
-          (if (ok? r)
-            (begin (show-post (reply-json r)) true)
-            (begin
-              (if (session-over? r) (session-over)
-                (if (= (status r) 0) (unreachable r)
-                  (fail (if (= (status r) 404) "That post is gone."
-                          (str-concat "Couldn't open the post (HTTP " (str (status r)) ").")))))
-              nil))))
+        (let ((f (fetch-post id)))
+          (if (opt f "ok" nil)
+            (begin (show-post (opt f "post" (dict))) true)
+            (let ((r (opt f "r" nil)))
+              (begin
+                (if (session-over? r) (session-over)
+                  (if (= (status r) 0) (unreachable r)
+                    (fail (if (= (status r) 404) "That post is gone."
+                            (str-concat "Couldn't open the post (HTTP " (str (status r)) ").")))))
+                nil)))))
 
       ;; --- the other views -------------------------------------------------------------
       ;; Every hashtag (GET /social/tags), the most named first: a page of twenty rows, a row's
@@ -1473,11 +1555,17 @@ on_tick: |
                 (begin
                   (set rows (collections.map (opt b "tags" (list))
                               (lambda (tg)
-                                (let ((n (text (opt tg "post_count" 0))))
-                                  (dict "name" (text (opt tg "name" ""))
-                                        "line" (pad (str-concat "#" (text (opt tg "name" "")) "  ·  " n
-                                                                (if (= n "1") " post" " posts"))
-                                                    (- WIDE 8)))))))
+                                (let ((n (text (opt tg "post_count" 0)))
+                                      (label (str-concat "#" (text (opt tg "name" "")) "  ·  "
+                                                         (text (opt tg "post_count" 0))
+                                                         (if (= (text (opt tg "post_count" 0)) "1")
+                                                           " post" " posts"))))
+                                  ;; a row to click; in a terminal, the line then Open (8 columns)
+                                  (collections.dict-merge
+                                    (click-flags)
+                                    (dict "name" (text (opt tg "name" ""))
+                                          "label" label
+                                          "line" (pad label (- WIDE 8))))))))
                   (if first
                     (state-set-tree "tags.rows" rows)
                     (begin
@@ -1562,13 +1650,18 @@ on_tick: |
                                     (target (text (opt n "related_id" ""))))
                                 (begin
                                   (set openable (and (!= target "") (or (= kind "post") (= kind "user"))))
-                                  (dict "kind" kind
-                                        "target" (if openable target "")
-                                        "line" (pad (str-concat (if (opt n "viewed" nil) "  " "● ")
-                                                                (one-line (opt n "message" "")))
-                                                    (if openable (- WIDE 8) WIDE))
-                                        "at" (str-concat "  " (posted-at (opt n "created_at" ""))
-                                                         "  " (text (opt n "notification_type" "")))))))))
+                                  (set label (str-concat (if (opt n "viewed" nil) "  " "● ")
+                                                         (one-line (opt n "message" ""))))
+                                  ;; one to open is a row to click; in a terminal, the line then
+                                  ;; Open (8 columns)
+                                  (collections.dict-merge
+                                    (click-flags)
+                                    (dict "kind" kind
+                                          "target" (if openable target "")
+                                          "label" label
+                                          "line" (pad label (if openable (- WIDE 8) WIDE))
+                                          "at" (str-concat "  " (posted-at (opt n "created_at" ""))
+                                                           "  " (text (opt n "notification_type" ""))))))))))
                 (state-set-tree "alerts.rows" rows)
                 (set unread (int (opt b "unviewed_count" 0)))
                 (state-set "alerts.head"
@@ -1588,51 +1681,116 @@ on_tick: |
                   (fail (str-concat "Couldn't load your notifications (HTTP " (str (status r)) ")."))))
               nil))))
 
-      ;; Posts, people and hashtags (GET /search/search?q=), as txwtf groups them: results.posts,
-      ;; .users and .hashtags, each {items, total}. A row each, then Open (8 columns), and a line
-      ;; of what it says.
+      ;; Search (GET /search/search?q=&categories=): what the view's checkboxes ask for (posts,
+      ;; people, hashtags), as txwtf groups it: results.posts, .users and .hashtags, each
+      ;; {items, total}. A post found is its card, as the feed shows it (the post from the cache,
+      ;; or asked for); a person is a card of their picture, handle and what they say about
+      ;; themselves; a hashtag a card of its own. A click on any opens what it is (ui/social.ari).
       (defun bucket (results k)
         (let ((items (opt (opt results k (dict)) "items" (list))))
           (if (= (type-of items) "list") items (list))))
-      (defun hit-row (h)
-        (let ((kind (text (opt h "type" "")))
-              (who (opt h "author" nil)))
-          (dict "kind" kind
-                "id" (text (opt h "id" ""))
-                "tag" (string.replace (text (opt h "title" "")) "#" "")
-                ;; a post's title is often empty: its author's name then, and the full handle
-                "line" (pad (str-concat (if (= kind "user") "[person] "
-                                          (if (= kind "hashtag") "[tag] " "[post] "))
-                                        (let ((title (one-line (opt h "title" ""))))
-                                          (if (or (!= title "") (!= (type-of who) "dict")) title
-                                            (author-name who)))
-                                        (if (= (type-of who) "dict")
-                                          (str-concat " · " (handle (text (opt who "username" ""))))
-                                          ""))
-                            (- WIDE 8))
-                "snippet" (clip (str-concat "  " (one-line (opt h "snippet" ""))) WIDE))))
+      ;; A checkbox's key: on unless it was turned off (one not drawn yet is on).
+      (defun scope-on? (k)
+        (if (state-exists k)
+          (let ((v (state-get k)))
+            (and v (!= (text v) "0") (!= (text v) "") (!= (text v) "false")))
+          true))
+      (defun search-cats ()
+        (let ((cats (list)))
+          (begin
+            (if (scope-on? "search.in_posts") (set cats (append cats "posts")))
+            (if (scope-on? "search.in_people") (set cats (append cats "users")))
+            (if (scope-on? "search.in_tags") (set cats (append cats "hashtags")))
+            cats)))
+      ;; txwtf's snippet is its text HTML-escaped, the match marked: one plain line of it.
+      (defun snippet-of (h n) (clip (one-line (unescape (text (opt h "snippet" "")))) n))
+      (defun n-of (n one many) (str-concat (text n) " " (if (= n 1) one many)))
+      ;; Where a click on a group is its own (outside a terminal) the card is the click; else a
+      ;; button beside it.
+      ;; Text before a button on one line: padded to its column in a terminal, as it is
+      ;; elsewhere (a phone's narrow window would push the button out of reach).
+      (defun col-pad (s n) (if (and (cap "clicks") (not (cap "term"))) s (pad s n)))
+      (defun click-flags ()
+        (dict "v_click" (flag (and (cap "clicks") (not (cap "term"))))
+              "v_btns" (flag (not (and (cap "clicks") (not (cap "term")))))))
+      ;; GET /user/profile/ID, or the copy kept (cache.user.ID, POSTTTL seconds): the profile, or
+      ;; nil.
+      (defun fetch-user (id)
+        (let ((k (str-concat "cache.user." (word id)))
+              (u nil))
+          (begin
+            (if (and (not (cache-bypass?)) (cache-live? k))
+              (set u (try (json-parse (state-get k)) (catch (e) nil))))
+            (if (= (type-of u) "dict") u
+              (let ((r (get-authed (str-concat "/user/profile/" (text id)))))
+                (if (ok? r)
+                  (let ((p (reply-json r)))
+                    (begin (state-set k (json-encode p)) (state-expire k POSTTTL) p))
+                  nil))))))
+      ;; A person found: their profile's card, as their page shows it (ui/home.ari's
+      ;; profile_card, from profile-of), or nil when the profile can't be read.
+      (defun person-card (h)
+        (let ((u (fetch-user (opt h "id" ""))))
+          (if (= (type-of u) "dict")
+            (collections.dict-merge (profile-of u 0) (click-flags))
+            nil)))
+      (defun tag-card (h)
+        (let ((tg (string.lower (string.replace (text (opt h "title" "")) "#" ""))))
+          (collections.dict-merge
+            (click-flags)
+            (dict "tag" tg "line" (str-concat "#" tg) "about" (snippet-of h CARDW)))))
+      ;; The posts found, as cards: each post from the cache, or asked for. One that can't be
+      ;; read (deleted since, or no longer yours to see) is left out.
+      (defun post-cards (hits)
+        (let ((cards (list)) (f nil))
+          (begin
+            (for h hits
+              (begin
+                (set f (fetch-post (opt h "id" "")))
+                (if (opt f "ok" nil)
+                  (set cards (append cards (feed-card (opt f "post" (dict))))))))
+            cards)))
       (defun run-search ()
-        (let ((q (string.trim (state-get "search.q"))))
+        (let ((q (string.trim (state-get "search.q")))
+              (cats (search-cats))
+              (results (dict)) (people (list)) (tags (list)) (posts (list)))
           (if (< (string.length q) 2)
             (begin (state-set "search.note" "Type two letters or more.") true)
-            (let ((r (get-query "/search/search" (dict "q" q "limit" "10"))))
-              (if (ok? r)
-                (let ((results (opt (reply-json r) "results" (dict))))
+            (if (= (length cats) 0)
+              (begin (state-set "search.note" "Tick Posts, People or Hashtags to search them.") true)
+              (let ((r (get-query "/search/search"
+                                  (dict "q" q "limit" "10" "categories" (string.join cats ",")))))
+                (if (ok? r)
                   (begin
-                    (set hits (list))
-                    (if (= (type-of results) "dict")
-                      (for k (list "posts" "users" "hashtags")
-                        (for h (bucket results k) (set hits (append hits h)))))
-                    (state-set-tree "search.rows" (collections.map hits hit-row))
+                    (set results (opt (reply-json r) "results" (dict)))
+                    (if (!= (type-of results) "dict") (set results (dict)))
+                    ;; the hashtags at once; then the people's cards, then the posts', as their
+                    ;; profiles and posts come
+                    (set tags (collections.map (bucket results "hashtags") tag-card))
+                    (state-set-tree "search.tags" tags)
+                    (state-set-tree "search.people" (list))
+                    (state-set-tree "search.posts" (list))
+                    (state-set "search.head_tags" (if (> (length tags) 0) (n-of (length tags) "hashtag" "hashtags") ""))
+                    (state-set "search.head_people" "")
+                    (state-set "search.head_posts" "")
+                    (state-set "search.note" (str-concat "Searching for \"" q "\"..."))
+                    (set people (collections.filter (collections.map (bucket results "users") person-card)
+                                                    (lambda (c) (= (type-of c) "dict"))))
+                    (state-set-tree "search.people" people)
+                    (state-set "search.head_people" (if (> (length people) 0) (n-of (length people) "person" "people") ""))
+                    (set posts (post-cards (bucket results "posts")))
+                    (state-set-tree "search.posts" posts)
+                    (state-set "search.head_posts" (if (> (length posts) 0) (n-of (length posts) "post" "posts") ""))
                     (state-set "search.note"
-                      (if (= (length hits) 0) (str-concat "Nothing matches \"" q "\".")
-                        (str-concat (text (length hits)) " found for \"" q "\"")))
-                    true))
-                (begin
-                  (if (session-over? r) (session-over)
-                    (if (= (status r) 0) (unreachable r)
-                      (fail (str-concat "Search failed (HTTP " (str (status r)) ")."))))
-                  nil))))))
+                      (if (= (+ (length posts) (length people) (length tags)) 0)
+                        (str-concat "Nothing matches \"" q "\".")
+                        (str-concat "Found for \"" q "\":")))
+                    true)
+                  (begin
+                    (if (session-over? r) (session-over)
+                      (if (= (status r) 0) (unreachable r)
+                        (fail (str-concat "Search failed (HTTP " (str (status r)) ")."))))
+                    nil)))))))
 
       ;; The viewer: the attachments of post view.post that it shows (pictures, video and audio),
       ;; at viewer.i.
@@ -2078,11 +2236,15 @@ on_tick: |
               (if (= view "feed")
                 (begin
                   (state-set "feed.source" "home")
-                  (say (str-concat "Loading " (if (= (state-get "feed.mode") "Everyone")
-                                                "everyone's posts..."
-                                                (if (= (state-get "feed.mode") "Friends")
-                                                  "your friends' posts..." "your feed..."))))
-                  (set ok (load-feed true))))
+                  ;; the copy kept of this choice's posts, while it's kept; else txwtf's
+                  (set ok (feed-from-cache))
+                  (if (not ok)
+                    (begin
+                      (say (str-concat "Loading " (if (= (state-get "feed.mode") "Everyone")
+                                                    "everyone's posts..."
+                                                    (if (= (state-get "feed.mode") "Friends")
+                                                      "your friends' posts..." "your feed..."))))
+                      (set ok (load-feed true))))))
               (if (= view "tag")
                 (begin
                   (state-set "feed.source" "tag")
@@ -2328,15 +2490,18 @@ on_tick: |
                               (let ((w (if (opt c "is_group" nil)
                                          (dict "handle" (str-concat "Group: " (one-line (opt c "name" ""))) "name" "")
                                          (dm-who (dm-peer c)))))
-                                (dict "id" (text (opt c "id" ""))
-                                      ;; a conversation with a message not yet read here: ● first
+                                (collections.dict-merge (click-flags) (dict "id" (text (opt c "id" ""))
+                                      ;; a conversation with a message not yet read here: ● first;
+                                      ;; a row to click, or in a terminal the line then Open
+                                      "label" (str-concat (if (dm-unread? (text (opt c "id" ""))) "● " "")
+                                                          (header (get-attr w "handle") (get-attr w "name")))
                                       "line" (pad (str-concat (if (dm-unread? (text (opt c "id" ""))) "● " "")
                                                               (header (get-attr w "handle") (get-attr w "name")))
                                                   (- WIDE 8))
                                       "at" (str-concat "  " (posted-at (opt c "last_message_at" (opt c "created_at" "")))
-                                                       (if (opt c "is_encrypted" nil) "  · end-to-end encrypted" "")))))))
+                                                       (if (opt c "is_encrypted" nil) "  · end-to-end encrypted" ""))))))))
                 (state-set-tree "dm.rows" rows)
-                (state-set "dm.head" (pad (if (= (length rows) 0)
+                (state-set "dm.head" (col-pad (if (= (length rows) 0)
                                             "No conversations yet: Message on a profile starts one."
                                             (str-concat (text (length rows))
                                                         (if (= (length rows) 1) " conversation" " conversations")))
@@ -2676,13 +2841,15 @@ on_tick: |
 
       ;; --- doing things -----------------------------------------------------------------
       ;; A heart on post pid, or taken off (liked "1"); a repost of it, or yours taken back.
+      ;; What you did to post pid: its copy, and the feeds', are no longer what txwtf has.
+      (defun changed-post (pid) (begin (cache-forget pid) (feeds-forget)))
       (defun toggle-like (pid liked)
         (let ((r (if (= liked "1")
                    (send-authed "DELETE" (str-concat "/social/posts/" (text pid) "/reactions?emoji=heart") nil)
                    (send-authed "POST" (str-concat "/social/posts/" (text pid) "/reactions")
                                 (dict "emoji" "heart")))))
           (if (ok? r)
-            (begin (say (if (= liked "1") "Like taken back." "Liked.")) true)
+            (begin (changed-post pid) (say (if (= liked "1") "Like taken back." "Liked.")) true)
             (begin (act-failed r (if (= liked "1") "take the like back" "like it")) nil))))
       ;; A thumbs-down on post pid, or taken off (disliked "1"). txwtf keeps a like or a dislike,
       ;; not both: either clears the other.
@@ -2691,27 +2858,27 @@ on_tick: |
                               (str-concat "/social/posts/" (text pid) "/dislike")
                               (if (= disliked "1") nil (dict)))))
           (if (ok? r)
-            (begin (say (if (= disliked "1") "Dislike taken back." "Disliked.")) true)
+            (begin (changed-post pid) (say (if (= disliked "1") "Dislike taken back." "Disliked.")) true)
             (begin (act-failed r (if (= disliked "1") "take the dislike back" "dislike it")) nil))))
       (defun toggle-repost (pid reposted mine)
         (let ((r (if (and (= reposted "1") (!= mine ""))
                    (send-authed "DELETE" (str-concat "/social/posts/" mine) nil)
                    (send-authed "POST" "/social/posts" (dict "content" "" "repost_id" (int pid))))))
           (if (ok? r)
-            (begin (say (if (= reposted "1") "Repost taken back." "Reposted.")) true)
+            (begin (changed-post pid) (say (if (= reposted "1") "Repost taken back." "Reposted.")) true)
             (begin (act-failed r (if (= reposted "1") "take the repost back" "repost it")) nil))))
       ;; After either, card i of LIST's counts and marks, from the post again.
       (defun refresh-card (lst i)
         (let ((key (str-concat lst "." (text i))))
           (let ((r (get-authed (str-concat "/social/posts/" (text (state-get (str-concat key ".id")))))))
             (if (ok? r)
-              (let ((c (feed-card (reply-json r))))
+              (let ((c (feed-card (kept-reply r))))
                 (begin
                   ;; a repost card's marks are the reposted post's
                   (if (!= (text (get-attr c "pid")) (text (get-attr c "id")))
                     (let ((o (get-authed (str-concat "/social/posts/" (text (get-attr c "pid"))))))
                       (if (ok? o)
-                        (let ((op (reply-json o)))
+                        (let ((op (kept-reply o)))
                           (begin
                             (set-attr c "liked" (if (opt op "user_has_reacted" nil) "1" ""))
                             (set-attr c "disliked" (if (opt op "user_has_disliked" nil) "1" ""))
@@ -2728,6 +2895,8 @@ on_tick: |
           (if (ok? r)
             (let ((entry (pop-back)))
               (begin
+                (cache-forget (state-get "post.id"))
+                (changed-post (state-get "post.pid"))
                 (if (show-entry (if (= entry "") "feed" entry))
                   (begin (state-set "ui.here" (if (= entry "") "feed" entry)) (new-view)))
                 (say done)))
@@ -2900,12 +3069,14 @@ on_tick: |
             (go (str-concat "viewer|" (text (state-get "view.post")) "|" (text (state-get "view.i")))))
           (if (= cmd "view-prev") (viewer-at (- (int (state-get "viewer.i")) 1)))
           (if (= cmd "view-next") (viewer-at (+ (int (state-get "viewer.i")) 1)))
-          (if (= cmd "refresh") ;; the view it was pressed in, again
+          (if (= cmd "refresh") ;; the view it was pressed in, again, asked of txwtf (not the cache)
             (begin
               (say "Refreshing...")
+              (state-set "cache.bypass" "1")
               (if (if (= (state-get "ui.screen") "profile") (load-me) true)
                 (if (show-entry (if (= (state-get "ui.here") "") "feed" (state-get "ui.here")))
-                  (say (str-concat "Updated. " (signed-in-msg)))))))
+                  (say (str-concat "Updated. " (signed-in-msg)))))
+              (state-set "cache.bypass" "")))
           (if (= cmd "more")
             (if (= (state-get "feed.more") "1")
               (begin
@@ -2955,14 +3126,14 @@ on_tick: |
           ;; On the post shown.
           (if (= cmd "post-like")
             (if (toggle-like (state-get "post.pid") (text (state-get "post.liked")))
-              (load-post (state-get "post.id"))))
+              (begin (cache-forget (state-get "post.id")) (load-post (state-get "post.id")))))
           (if (= cmd "post-dislike")
             (if (toggle-dislike (state-get "post.pid") (text (state-get "post.disliked")))
-              (load-post (state-get "post.id"))))
+              (begin (cache-forget (state-get "post.id")) (load-post (state-get "post.id")))))
           (if (= cmd "post-repost")
             (if (toggle-repost (state-get "post.pid") (text (state-get "post.reposted"))
                                (text (state-get "post.my_repost")))
-              (load-post (state-get "post.id"))))
+              (begin (cache-forget (state-get "post.id")) (load-post (state-get "post.id")))))
           ;; Delete: your own post at once. Someone else's, for an administrator, once asked:
           ;; txwtf records it as deleted by an administrator.
           (if (= cmd "delete")
@@ -2989,6 +3160,8 @@ on_tick: |
                     (begin
                       (state-set "post.reply_text" "")
                       (state-set "post.focus_reply" "")
+                      (cache-forget (state-get "post.id"))
+                      (changed-post (state-get "post.pid"))
                       (load-post (state-get "post.id"))
                       (new-view) ;; the post again, its reply below: the focus back on Back
                       (say "Replied.")))))))
@@ -3001,6 +3174,7 @@ on_tick: |
                     (let ((id (publish txt "" (string.lower (state-get "compose.visibility")) ids)))
                       (if id
                         (begin
+                          (feeds-forget)
                           (state-set "compose.text" "")
                           (state-set-tree "compose.files" (list))
                           ;; the new post takes the composer's place: Back goes where it was opened
@@ -3047,11 +3221,6 @@ on_tick: |
             (begin
               (say "Searching...")
               (if (run-search) (say ""))))
-          (if (= cmd "hit-open")
-            (go (if (= (state-get "hit.kind") "hashtag")
-                  (str-concat "tag|" (string.lower (text (state-get "hit.tag"))))
-                  (str-concat (if (= (state-get "hit.kind") "user") "profile|" "post|")
-                              (text (state-get "hit.id"))))))
           (if (= cmd "alert-open")
             (begin
               ;; from the host's notification feed (alert.nid): that one read at the instance,
