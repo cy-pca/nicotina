@@ -46,6 +46,7 @@ on TX.WTF is tracked as T-items in the TX.WTF repository.
 | L23 | `badge:` on `image:` and `video:`, a label drawn over the picture (the grid's "+N"), with a capability token (`image.badge`). Not `overlay:`, a widget type the loader would take it for | M2 |
 | L24 | A reactive expression the per-frame budget skipped is not the document's error: no warning (a big feed's first frame in wasm showed one) | M2 |
 | L25 | A tray at the menu bar's right end, icons with a count on them, and the host's notification feed with a bell (`tray_icon:`, `(notify ...)`: transfix/libcvc#1241, the release after 4.0.0): the web app's bar, its bell and an unread-messages count | M2 |
+| L26 | A repeated `load:` named by the loader per instance (`name:`), made once rather than copied each frame, and not warned about as a nested repeat: a menu per site named by its host (libcvc 4.0.7) | M2 |
 
 ## Milestones
 
@@ -121,6 +122,12 @@ on TX.WTF is tracked as T-items in the TX.WTF repository.
     as a post's do (its content_html; an encrypted one's custom emoji from the instance's list).
     The nicotina menu has Maximize the window, as the title bar's button does, where the backend
     has one (ui.maximize: ImGui and FTXUI). Older hosts keep the Alerts count beside the bar.
+  - Drafted (L26 names the menus): the TX.WTF fleet, several sites at once. The sign-in form's
+    Site combo lists the fleet's sites (txwtf-fleet's fleet.yaml) the host may reach, and each
+    site you sign in to is a copy of the client, with its own session, windows, tray icon and
+    menu, Sign out among its items; the nicotina menu signs in to another site, or out of every
+    site. In a browser a site needs its CORS to allow the page's origin: on cyberpcangel.com,
+    tx.wtf and dev.tx.wtf do.
 - **M3, SCRIP:** live balance, top-up through hosted checkout in the system
   browser, and the metered prompt chat.
 - **M4, ship:** publish the cvcpkg recipe for linux-x86_64, macOS and Windows,

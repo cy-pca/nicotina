@@ -1,0 +1,56 @@
+# site.ari — how nicotina names a TX.WTF site, shared by main.ari, which opens a copy of the client
+# for each site you sign in to, and nicotina.ari, the copy: a site's base URL, the label the
+# sign-in form's Site combo shows for it, its host, and the credential the host keeps its session
+# token under. Both import it, so the two can't disagree.
+
+meta:
+  name: nicotina sites
+  min_libcvc: 3.7.5
+
+functions: |
+  ;; A base URL as the client keeps it: no space around it, no slash after it.
+  (defun site-base (url)
+    (begin
+      (set b (string.trim url))
+      (while (string.ends-with b "/")
+        (set b (string.substring b 0 (- (string.length b) 1))))
+      b))
+  ;; The host, as a handle names it: no scheme, no path, no default port.
+  (defun site-host (base)
+    (begin
+      (set h (string.lower (car (string.split
+               (string.replace (string.replace base "https://" "") "http://" "") "/"))))
+      (if (and (string.starts-with base "https://") (string.ends-with h ":443"))
+        (set h (string.substring h 0 (- (string.length h) 4))))
+      (if (and (string.starts-with base "http://") (string.ends-with h ":80"))
+        (set h (string.substring h 0 (- (string.length h) 3))))
+      h))
+  ;; The origin, for the root-relative URLs txwtf gives pictures (/uploads/..., /static/...).
+  (defun site-origin (base)
+    (if (string.contains base "://")
+      (let ((parts (string.split base "://")))
+        (str-concat (car parts) "://" (car (string.split (nth parts 1) "/"))))
+      base))
+  ;; The Site combo's label: an https:// site's host (tx.wtf), any other site's whole URL
+  ;; (http://127.0.0.1:8086), so the label alone names the site again (site-url).
+  (defun site-label (base)
+    (if (string.starts-with base "https://") (site-host base) base))
+  (defun site-url (label)
+    (if (string.contains label "://") (site-base label) (site-base (str-concat "https://" label))))
+  ;; The credential a site's session token is kept under: txwtf.<host>, in the characters a
+  ;; credential name may have (1-64 of A-Z a-z 0-9 . _ -), so each site keeps its own.
+  (defun site-cred-name (base)
+    (begin
+      (set s (str-concat "txwtf." (site-host base)))
+      (set out "")
+      (set i 0)
+      (while (< i (string.length s))
+        (set c (string.char-at s i))
+        (set out (str-concat out (if (string.contains "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-" c) c "-")))
+        (set i (+ i 1)))
+      (if (> (string.length out) 64) (string.substring out 0 64) out)))
+  ;; The credential to resume a site's session from: a session kept before nicotina knew more
+  ;; than one site is under "txwtf" (bound to that site's origin), and is used while it's there.
+  (defun site-cred (base)
+    (let ((name (site-cred-name base)))
+      (if (net-auth-has? name base) name (if (net-auth-has? "txwtf" base) "txwtf" name))))

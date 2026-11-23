@@ -8,15 +8,21 @@ The browser builds of nicotina, public and not login-gated:
 | https://cyberpcangel.com/nicotina-term/ | terminal (FTXUI in xterm.js) | arigl-web's `ari.html` |
 | https://cyberpcangel.com/nicotina-term/ari_tvision.html | terminal (tvision) | arigl-web's `ari_tvision.html`, when the build has it |
 
-Both run `main.ari` against **https://tx.wtf**. cyberpcangel.com is not a TX.WTF instance, so the
-API is cross-origin and the page config names the instance explicitly
-([ariadne.config.json](ariadne.config.json)):
+Both run `main.ari` against **https://tx.wtf**, and the sign-in form's Site combo offers
+**https://dev.tx.wtf** too. cyberpcangel.com is not a TX.WTF instance, so the API is cross-origin
+and the page config names the sites explicitly ([ariadne.config.json](ariadne.config.json)):
 
 ```json
-"flags": ["--net-allow", "https://tx.wtf"],
+"flags": ["--net-allow", "https://tx.wtf", "--net-allow", "https://dev.tx.wtf"],
 "args":  ["--instance", "https://tx.wtf"],
 "src_param": false
 ```
+
+The combo offers a fleet site only where the page may reach it, so a site of the fleet joins it
+here with three things: its `--net-allow` here, its origin in the CSP's `CONNECT`
+([nicotina-deploy.sh](nicotina-deploy.sh)), and `https://cyberpcangel.com` in its own CORS
+(below). tx.wtf and dev.tx.wtf have all three; the fleet's other sites have no CORS for this origin
+yet (checked 2026-11-22).
 
 `--net-allow` lets the document reach that origin and no other. `src_param: false` pins the page to
 `main.ari`, so a `?src=` link can't run another document with these flags. A browser keeps the

@@ -1,0 +1,27 @@
+# fleet.policy — the TX.WTF fleet's sites, for the host's --net-policy (bin/nicotina passes it):
+# nicotina may send requests to these, and its Site combo offers them (main.ari's fleet-sites,
+# which lists the same sites; tests/run.sh checks the two agree). Each site's session token is
+# bound to the site it came from, so one site's token never goes to another.
+#
+# From txwtf-fleet's fleet.yaml, the deployed instances, ring by ring.
+
+# ring 0, tx.wtf
+allow https://tx.wtf
+allow https://social.sublevels.net
+allow https://social.thegermfactoryrockclub.com
+allow https://texasdogecoin.com
+# ring 1, ncviz
+allow https://ncviz.com
+allow https://asilaydating.com
+allow https://sno-bunny.com
+# ring 2, cyberpcangel / cvcpkg
+allow https://social.cyberpcangel.com
+allow https://cvcpkg.com
+# ring 3, rivera
+allow https://riveras.net
+allow https://rivera.rocks
+allow https://rivera.zone
+allow https://rivera.world
+# ring 4, dev / testing
+allow https://dev.tx.wtf
+allow https://dev2.tx.wtf

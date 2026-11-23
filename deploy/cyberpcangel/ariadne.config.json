@@ -2,6 +2,6 @@
   "title": "nicotina",
   "src": "main.ari",
   "src_param": false,
-  "flags": ["--net-allow", "https://tx.wtf"],
+  "flags": ["--net-allow", "https://tx.wtf", "--net-allow", "https://dev.tx.wtf"],
   "args": ["--instance", "https://tx.wtf"]
 }

@@ -28,8 +28,8 @@ The `nicotina` package depends on `ari` and `arigl`. It installs:
 - `share/nicotina/`: the documents and components (`main.ari`, `ui/*.ari`).
 - `bin/nicotina` (`nicotina.cmd` on Windows): a launcher script. It runs the
   client's main document in a stock host, with the host flags the client needs: the
-  network for the chosen instance's origin and nothing else, and a credential store for
-  the session token:
+  network for the chosen instance's origin and the TX.WTF fleet's sites (`fleet.policy`) and
+  nothing else, and a credential store for the session tokens:
   - `arigl` (ImGui) on a desktop;
   - `ari run` in a terminal. It runs over SSH, uses either of ari's terminal
     backends (FTXUI, tvision), and is selected with `--terminal` or picked
@@ -50,19 +50,19 @@ nicotina [--instance URL] [--terminal] [--backend ftxui|tvision] [host flags...]
 
 | Option | What |
 |---|---|
-| `--instance URL` | the TX.WTF instance, `https://tx.wtf` by default |
+| `--instance URL` | the TX.WTF site the sign-in form starts at, `https://tx.wtf` by default; its Site combo offers the fleet's others |
 | `--terminal` | run in the terminal even where there is a display |
 | `--backend ftxui\|tvision` | the terminal backend (FTXUI by default); implies `--terminal` |
 | `--dry-run` | print the host command instead of running it |
 | other options | go to the host, before the document (`--fps 30`, `--no-mouse`, ...) |
-| after `--` | go to the document: `--user NAME` fills in the sign-in form; `--start profile` opens the profile first, not the feed |
+| after `--` | go to the document: `--user NAME` fills in the sign-in form; `--start profile` opens the profile first, not the feed; `--sites URL,URL` adds sites to the Site combo (allow each with `--net-allow`) |
 
 It picks the terminal when there is no display: no `DISPLAY` or `WAYLAND_DISPLAY` on
 Linux and the BSDs, or an SSH session without X forwarding anywhere. It runs
 
 ```
-arigl run --net --net-allow <origin> --credential-store <config>/nicotina/credentials \
-  <prefix>/share/nicotina/main.ari --instance <URL>
+arigl run --net --net-allow <origin> --net-policy <prefix>/share/nicotina/fleet.policy \
+  --credential-store <config>/nicotina/credentials <prefix>/share/nicotina/main.ari --instance <URL>
 ```
 
 or `ari run [--backend tvision] ...` in a terminal (or `arigl run --terminal ...` where only
@@ -72,21 +72,46 @@ Windows. `<prefix>` is the launcher's own directory's parent, so it works from a
 and from a checkout alike. It takes `ari` and `arigl` from `<prefix>/bin`, else from `PATH`;
 `NICOTINA_ARI` and `NICOTINA_ARIGL` name others.
 
+### Sites: the TX.WTF fleet, several at once
+
+The sign-in form's **Site** combo lists the sites nicotina can sign in to: `--instance`'s first,
+then `--sites`', then the TX.WTF fleet's (txwtf-fleet's `fleet.yaml`, ring by ring: tx.wtf,
+social.sublevels.net, social.thegermfactoryrockclub.com, texasdogecoin.com, ncviz.com,
+asilaydating.com, sno-bunny.com, social.cyberpcangel.com, cvcpkg.com, riveras.net, rivera.rocks,
+rivera.zone, rivera.world, dev.tx.wtf, dev2.tx.wtf), each only where the host may reach it. So the
+launcher's `fleet.policy` offers them all, and a page in a browser the ones its config allows.
+
+You can be signed in to several at once. Each site is its own copy of the client (`main.ari`
+loads `nicotina.ari` once a site): its own sign-in, session, windows, tray mail icon, and menu in
+the bar, named by its host (libcvc 4.0.7; before it, "nicotina 1", "nicotina 2"...).
+
+- **nicotina > Sign in to another site** opens a second sign-in form, at the first site no window
+  is at; its Site combo picks another. A form has **Close** while another site is open.
+- **A site's own menu** holds Home, Back, Forward, Show the window, Maximize the window, New post,
+  Messages, Your profile, Admin, Refresh and **Sign out**: that site only. Its window closes,
+  unless it was the last, which shows its sign-in form again. The profile's Sign out is the same.
+- **nicotina > Sign out of every site** signs out of them all, and leaves the first one's form.
+- One session a site: the combo won't move a form to a site another window is signed in to.
+- With `--credential-store`, every site's session is kept, and the next start opens each one,
+  signed in.
+
 ### The session token
 
-The host holds the token, never the documents:
+The host holds the tokens, never the documents:
 
 - Sign-in posts to `/user/login` with `capture_auth`. The host takes `token` out of the reply,
-  keeps it as credential `txwtf` for the instance's origin, and hands the document the reply
-  with `"[redacted]"` in its place.
+  keeps it as the site's own credential, `txwtf.<host>` (`txwtf.tx.wtf`: `site.ari`'s
+  `site-cred-name`) bound to the site's origin, and hands the document the reply with
+  `"[redacted]"` in its place. A session kept before nicotina knew more than one site, under
+  `txwtf`, still signs in; the next sign-in keeps its token under the new name.
 - The session lasts an hour, TX.WTF's default. The sign-in form's **Advanced options** pick a
   longer one (4, 8 or 12 hours, a day, a week or 30 days), as the web app's do; the form sends
   it as `expire_delta`, and an emailed code keeps it.
-- Every later request names the credential (`auth: txwtf`) and the host adds the
-  `Authorization` header.
-- With `--credential-store`, the host keeps it across runs in an owner-only file (0600 in a
-  0700 directory), and the next start signs in from it. Sign-out posts `/user/logout` and
-  drops it (`net-auth-forget`).
+- Every later request names the site's credential (`auth:`), and the host adds the
+  `Authorization` header to requests to that site's origin only.
+- With `--credential-store`, the host keeps them across runs in an owner-only file (0600 in a
+  0700 directory), and the next start signs in from them. Sign-out posts `/user/logout` and
+  drops that site's (`net-auth-forget`).
 - So it never enters the state tree, a frame or a log. `tests/run.sh` checks that no output
   carries one.
 
@@ -108,7 +133,7 @@ What's new is asked for every 30 s while you're signed in, as the web app polls.
 conversation list carries no unread count, so nicotina counts the messages that come while it
 runs. An older host keeps the count beside Alerts, and the ● in DMs.
 
-The nicotina menu's **Maximize the window** does what the title bar's maximize button does
+A site's menu's **Maximize the window** does what the title bar's maximize button does
 (ImGui and FTXUI; tvision's zoom box is its own). On a phone the window starts maximized
 (`maximized: phone`, libcvc 4.0.4): it fills the screen under the menu bar until you restore it.
 
@@ -200,7 +225,9 @@ and Load more, at the end, adds the next page. A post opened whole has Like, Dis
 Author (and Delete on your own). Profile opens the profile: Tab reaches its tabs (Posts, Replies,
 Balances, Settings) and Left or Right picks one; Older and Newer page through the posts; Settings
 is your content filter, Hide below, the score (likes less dislikes) under which the instance
-leaves posts out of your feeds. Feed goes back. F10 opens the menu (Home feed, Profile, Refresh, Sign out, Quit); Ctrl-C quits.
+leaves posts out of your feeds. Feed goes back. F10 opens the nicotina menu (Sign in to another
+site, Sign out of every site, Quit), and Right the site's (Home, Profile, Refresh, Sign out...);
+Ctrl-C quits.
 
 ### With cvcpkg
 
