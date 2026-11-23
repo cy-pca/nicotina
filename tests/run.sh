@@ -71,6 +71,18 @@ base="http://127.0.0.1:$(cat "$work/port")"
 hostport=${base#http://} # the instance as a handle names it
 echo "stub TX.WTF at $base; outputs in $out"
 
+# A second site, for the sessions on two sites at once (3): another stub, with its own port.
+stub2_pid=
+stop_stub2() { [ -z "$stub2_pid" ] || kill "$stub2_pid" 2>/dev/null; }
+on_exit stop_stub2
+python3 -I -B "$here/stub_txwtf.py" --port 0 --port-file "$work/port2" --log "$out/stub2.log" \
+  --signed-in grace 2>"$out/stub2.stderr" &
+stub2_pid=$!
+for _ in $(seq 100); do [ -s "$work/port2" ] && break; sleep 0.05; done
+[ -s "$work/port2" ] || { echo "tests: the second stub did not start" >&2; cat "$out/stub2.stderr" >&2; exit 2; }
+base2="http://127.0.0.1:$(cat "$work/port2")"
+hostport2=${base2#http://}
+
 # A credential store holding one session, as the host writes one: owner-only.
 seed_store() { # seed_store PATH TOKEN-NAME [ORIGIN]
   mkdir -p "$(dirname "$1")" && chmod 700 "$(dirname "$1")"
@@ -93,6 +105,18 @@ launch launcher-desktop DISPLAY=:0 -- --instance "$base/"
 check "launcher: a display gets arigl, the instance's origin and a credential store" \
   "$out/launcher-desktop.txt" "/bin/true 'run' '--net' '--net-allow' '$base'" \
   "'--credential-store' '$work/home/.config/nicotina/credentials'" "'--instance' '$base'"
+check "launcher: ... and the fleet's sites, for the Site combo" "$out/launcher-desktop.txt" \
+  "'--net-allow' '$base' '--net-policy' '$root/share/nicotina/fleet.policy'"
+# The fleet: fleet.policy allows the sites main.ari's fleet-sites lists, the same ones in the same
+# order (an https:// site's label is its host).
+policy_sites=$(sed -n 's|^allow https://||p' "$root/share/nicotina/fleet.policy" | tr '\n' ' ')
+main_sites=$(sed -n '/(defun fleet-sites ()/,/))$/p' "$root/share/nicotina/main.ari" |
+  grep -o '"[^"]*"' | tr -d '"' | tr '\n' ' ')
+if [ -n "$policy_sites" ] && [ "$policy_sites" = "$main_sites" ]; then
+  pass "fleet.policy allows the sites main.ari offers"
+else
+  fail "fleet.policy [$policy_sites] and main.ari's fleet-sites [$main_sites] differ"
+fi
 launch launcher-nodisplay -- --instance "$base"
 check "launcher: no display gets ari" "$out/launcher-nodisplay.txt" "$ARI 'run' '--net'"
 launch launcher-ssh DISPLAY= SSH_CONNECTION="10.0.0.2 5000 10.0.0.1 22" -- --instance "$base"
@@ -226,7 +250,7 @@ view_row="│[image] engine-diagram.png · 47 KB · The engine, from the ... [ V
 for backend in ftxui tvision; do
   snap "snap-$backend-signin" "$backend" "" --user ada
   check "ari snapshot ($backend): the sign-in form" "$out/snap-$backend-signin.txt" \
-    "Sign in to TX.WTF" "Instance: $base" "Username: [ada" "Password: []" "[ Sign in ]" \
+    "Sign in to TX.WTF" "Site: < $base >" "Username: [ada" "Password: []" "[ Sign in ]" \
     "[ ] Advanced options"
   check_not "ari snapshot ($backend): ... the session's length only under them" \
     "$out/snap-$backend-signin.txt" "Session:"
@@ -260,6 +284,34 @@ for backend in ftxui tvision; do
   else
     fail "ari snapshot ($backend): the feed runs past 80x24" "$out/snap-$backend-feed.txt"
   fi
+  # Each site's menu in the bar: named by its host where this ari names a loaded document's menu
+  # by the load's name: (libcvc 4.0.7), else "nicotina 1", "nicotina 2".
+  if [ -z "${two_menus:-}" ]; then
+    printf '%s\n' 'meta: {name: probe}' 'menubar:' '  - menu_item: P' '    on: (state-set "p" 1)' \
+      'root: [{text: p}]' >"$work/name-probe-mod.ari"
+    printf '%s\n' 'meta: {min_libcvc: 3.7.5}' 'init: (state-set "n" "probe-named")' 'root:' \
+      '  - load: name-probe-mod.ari' '    name: n' >"$work/name-probe.ari"
+    if "$ARI" snapshot --width 60 --height 4 "$work/name-probe.ari" 2>/dev/null |
+      grep -qF 'probe-named'; then
+      two_menus=" nicotina  $hostport  $hostport2 "
+    else
+      two_menus=" nicotina  nicotina 1  nicotina 2 "
+    fi
+  fi
+  # Two sites at once: the store keeps a session on each, ada's on this site under "txwtf" (the
+  # name nicotina gave its one site's session before), grace's on the second under its own name,
+  # txwtf.<host> (site.ari's site-cred-name: ":" goes to "-"). Each opens its own copy of the
+  # client, signed in, with its own menu in the bar; the second's window is in front.
+  two=$work/snap-$backend-two/credentials
+  seed_store "$two" ada
+  (umask 077 && printf 'txwtf.%s %s %s\n' "$(printf '%s' "$hostport2" | tr ':' '-')" "$base2" \
+    "$(token grace)" >>"$two")
+  "$ARI" snapshot --backend "$backend" --width 80 --height 24 --net --net-allow "$base" \
+    --net-allow "$base2" --credential-store "$two" "$main" --instance "$base" --sites "$base2" \
+    --start profile >"$out/snap-$backend-two.txt" 2>&1
+  check "ari snapshot ($backend): two sites' sessions: a copy each, a menu each, both signed in" \
+    "$out/snap-$backend-two.txt" "$two_menus" \
+    " @grace@$hostport2  Grace Hopper" "Signed in to $hostport2."
   snap "snap-$backend-resume" "$backend" "$store" --start profile
   check "ari snapshot ($backend): --start profile: the profile, as the web app lays it out" \
     "$out/snap-$backend-resume.txt" " TX.WTF " "$bar" " @ada@$hostport  Ada Lovelace" \
@@ -805,7 +857,7 @@ else
     t="nicotina --terminal --backend $backend"
 
     start "$backend" "$xdg" "$base"
-    step "$t: the sign-in form" "Sign in to TX.WTF" "Instance: $base"
+    step "$t: the sign-in form" "Sign in to TX.WTF" "Site: < $base >"
     form_focus; type_text ada; keys Tab; type_text "correct horse"
     if [ -n "$masked" ]; then # a bullet per character, never the text
       step "$t: the password is masked as it is typed" "Password: [•••••••••••••"
@@ -872,16 +924,17 @@ else
     keys BTab; keys Enter
     step "$t: Newer: the first page again" "Page 1" "Finished the notes on Menabrea's paper."
 
-    # The nicotina menu's Maximize the window, where the backend has the title bar's button
-    # (ui.maximize: FTXUI; tvision's zoom box is its own): F10, Down past Show the window (a fresh
-    # start has Back and Forward off, which the menu skips), Enter. The button becomes the restore
+    # The site's menu's Maximize the window, where the backend has the title bar's button
+    # (ui.maximize: FTXUI; tvision's zoom box is its own): F10 opens the nicotina menu, Right the
+    # site's, the next; Down past Show the window (a fresh start has Back and Forward off, which
+    # the menu skips), Enter. The button becomes the restore
     # one and the window takes the whole width; the same again, and it goes back to its size.
     if [ "$backend" = ftxui ] && [ -n "$maximize" ]; then
       start "$backend" "$xdg" "$base"
       step "$t: started again, for the menu's Maximize" "$bar" " Charles Babbage"
-      keys F10; keys Down; keys Down; keys Enter
+      keys F10; keys Right; keys Down; keys Down; keys Enter
       step "$t: the menu's Maximize the window: the window fills the terminal" "┏ TX.WTF [↕][x]"
-      keys F10; keys Down; keys Down; keys Enter
+      keys F10; keys Right; keys Down; keys Down; keys Enter
       step "$t: ... and again: back to its size" "  ┏ TX.WTF [↑][x]"
     fi
 
@@ -1432,6 +1485,51 @@ else
     fi
     stop
   done
+
+  # Two sites at once (FTXUI): signed in here, the nicotina menu's Sign in to another site opens
+  # a second sign-in form, at the next site (the second stub, --sites); signed in there too, each
+  # has its menu. The second's own Sign out closes its window and its menu; opened again, it
+  # signs in again; Sign out of every site leaves this site's form. The Site combo moves a form
+  # to another site.
+  t="nicotina --terminal: two sites"
+  xdg=$work/xdg-two
+  store=$xdg/nicotina/credentials
+  start ftxui "$xdg" "$base" --net-allow "$base2" -- --sites "$base2" --user ada
+  step "$t: the sign-in form, at --instance's site" "Site: < $base >" "Username: [ada"
+  form_focus; keys Tab; type_text "correct horse"; keys Tab; keys Enter
+  step "$t: signed in to the first" "Signed in to $hostport." "$bar"
+  keys F10; keys Enter # the nicotina menu's first item
+  step "$t: Sign in to another site: a form at the next site" "Site: < $base2 >"
+  form_focus; keys Tab; type_text "correct horse"; keys Tab; keys Enter
+  step "$t: signed in to the second as well: a menu each" "Signed in to $hostport2." \
+    "$two_menus"
+  if [ "$(sessions_in "$store")" = 2 ]; then pass "$t: the host keeps a session each"; else
+    fail "$t: the store keeps $(sessions_in "$store") sessions, not 2"
+  fi
+  # The second's menu: up from its first item past the two the host adds at its end (Quit, then
+  # Restart, which would keep the session) to its own last, Sign out.
+  keys F10; keys Right; keys Right; keys Up; keys Up; keys Up; keys Enter
+  step "$t: the second's Sign out: its window and menu go" "Signed in to $hostport." "$bar"
+  check_not "$t: ... the first stays signed in, alone" \
+    "$out/tmux-$(slug "$t: the second's Sign out: its window and menu go").txt" "$two_menus" \
+    "Sign in to"
+  if [ "$(sessions_in "$store")" = 1 ]; then pass "$t: ... and its session is dropped"; else
+    fail "$t: the store keeps $(sessions_in "$store") sessions, not 1"
+  fi
+  keys F10; keys Enter
+  step "$t: Sign in to another site again" "Site: < $base2 >"
+  form_focus; keys Tab; type_text "correct horse"; keys Tab; keys Enter
+  step "$t: ... signed in there again" "Signed in to $hostport2." "$two_menus"
+  keys F10; keys Down; keys Enter # Sign out of every site
+  step "$t: Sign out of every site: the first site's form" "Site: < $base >" "Signed out."
+  check_not "$t: ... one form, one menu" \
+    "$out/tmux-$(slug "$t: Sign out of every site: the first site's form").txt" "$two_menus"
+  if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: ... and no session is kept"; else
+    fail "$t: the store keeps $(sessions_in "$store") sessions after signing out of every site"
+  fi
+  keys BTab; keys Enter; keys Down; keys Enter # Username back to the Site combo: the next site
+  step "$t: the Site combo moves the form to the second site" "Site: < $base2 >"
+  stop
 fi
 
 # --- the tokens -------------------------------------------------------------------------------

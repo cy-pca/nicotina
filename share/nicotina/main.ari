@@ -1,13 +1,20 @@
-# nicotina — a TX.WTF client, written as Ariadne documents. This is the app: its arguments, its
-# menu, and the client itself, nicotina.ari, loaded as a module (which another document can load
-# the same way; see the top of nicotina.ari). The same document runs in stock hosts, unmodified:
+# nicotina — a TX.WTF client, written as Ariadne documents. This is the app: its arguments, the
+# TX.WTF fleet's sites, its menu, and the client itself, nicotina.ari, loaded as a module once for
+# each site you sign in to (which another document can load the same way; see the top of
+# nicotina.ari). The same document runs in stock hosts, unmodified:
 #
-#   ari run   --net-allow https://tx.wtf --credential-store PATH main.ari [--instance URL]
+#   ari run   --net-policy fleet.policy --credential-store PATH main.ari [--instance URL]
 #   ari run   --backend tvision ... main.ari
-#   arigl run --net-allow https://tx.wtf --credential-store PATH main.ari
+#   arigl run --net-policy fleet.policy --credential-store PATH main.ari
 #
-# bin/nicotina passes those flags. In a browser, the arigl-web and ari pages load it with
-# ?src=main.ari, and their ariadne.config.json passes --net.
+# bin/nicotina passes those flags (fleet.policy allows the fleet's sites). In a browser, the
+# arigl-web and ari pages load it with ?src=main.ari, and their ariadne.config.json passes --net
+# or --net-allow: the Site combo offers the sites the page may reach.
+#
+# Each site is a copy of the client, a slot here (slots.<i>): its own sign-in, its own session (the
+# host keeps each site's token under its own name, site.ari's site-cred), its own windows, and its
+# own menu in the bar, Sign out among its items. The nicotina menu opens another site's sign-in
+# form and signs out of every site.
 
 meta:
   name: nicotina
@@ -16,7 +23,10 @@ meta:
   min_libcvc: 3.7.5
 
 args:
-  instance: {type: string, default: "https://tx.wtf", help: "The TX.WTF instance (its base URL)"}
+  instance: {type: string, default: "https://tx.wtf",
+             help: "The TX.WTF site the sign-in form starts at (its base URL); its Site combo offers the fleet's others"}
+  sites: {type: string, default: "",
+          help: "More TX.WTF sites the Site combo offers, before the fleet's: base URLs, comma separated (the host must allow each: --net-allow)"}
   user: {type: string, help: "Fill in this username on the sign-in form"}
   start: {type: string, default: feed,
           help: "The first view once signed in: feed, profile, settings, tags, alerts, search, compose, dms, post:ID, dm:ID, tag:NAME, user:ID, view:ID[:N] or search:TEXT; for an administrator also admin[:users|groups|invites|site|log], auser:ID, agroup:ID or agperm:ID"}
@@ -27,94 +37,161 @@ requires:
   - net
   - net.auth
 
-# The views come and go with ui.screen, so there are no windows for a Windows menu to reopen.
-windows_menu: false
+import:
+  - site.ari                 # site-base, site-label, site-url, site-cred ...
 
-menubar:
-  - menu: nicotina
-    items:
-      - menu_item: Home
-        on: (state-set "ui.cmd" "home")
-        enabled_when: (and (!= (state-get "ui.screen") "signin") (!= (state-get "ui.screen") "2fa")
-                           (!= (state-get "ui.screen") "boot") (!= (state-get "ui.busy") "1"))
-      - menu_item: Back
-        on: (state-set "ui.cmd" "back")
-        enabled_when: (and (!= (state-get "ui.back") "") (!= (state-get "ui.busy") "1"))
-      - menu_item: Forward
-        on: (state-set "ui.cmd" "forward")
-        enabled_when: (and (!= (state-get "ui.fwd") "") (!= (state-get "ui.busy") "1"))
-      # The window closes with its X; this brings it back.
-      - menu_item: Show the window
-        on: (state-set "ui.cmd" "show-window")
-      # Its title bar's maximize button, as a menu item: the window fills the screen, or goes
-      # back to its size. Where the backend has the button (ui.maximize: ImGui and FTXUI;
-      # tvision's zoom box is its own).
-      - menu_item: Maximize the window
-        on: (state-set "ui.cmd" "maximize")
-        enabled_when: (and (has? "ui.maximize")
-                           (!= (state-get "ui.screen") "signin") (!= (state-get "ui.screen") "2fa")
-                           (!= (state-get "ui.screen") "boot"))
-      - menu_item: New post
-        on: (state-set "ui.cmd" "compose")
-        enabled_when: (and (!= (state-get "ui.screen") "signin") (!= (state-get "ui.screen") "2fa")
-                           (!= (state-get "ui.screen") "boot") (!= (state-get "ui.busy") "1"))
-      - menu_item: Messages
-        on: (state-set "ui.cmd" "dms")
-        enabled_when: (and (!= (state-get "ui.screen") "signin") (!= (state-get "ui.screen") "2fa")
-                           (!= (state-get "ui.screen") "boot") (!= (state-get "ui.busy") "1"))
-      - menu_item: Your profile
-        on: (state-set "ui.cmd" "profile")
-        enabled_when: (and (!= (state-get "ui.screen") "signin") (!= (state-get "ui.screen") "2fa")
-                           (!= (state-get "ui.screen") "boot") (!= (state-get "ui.busy") "1"))
-      # The instance's administration: for the accounts it makes administrators (ui.admin).
-      - menu_item: Admin
-        on: (state-set "ui.cmd" "admin")
-        enabled_when: (and (= (state-get "ui.admin") "1") (!= (state-get "ui.busy") "1"))
-      - menu_item: Refresh
-        on: (state-set "ui.cmd" "refresh")
-        enabled_when: (and (!= (state-get "ui.screen") "signin") (!= (state-get "ui.screen") "2fa")
-                           (!= (state-get "ui.screen") "boot") (!= (state-get "ui.busy") "1"))
-      - menu_item: Sign out
-        on: (state-set "ui.cmd" "signout")
-        enabled_when: (and (!= (state-get "ui.screen") "signin") (!= (state-get "ui.screen") "2fa")
-                           (!= (state-get "ui.screen") "boot") (!= (state-get "ui.busy") "1"))
-      - separator
-      - menu_item: Quit
-        on: quit
-  # The tray, at the bar's right end, as the web app's bar has its bell (transfix/libcvc#1241, the
-  # release after libcvc 4.0.0; an older host loads this as nothing, with a warning):
-  #   the mail icon  how many conversations have a message not yet read here; a click opens the
-  #                  DMs view
-  #   the bell       the host's own, before the clock: TX.WTF's notifications and the direct
-  #                  messages that came while their conversation wasn't shown (nicotina.ari posts
-  #                  them to the host's notification feed). A click on one opens what it is about.
-  - tray_icon: mail
-    badge: (state-get "ui.dm_unread")
-    tooltip: Direct messages
-    on: (state-set "ui.cmd" "dms")
-    visible_when: (and (!= (state-get "ui.screen") "signin") (!= (state-get "ui.screen") "2fa")
-                       (!= (state-get "ui.screen") "boot"))
-
-# The client's view state lives here (ui), where the menu reaches it: the link below needs it to
-# exist before the client starts.
-#
-# ui.nav_emoji: the instance's custom emoji the bar's buttons and the feed's choices show in place
-# of their own, by name (a few names, comma separated: the first the instance has). Where the host
-# draws a picture on a button (button.icon) and can fetch the picture, the button shows it; until
-# then, or with "" here, the button keeps its own emoji. Change them here.
-init: |
-  (state-set "ui.cmd" "")
-  (state-set-tree "ui.nav_emoji"
+functions: |
+  ;; The TX.WTF fleet's sites, by label (site.ari's site-label: an https:// site's host), in the
+  ;; order of txwtf-fleet's fleet.yaml rings: tx.wtf's, ncviz's, cyberpcangel's and cvcpkg's,
+  ;; the riveras', and dev/testing. fleet.policy allows the same origins; tests/run.sh checks
+  ;; the two agree.
+  (defun fleet-sites ()
+    (list "tx.wtf" "social.sublevels.net" "social.thegermfactoryrockclub.com" "texasdogecoin.com"
+          "ncviz.com" "asilaydating.com" "sno-bunny.com"
+          "social.cyberpcangel.com" "cvcpkg.com"
+          "riveras.net" "rivera.rocks" "rivera.zone" "rivera.world"
+          "dev.tx.wtf" "dev2.tx.wtf"))
+  ;; The custom emoji each site's bar shows in place of its own buttons' (nicotina.ari's
+  ;; ui.nav_emoji), by name: a few names, comma separated, the first the site has. Where the host
+  ;; draws a picture on a button (button.icon) and can fetch it, the button shows it; until then,
+  ;; or with "" here, the button keeps its own emoji. Change them here.
+  (defun nav-emoji ()
     (dict "back" "moonwalk"         "forward" "lambo"        "home" "igloo"
           "tags" "stonks"           "search" "notsureif,philosoraptor"
           "alerts" "alert"          "profile" "guyfawkes"    "compose" "faacts"
           "dms" "yo"                "admin" "godmode"
           "following" "spartans"    "everyone" "this-is-fine" "friends" "shibe"))
+  (defun slot-key (i k) (str-concat "slots." (str i) ".ui." k))
+  ;; Whether a slot is a site's copy now: one that hasn't closed (signed out, or its form shut).
+  (defun slot-open (i) (!= (state-get (slot-key i "screen")) "closed"))
+  ;; The first of the Site combo's sites no open slot is at ("" when every one is).
+  (defun free-site ()
+    (begin
+      (set free "")
+      (for label (string.split (state-get "fleet.labels") "\n")
+        (if (= free "")
+          (begin
+            (set taken nil)
+            (set i 0)
+            (while (< i (int (state-get "slots.n")))
+              (if (slot-open i)
+                (if (= (state-get (slot-key i "site")) (site-url label)) (set taken #t)))
+              (set i (+ i 1)))
+            (if (not taken) (set free (site-url label))))))
+      free))
+  ;; A copy of the client for url (the first free site for ""): a closed slot's place again,
+  ;; else a new slot. Its windows come up at the site's sign-in form, or signed in from a
+  ;; session the host keeps.
+  (defun open-site (url)
+    (let ((u (if (= url "") (free-site) url)) (n (int (state-get "slots.n"))))
+      (if (!= u "")
+        (begin
+          (set at n)
+          (set i (- n 1))
+          (while (>= i 0)
+            (if (not (slot-open i)) (set at i))
+            (set i (- i 1)))
+          (state-set (slot-key at "site") u)
+          (if (= at n)
+            (begin
+              (state-set-tree (slot-key at "nav_emoji") (nav-emoji))
+              (state-set (slot-key at "slot") at)
+              (state-set (slot-key at "screen") "boot")
+              ;; a place made again after it was let go (on_tick below) keeps the state its
+              ;; copy had, and its init doesn't run again: reopen starts it at u
+              (state-set (slot-key at "cmd") "reopen")
+              (state-set "slots.n" (+ n 1)))
+            (begin
+              (state-set (slot-key at "screen") "boot")
+              (state-set (slot-key at "cmd") "reopen")))))))
+  ;; Sign out of every site: each open slot signs out and closes, but for the first, which
+  ;; shows its sign-in form again.
+  (defun sign-out-all ()
+    (begin
+      (set kept nil)
+      (set i 0)
+      (while (< i (int (state-get "slots.n")))
+        (if (slot-open i)
+          (begin
+            (state-set (slot-key i "cmd") (if kept "signout-close" "signout-stay"))
+            (set kept #t)))
+        (set i (+ i 1)))))
 
-# The client, with its arguments and its view state: the menu above sets its ui.cmd.
+menubar:
+  - menu: nicotina
+    items:
+      # Another site's sign-in form, in a window of its own: at the first site of the Site combo
+      # no window is at, and the combo picks another.
+      - menu_item: Sign in to another site
+        on: (open-site "")
+        enabled_when: (> (int (state-get "slots.free")) 0)
+      - menu_item: Sign out of every site
+        on: (sign-out-all)
+        enabled_when: (> (int (state-get "slots.signed_in")) 0)
+      - separator
+      - menu_item: Quit
+        on: quit
+
+# The slots: slots.n of them, each a copy of the client at slots.<i>.ui (ui.site its site,
+# ui.screen where it is). The sites: fleet.labels, --instance's, then --sites', then the fleet's,
+# each once and only where the host may reach it (net-allowed?). A session the host keeps
+# (--credential-store) opens its site's copy signed in; with none, one copy opens at --instance's
+# site.
+init: |
+  (set start (site-base (state-get "args.instance")))
+  (set labels (list (site-label start)))
+  (set more (list))
+  (for s (string.split (state-get "args.sites") ",")
+    (if (!= (string.trim s) "") (set more (append more (site-label (site-base s))))))
+  (for label (fleet-sites) (set more (append more label)))
+  (for label more
+    (if (and (= (length (collections.filter labels (lambda (x) (= x label)))) 0)
+             (net-allowed? (site-url label)))
+      (set labels (append labels label))))
+  (state-set "fleet.labels" (string.join labels "\n"))
+  (state-set "slots.n" 0)
+  (state-set "slots.open" 0)
+  (state-set "slots.signed_in" 0)
+  (state-set "slots.free" (length labels))
+  (for label labels
+    (if (net-auth-has? (site-cred (site-url label)) (site-url label))
+      (open-site (site-url label))))
+  (if (= (int (state-get "slots.n")) 0) (open-site start))
+
+# The slots' counts, for the menu and the copies (peers.open: whether another is open), each
+# written when it changes; and a closed slot at the end let go, so its menu goes too. Its state
+# stays, and open-site makes the place again when it needs one.
+on_tick: |
+  (set n (int (state-get "slots.n")))
+  (while (and (> n 1) (not (slot-open (- n 1))))
+    (set n (- n 1)))
+  (if (!= n (int (state-get "slots.n"))) (state-set "slots.n" n))
+  (set open 0)
+  (set signed 0)
+  (set i 0)
+  (while (< i n)
+    (if (slot-open i)
+      (begin
+        (set open (+ open 1))
+        (set s (state-get (slot-key i "screen")))
+        (if (and (!= s "boot") (!= s "signin") (!= s "2fa")) (set signed (+ signed 1)))))
+    (set i (+ i 1)))
+  (if (!= open (int (state-get "slots.open"))) (state-set "slots.open" open))
+  (if (!= signed (int (state-get "slots.signed_in"))) (state-set "slots.signed_in" signed))
+  (set free (- (length (string.split (state-get "fleet.labels") "\n")) open))
+  (if (!= free (int (state-get "slots.free"))) (state-set "slots.free" free))
+
+# A copy of the client per slot, each with its own view state (ui: slots.<i>.ui, where its menu's
+# items set ui.cmd), the arguments, the fleet's sites, and the other slots (peers, read-only). Its
+# menu in the bar is named by its site's host (name:, libcvc 4.0.7; an older host names them
+# "nicotina 1", "nicotina 2" ...).
 windows:
   - load: nicotina.ari
     as: nicotina
+    repeat: (int (state-get "slots.n"))
+    name: slots.{i}.ui.name
     link:
       args: {to: args, mode: ro}
-      ui: {to: ui, mode: rw}
+      ui: {to: "slots.{i}.ui", mode: rw}
+      fleet: {to: fleet, mode: ro}
+      peers: {to: slots, mode: ro}

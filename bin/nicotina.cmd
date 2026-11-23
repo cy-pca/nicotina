@@ -6,7 +6,8 @@ rem
 rem As bin/nicotina does elsewhere: `arigl run` (ImGui) on the desktop; in the console, `ari run`
 rem (FTXUI, or tvision with --backend tvision), or `arigl run --terminal` where only arigl is
 rem installed. The console is picked by --terminal or --backend, or in an SSH session. The host
-rem gets the network for the instance's origin only, and keeps the session token in
+rem gets the network for the instance's origin and the TX.WTF fleet's sites
+rem (share\nicotina\fleet.policy) only, and keeps each site's session token in
 rem %APPDATA%\nicotina\credentials.
 rem
 rem Other options go to the host before the document; arguments after -- go to the document.
@@ -137,6 +138,7 @@ if "%NICOTINA_E2EE%"=="0" goto e2ee_done
 set CMDLINE="%HOST%" run%MODE%
 if /i "%BACKEND%"=="tvision" set CMDLINE=%CMDLINE% --backend tvision
 set CMDLINE=%CMDLINE% --net --net-allow "%ORIGIN%"
+if exist "%SHARE%\fleet.policy" set CMDLINE=%CMDLINE% --net-policy "%SHARE%\fleet.policy"
 if defined STORE set CMDLINE=%CMDLINE% --credential-store "%STORE%"
 if defined E2EE set CMDLINE=%CMDLINE% --e2ee-store "%E2EE%"
 set CMDLINE=%CMDLINE%%HOSTARGS% "%SHARE%\main.ari" --instance "%INSTANCE%"%DOCARGS%

@@ -6,8 +6,9 @@
 # On a desktop it runs `arigl run` (ImGui); in a terminal, `ari run` (FTXUI, or tvision with
 # --backend tvision), or `arigl run --terminal` where only arigl is installed. The terminal is picked by --terminal or --backend, or when there is no
 # display: no DISPLAY or WAYLAND_DISPLAY on Linux and the BSDs, or an SSH session without X
-# forwarding anywhere. The host gets the network for the instance's origin only, and keeps the
-# session token in $XDG_CONFIG_HOME/nicotina/credentials (~/.config/nicotina/credentials).
+# forwarding anywhere. The host gets the network for the instance's origin and the TX.WTF fleet's
+# sites (share/nicotina/fleet.policy) only, and keeps each site's session token in
+# $XDG_CONFIG_HOME/nicotina/credentials (~/.config/nicotina/credentials).
 #
 # Other options go to the host before the document (--fps 30, --no-mouse, --graphics color...).
 # Arguments after -- go to the document (--user NAME fills in the sign-in form).
@@ -168,6 +169,7 @@ set -- run
 [ -n "$mode" ] && set -- "$@" "$mode"
 [ "$backend" = tvision ] && set -- "$@" --backend tvision
 set -- "$@" --net --net-allow "$origin"
+[ -f "$share/fleet.policy" ] && set -- "$@" --net-policy "$share/fleet.policy"
 [ -n "$store" ] && set -- "$@" --credential-store "$store"
 [ -n "$e2ee" ] && set -- "$@" --e2ee-store "$e2ee"
 eval "set -- \"\$@\" $host_args"

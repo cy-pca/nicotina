@@ -153,7 +153,7 @@ for backend in ftxui tvision; do
   t="txwtf ($backend)"
 
   start "$backend" "$xdg" "$base" -- --user ada
-  step "$t: the sign-in form" "Username: [ada" "Instance: $base"
+  step "$t: the sign-in form" "Username: [ada" "Site: < $base >"
   sign_in "$work/wrong"
   step "$t: a wrong password" "Wrong username or password."
   start "$backend" "$xdg" "$base" -- --user ada

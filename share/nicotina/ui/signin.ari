@@ -45,8 +45,14 @@ units:
     pos: [16, 32]
     visible_when: (= (state-get "ui.screen") "signin")
     children:
-      - text: "Instance"
-        bind: app.base
+      # The site to sign in to: the TX.WTF fleet's sites main.ari offers (fleet.labels, one a
+      # line: an https:// site's host, else its URL), --instance's first. A pick moves the form
+      # there (ui.cmd "site"), unless another window is signed in there already.
+      - combo: Site
+        bind: ui.site_pick
+        options: (string.split (state-get "fleet.labels") "\n")
+        on: (state-set "ui.cmd" "site")
+        enabled_when: (!= (state-get "ui.busy") "1")
       - separator
       - input_text: Username
         bind: login.username
@@ -57,9 +63,17 @@ units:
       - input_text: Password
         bind: login.password
         password: true
-      - button: Sign in
-        on: (state-set "ui.cmd" "login")
-        enabled_when: (!= (state-get "ui.busy") "1")
+      - type: group
+        layout: {kind: horizontal}
+        children:
+          - button: Sign in
+            on: (state-set "ui.cmd" "login")
+            enabled_when: (!= (state-get "ui.busy") "1")
+          # While another site's window is open (main.ari's peers): this form can go.
+          - button: Close
+            on: (state-set "ui.cmd" "close")
+            enabled_when: (!= (state-get "ui.busy") "1")
+            visible_when: (and (state-exists "peers.open") (> (int (state-get "peers.open")) 1))
       - include: status_line
       # Advanced options: how long the session lasts before you sign in again (txwtf's
       # expire_delta, an hour unless you pick more). Under the button, as the web app has them, so
