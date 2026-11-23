@@ -1,9 +1,11 @@
 # The rest of the TX.WTF window's views (ui/app.ari): the hashtags, your notifications, search,
-# a new post, and the viewer. Each list is rows of text with an Open button: a button's label is
-# fixed in a document, so the row's text says what Open goes to.
+# a new post, and the viewer. Where a click on a group is its own (outside a terminal: the row's
+# v_click), a list's row is the click, its text as long as it is, so a phone's narrow window
+# reaches it. In a terminal a row is its text, padded to a column, then Open: a button's label
+# is fixed in a document, so the row's text says what Open goes to.
 
 units:
-  # Every hashtag, by how many posts name it (GET /social/tags). Open shows its posts.
+  # Every hashtag, by how many posts name it (GET /social/tags). A click (or Open) shows its posts.
   tags_view:
     type: group
     children:
@@ -14,7 +16,16 @@ units:
         repeat: (state-get "tags.rows")
         children:
           - type: group
+            visible_when: (= (state-get "tags.rows.{i}.v_click") "1")
+            on_click: (if (has? "ui.group_click") (begin (state-set "tag.want" (state-get "tags.rows.{i}.name")) (state-set "ui.cmd" "tag")))
+            hover: highlight
+            children:
+              - text: ""
+                bind: tags.rows.{i}.label
+                color: [0.45, 0.65, 0.95]
+          - type: group
             layout: {kind: horizontal}
+            visible_when: (= (state-get "tags.rows.{i}.v_btns") "1")
             children:
               - text: ""
                 bind: tags.rows.{i}.line
@@ -35,19 +46,45 @@ units:
       - type: group
         repeat: (state-get "alerts.rows")
         children:
+          # one about a post or a person: a click opens it; one about nothing to open, its text
           - type: group
-            layout: {kind: horizontal}
+            visible_when: (and (= (state-get "alerts.rows.{i}.v_click") "1") (!= (state-get "alerts.rows.{i}.target") ""))
+            on_click: (if (has? "ui.group_click") (begin (state-set "alert.kind" (state-get "alerts.rows.{i}.kind")) (state-set "alert.target" (state-get "alerts.rows.{i}.target")) (state-set "ui.cmd" "alert-open")))
+            hover: highlight
             children:
               - text: ""
-                bind: alerts.rows.{i}.line
-              - button: Open
-                on: (begin (state-set "alert.kind" (state-get "alerts.rows.{i}.kind")) (state-set "alert.target" (state-get "alerts.rows.{i}.target")) (state-set "ui.cmd" "alert-open"))
-                visible_when: (!= (state-get "alerts.rows.{i}.target") "")
-          - text: ""
-            bind: alerts.rows.{i}.at
-            color: [0.6, 0.6, 0.6]
+                bind: alerts.rows.{i}.label
+              - text: ""
+                bind: alerts.rows.{i}.at
+                color: [0.6, 0.6, 0.6]
+          - type: group
+            visible_when: (and (= (state-get "alerts.rows.{i}.v_click") "1") (= (state-get "alerts.rows.{i}.target") ""))
+            children:
+              - text: ""
+                bind: alerts.rows.{i}.label
+              - text: ""
+                bind: alerts.rows.{i}.at
+                color: [0.6, 0.6, 0.6]
+          - type: group
+            visible_when: (= (state-get "alerts.rows.{i}.v_btns") "1")
+            children:
+              - type: group
+                layout: {kind: horizontal}
+                children:
+                  - text: ""
+                    bind: alerts.rows.{i}.line
+                  - button: Open
+                    on: (begin (state-set "alert.kind" (state-get "alerts.rows.{i}.kind")) (state-set "alert.target" (state-get "alerts.rows.{i}.target")) (state-set "ui.cmd" "alert-open"))
+                    visible_when: (!= (state-get "alerts.rows.{i}.target") "")
+              - text: ""
+                bind: alerts.rows.{i}.at
+                color: [0.6, 0.6, 0.6]
 
-  # Posts, people and hashtags (GET /search/search?q=). Enter in the field, or Search, asks.
+  # Posts, people and hashtags (GET /search/search?q=&categories=). Enter in the field, or
+  # Search, asks; the checkboxes say where to look, and a change asks again. What's found is
+  # cards: the people as their profiles show them (ui/home.ari's profile_card), the hashtags,
+  # then the posts as the feed shows them. A click on a card opens what it is (in a terminal,
+  # the Open beside it).
   search_view:
     type: group
     children:
@@ -55,25 +92,88 @@ units:
         bind: search.q
         on: (state-set "ui.cmd" "search")
         autofocus: true
-      - button: Search
-        on: (state-set "ui.cmd" "search")
+      - type: group
+        layout: {kind: horizontal}
+        children:
+          - button: Search
+            on: (state-set "ui.cmd" "search")
+          - checkbox: Posts
+            bind: search.in_posts
+            def: true
+            on: (if (!= (state-get "search.q") "") (state-set "ui.cmd" "search"))
+          - checkbox: People
+            bind: search.in_people
+            def: true
+            on: (if (!= (state-get "search.q") "") (state-set "ui.cmd" "search"))
+          - checkbox: Hashtags
+            bind: search.in_tags
+            def: true
+            on: (if (!= (state-get "search.q") "") (state-set "ui.cmd" "search"))
       - text: ""
         bind: search.note
         color: [0.6, 0.6, 0.6]
+      - text: ""
+        bind: search.head_people
+        color: [0.6, 0.6, 0.6]
+        visible_when: (!= (state-get "search.head_people") "")
       - type: group
-        repeat: (state-get "search.rows")
+        repeat: (state-get "search.people")
         children:
           - type: group
-            layout: {kind: horizontal}
+            visible_when: (= (state-get "search.people.{i}.v_click") "1")
+            on_click: (if (has? "ui.group_click") (begin (state-set "user.want" (state-get "search.people.{i}.id")) (state-set "ui.cmd" "user")))
+            hover: highlight
             children:
-              - text: ""
-                bind: search.rows.{i}.line
+              - include: profile_card
+                args: {p: "search.people.{i}", actions: "0"}
+          - type: group
+            visible_when: (= (state-get "search.people.{i}.v_btns") "1")
+            children:
+              - include: profile_card
+                args: {p: "search.people.{i}", actions: "0"}
               - button: Open
-                on: (begin (state-set "hit.kind" (state-get "search.rows.{i}.kind")) (state-set "hit.id" (state-get "search.rows.{i}.id")) (state-set "hit.tag" (state-get "search.rows.{i}.tag")) (state-set "ui.cmd" "hit-open"))
-          - text: ""
-            bind: search.rows.{i}.snippet
-            color: [0.6, 0.6, 0.6]
-            visible_when: (!= (state-get "search.rows.{i}.snippet") "")
+                on: (begin (state-set "user.want" (state-get "search.people.{i}.id")) (state-set "ui.cmd" "user"))
+      - text: ""
+        bind: search.head_tags
+        color: [0.6, 0.6, 0.6]
+        visible_when: (!= (state-get "search.head_tags") "")
+      - type: group
+        repeat: (state-get "search.tags")
+        children:
+          - type: group
+            visible_when: (= (state-get "search.tags.{i}.v_click") "1")
+            on_click: (if (has? "ui.group_click") (begin (state-set "tag.want" (state-get "search.tags.{i}.tag")) (state-set "ui.cmd" "tag")))
+            hover: highlight
+            children:
+              - include: tag_card
+                args: {list: search.tags}
+          - type: group
+            visible_when: (= (state-get "search.tags.{i}.v_btns") "1")
+            children:
+              - include: tag_card
+                args: {list: search.tags}
+              - button: Open
+                on: (begin (state-set "tag.want" (state-get "search.tags.{i}.tag")) (state-set "ui.cmd" "tag"))
+      - text: ""
+        bind: search.head_posts
+        color: [0.6, 0.6, 0.6]
+        visible_when: (!= (state-get "search.head_posts") "")
+      - include: card_list
+        args: {list: search.posts}
+
+  # A hashtag search found: its name, and its description's line.
+  tag_card:
+    args: {list: search.tags}
+    type: group
+    layout: {kind: grid, col_widths: ["100%"], borders: {show: outer}}
+    children:
+      - text: ""
+        bind: "{list}.{i}.line"
+        color: [0.45, 0.65, 0.95]
+      - text: ""
+        bind: "{list}.{i}.about"
+        color: [0.6, 0.6, 0.6]
+        visible_when: (!= (state-get "{list}.{i}.about") "")
 
   # A new post (POST /social/posts): who may see it, then the text. Enter posts it; Shift+Enter
   # (Alt+Enter in a terminal) starts a new line; ImGui adds a Post button. Where the host can pick

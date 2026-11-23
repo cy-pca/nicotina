@@ -22,15 +22,16 @@ units:
   # banner without a header image; a window outside a terminal has no block glyphs to spare, so
   # it shows a rule there.
   banner_slot:
+    args: {p: prof}
     type: group
     children:
       - image: header image
-        bind: prof.header_pic
+        bind: "{p}.header_pic"
         size: [592, 32]
         fit: cover
-        visible_when: (and (has? "image.url") (!= (state-get "prof.header_pic") ""))
+        visible_when: (and (has? "image.url") (!= (state-get "{p}.header_pic") ""))
       - type: group
-        visible_when: (not (and (has? "image.url") (!= (state-get "prof.header_pic") "")))
+        visible_when: (not (and (has? "image.url") (!= (state-get "{p}.header_pic") "")))
         children:
           - text: ""
             bind: ui.banner_row
@@ -47,85 +48,97 @@ units:
   # frame with the initials in it. (txwtf always has an avatar URL: its default when the account
   # has none of its own.)
   avatar_slot:
+    args: {p: prof}
     type: group
     children:
       - image: avatar
-        bind: prof.avatar_pic
+        bind: "{p}.avatar_pic"
         size: [64, 64]
         fit: cover
         shape: circle
-        visible_when: (and (has? "image.url") (!= (state-get "prof.avatar_pic") ""))
+        visible_when: (and (has? "image.url") (!= (state-get "{p}.avatar_pic") ""))
       - type: group
-        visible_when: (not (and (has? "image.url") (!= (state-get "prof.avatar_pic") "")))
+        visible_when: (not (and (has? "image.url") (!= (state-get "{p}.avatar_pic") "")))
         children:
           - text: ""
-            bind: prof.avatar_box.0
+            bind: "{p}.avatar_box.0"
             color: [0.55, 0.6, 0.7]
           - text: ""
-            bind: prof.avatar_box.1
+            bind: "{p}.avatar_box.1"
             color: [0.55, 0.6, 0.7]
           - text: ""
-            bind: prof.avatar_box.2
+            bind: "{p}.avatar_box.2"
             color: [0.55, 0.6, 0.7]
           - text: ""
-            bind: prof.avatar_box.3
+            bind: "{p}.avatar_box.3"
             color: [0.55, 0.6, 0.7]
 
-  profile_view:
+  # A profile's card, as its page shows it: the banner, then the card over the account's card
+  # picture (card_image_url), dimmed as the web app dims it (a host with background:, libcvc
+  # 3.7.9 and later; others ignore the key; in a terminal, half-blocks behind the card's text).
+  # P is where its fields are (main.ari's profile-of: prof for the profile view, a search
+  # result's for search). ACTIONS "1" ends it with the profile view's action bar.
+  profile_card:
+    args: {p: prof, actions: "1"}
     type: group
     children:
       - include: banner_slot
-      # The card, over the account's card picture (card_image_url), dimmed as the web app dims it
-      # (a host with background:, libcvc 3.7.9 and later; others ignore the key). In a terminal
-      # it is half-blocks behind the card's text.
+        args: {p: "{p}"}
       - type: group
-        background: {bind: prof.card_pic, fit: cover, opacity: 0.3, terminal: behind}
+        background: {bind: "{p}.card_pic", fit: cover, opacity: 0.3, terminal: behind}
         children:
           # The card: the avatar beside who it is.
           - type: group
             layout: {kind: horizontal}
             children:
               - include: avatar_slot
+                args: {p: "{p}"}
               - text: " "
               - type: group
                 children:
                   # The full handle, @user@instance, then the display name, cut to fit.
                   - text: ""
-                    bind: prof.header
+                    bind: "{p}.header"
                   - text: ""
-                    bind: prof.badges
+                    bind: "{p}.badges"
                     color: [0.95, 0.75, 0.3]
                   - text: ""
-                    bind: '(if (= (state-get "prof.about_short") "") " " (state-get "prof.about_short"))'
+                    bind: '(if (= (state-get "{p}.about_short") "") " " (state-get "{p}.about_short"))'
                   - text: ""
-                    bind: prof.stats
+                    bind: "{p}.stats"
                     color: [0.6, 0.6, 0.6]
-          # The groups, and the action bar at the end of the card: on your own profile Refresh
-          # and Sign out, and Admin for an instance's administrator (ui/admin.ari); on another's
-          # Follow or Unfollow, then Message (a direct message).
+          # The groups, and on the profile view the action bar at the end of the card: on your
+          # own profile Refresh and Sign out, and Admin for an instance's administrator
+          # (ui/admin.ari); on another's Follow or Unfollow, then Message (a direct message).
           - type: group
             layout: {kind: horizontal}
             children:
               - text: ""
-                bind: prof.groups_line
+                bind: "{p}.groups_line"
               - button: Refresh
                 on: (state-set "ui.cmd" "refresh")
-                visible_when: (= (state-get "prof.self") "1")
+                visible_when: (and (= "{actions}" "1") (= (state-get "prof.self") "1"))
               - button: Sign out
                 on: (state-set "ui.cmd" "signout")
-                visible_when: (= (state-get "prof.self") "1")
+                visible_when: (and (= "{actions}" "1") (= (state-get "prof.self") "1"))
               - button: Admin
                 on: (state-set "ui.cmd" "admin")
-                visible_when: (and (= (state-get "prof.self") "1") (= (state-get "ui.admin") "1"))
+                visible_when: (and (= "{actions}" "1") (= (state-get "prof.self") "1") (= (state-get "ui.admin") "1"))
               - button: Follow
                 on: (state-set "ui.cmd" "follow")
-                visible_when: (and (!= (state-get "prof.self") "1") (!= (state-get "prof.following") "1"))
+                visible_when: (and (= "{actions}" "1") (!= (state-get "prof.self") "1") (!= (state-get "prof.following") "1"))
               - button: Unfollow
                 on: (state-set "ui.cmd" "unfollow")
-                visible_when: (and (!= (state-get "prof.self") "1") (= (state-get "prof.following") "1"))
+                visible_when: (and (= "{actions}" "1") (!= (state-get "prof.self") "1") (= (state-get "prof.following") "1"))
               - button: Message
                 on: (state-set "ui.cmd" "dm-with")
-                visible_when: (!= (state-get "prof.self") "1")
+                visible_when: (and (= "{actions}" "1") (!= (state-get "prof.self") "1"))
+
+  profile_view:
+    type: group
+    children:
+      - include: profile_card
+        args: {p: prof, actions: "1"}
       # The tabs. Choosing one loads it (main.ari's "tab"). A terminal host draws a radio row's
       # label even when it is empty (a lone ":"), so it has one.
       - radio_row: Show

@@ -401,13 +401,22 @@ view alerts-read alerts
 check "ari snapshot: ... and once seen, read" "$out/snap-view-alerts-read.txt" "3 notifications"
 check_not "ari snapshot: ... none new now" "$out/snap-view-alerts-read.txt" "● " " new"
 view search search
-check "ari snapshot: search" "$out/snap-view-search.txt" "Find: [" "[ Search ]" \
-  "Find posts and people."
+check "ari snapshot: search, and where it looks" "$out/snap-view-search.txt" "Find: [" \
+  "[ Search ]" "[x] Posts" "[x] People" "[x] Hashtags" "Find posts, people and hashtags."
 view search-hits search:engine
-check "ari snapshot: search: posts, people and hashtags, as txwtf groups them" \
-  "$out/snap-view-search-hits.txt" "Find: [engine]" "8 found for \"engine\"" \
-  "[post] Charles Babbage · @charles@$hostport" "The Difference Engine No. 2, working at last." \
-  "[tag] #engines" "  3 posts"
+check "ari snapshot: search: a hashtag's card, then the posts' cards, as the feed's" \
+  "$out/snap-view-search-hits.txt" "Find: [engine" "Found for \"engine\":" "1 hashtag" \
+  "│#engines" "│3 posts" "7 posts" " Charles Babbage  @charles@$hostport" \
+  "│The Difference Engine No. 2, working at last. #engines #brass" \
+  "[ Open ][ Reply ][ Like ][ Repost ]"
+check_not "ari snapshot: ... and no person" "$out/snap-view-search-hits.txt" "1 person"
+view search-people search:grace
+check "ari snapshot: search: a person's card, their handle and name (txwtf's <mark> gone)" \
+  "$out/snap-view-search-people.txt" "1 person" "@grace@$hostport" "Grace Hopper"
+check_not "ari snapshot: ... no markup or entities in it" "$out/snap-view-search-people.txt" \
+  "<mark>" "&#"
+check "search: it asks for what the checkboxes tick, all three at first (categories=)" \
+  "$out/stub.log" "/search/search?q=engine&limit=10&categories=posts%2Cusers%2Chashtags"
 view compose compose
 check "ari snapshot: a new post: who sees it, and the text" "$out/snap-view-compose.txt" \
   "Who sees it: (*) Public  ( ) Followers  ( ) Private" "Post: [What's happening? (Enter posts it)"
@@ -652,7 +661,7 @@ check_not "ari snapshot: ... not the next page, nor someone ada doesn't follow, 
 seed_store "$store" grace
 snap snap-feed-empty ftxui "$store"
 check "ari snapshot: following no one: the feed says so" "$out/snap-feed-empty.txt" \
-  "Your feed is empty. Follow people, or Show: Everyone."
+  "Your feed is empty. Follow people, or pick Everyone."
 
 # Pictures, where the host shows them from a URL (image.url, transfix/libcvc#931): the profile's
 # avatar and banner and the cards' avatars and pictures are drawn (half-blocks in a snapshot)
@@ -1176,7 +1185,7 @@ else
     step "$t: the form for $who again" "Username: [$who"
     form_focus; keys Tab; type_text "correct horse"; keys Tab; keys Enter
     step "$t: enabled, the code off: $who signs in with her password" "$bar" \
-      "Your feed is empty. Follow people, or Show: Everyone."
+      "Your feed is empty. Follow people, or pick Everyone."
     check_not "$t: ... and she has no Admin" \
       "$out/tmux-$(slug "$t: enabled, the code off: $who signs in with her password").txt" \
       "Admin" "Two-step verification"
@@ -1353,7 +1362,7 @@ else
     step "$t: a wrong code" "That code didn't work. Try again, or go Back." "Code: []"
     keys BTab; type_text 123456; keys Tab; keys Enter
     step "$t: the right code signs in: her feed, empty" "$bar" \
-      "Your feed is empty. Follow people, or Show: Everyone."
+      "Your feed is empty. Follow people, or pick Everyone."
     for _ in $(seq 5); do keys Tab; done
     keys Enter # Profile
     step "$t: grace's profile" "@grace@$hostport  Grace Hopper" "Nanoseconds, in wire. #engines"

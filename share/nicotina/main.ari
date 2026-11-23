@@ -97,8 +97,19 @@ menubar:
 
 # The client's view state lives here (ui), where the menu reaches it: the link below needs it to
 # exist before the client starts.
+#
+# ui.nav_emoji: the instance's custom emoji the bar's buttons and the feed's choices show in place
+# of their own, by name (a few names, comma separated: the first the instance has). Where the host
+# draws a picture on a button (button.icon) and can fetch the picture, the button shows it; until
+# then, or with "" here, the button keeps its own emoji. Change them here.
 init: |
   (state-set "ui.cmd" "")
+  (state-set-tree "ui.nav_emoji"
+    (dict "back" "moonwalk"         "forward" "lambo"        "home" "igloo"
+          "tags" "stonks"           "search" "notsureif,philosoraptor"
+          "alerts" "alert"          "profile" "guyfawkes"    "compose" "faacts"
+          "dms" "yo"                "admin" "godmode"
+          "following" "spartans"    "everyone" "this-is-fine" "friends" "shibe"))
 
 # The client, with its arguments and its view state: the menu above sets its ui.cmd.
 windows:

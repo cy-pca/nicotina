@@ -161,7 +161,7 @@ for backend in ftxui tvision; do
   sign_in "$work/password"
   # She follows no one, so her home feed is empty, as txwtf's is then.
   step "$t: ada signs in: her home feed, empty" "$bar" "Show: (*) Following" \
-    "Your feed is empty. Follow people, or Show: Everyone." "Signed in to 127.0.0.1"
+    "Your feed is empty. Follow people, or pick Everyone." "Signed in to 127.0.0.1"
   for _ in $(seq 8); do keys Tab; done
   keys Right # past the bar to Show: Everyone
   step "$t: Everyone: the public timeline, a card a post" "(*) Everyone" \
@@ -251,7 +251,7 @@ for backend in ftxui tvision; do
   step "$t: search" "Find: ["
   type_text "Bernoulli"
   keys Enter
-  step "$t: search finds her post" "found for \"Bernoulli\"" "Bernoulli numbers"
+  step "$t: search finds her post" "Found for \"Bernoulli\":" "Bernoulli numbers"
   start "$backend" "$xdg" "$base"
   step "$t: started again, to sign out" "$bar" "Show: (*) Following"
   for _ in $(seq 5); do keys Tab; done
