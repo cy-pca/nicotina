@@ -1506,7 +1506,9 @@ else
   if [ "$(sessions_in "$store")" = 2 ]; then pass "$t: the host keeps a session each"; else
     fail "$t: the store keeps $(sessions_in "$store") sessions, not 2"
   fi
-  keys F10; keys Right; keys Right; keys Up; keys Enter # the second's menu, its last: Sign out
+  # The second's menu: up from its first item past the two the host adds at its end (Quit, then
+  # Restart, which would keep the session) to its own last, Sign out.
+  keys F10; keys Right; keys Right; keys Up; keys Up; keys Up; keys Enter
   step "$t: the second's Sign out: its window and menu go" "Signed in to $hostport." "$bar"
   check_not "$t: ... the first stays signed in, alone" \
     "$out/tmux-$(slug "$t: the second's Sign out: its window and menu go").txt" "$two_menus" \
