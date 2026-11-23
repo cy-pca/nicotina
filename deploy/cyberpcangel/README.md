@@ -8,40 +8,57 @@ The browser builds of nicotina, public and not login-gated:
 | https://cyberpcangel.com/nicotina-term/ | terminal (FTXUI in xterm.js) | arigl-web's `ari.html` |
 | https://cyberpcangel.com/nicotina-term/ari_tvision.html | terminal (tvision) | arigl-web's `ari_tvision.html`, when the build has it |
 
-Both run `main.ari` against **https://tx.wtf**, and the sign-in form's Site combo offers
-**https://dev.tx.wtf** too. cyberpcangel.com is not a TX.WTF instance, so the API is cross-origin
-and the page config names the sites explicitly ([ariadne.config.json](ariadne.config.json)):
+Both run `main.ari` against **https://tx.wtf**. The sign-in form's Site combo offers every site
+of the TX.WTF fleet, the 15 in [share/nicotina/fleet.policy](../../share/nicotina/fleet.policy).
+cyberpcangel.com is not a TX.WTF instance, so the API is cross-origin, and the page config names
+each site explicitly ([ariadne.config.json](ariadne.config.json)):
 
 ```json
-"flags": ["--net-allow", "https://tx.wtf", "--net-allow", "https://dev.tx.wtf"],
+"flags": ["--net-allow", "https://tx.wtf", "--net-allow", "https://social.sublevels.net", ...,
+          "--net-allow", "https://dev2.tx.wtf"],
 "args":  ["--instance", "https://tx.wtf"],
 "src_param": false
 ```
 
-The combo offers a fleet site only where the page may reach it, so a site of the fleet joins it
-here with three things: its `--net-allow` here, its origin in the CSP's `CONNECT`
-([nicotina-deploy.sh](nicotina-deploy.sh)), and `https://cyberpcangel.com` in its own CORS
-(below). tx.wtf and dev.tx.wtf have all three; the fleet's other sites have no CORS for this origin
-yet (checked 2026-11-22).
+The combo offers a fleet site only where the page may reach it. A site needs three things to
+join it here:
+- its `--net-allow` in the page config;
+- its origin in the CSP, which is `INSTANCES` in [nicotina-deploy.sh](nicotina-deploy.sh);
+- `https://cyberpcangel.com` in its own CORS (below).
+
+tests/run.sh checks that the page config and `INSTANCES` list fleet.policy's sites, and verify.py
+checks that the live CSP lists the page config's sites.
 
 `--net-allow` lets the document reach that origin and no other. `src_param: false` pins the page to
 `main.ari`, so a `?src=` link can't run another document with these flags. A browser keeps the
 session token in memory (`--credential-store` is refused there), so a reload signs out.
 
-**CORS.** The instance must allow the origin `https://cyberpcangel.com`. txwtf reads its allowlist
-from `TXWTF_CORS_ORIGINS`; docker deployments pass it to the backend container from
-atx-crypto-club/txwtf#312 on. tx.wtf does: `TXWTF_CORS_ORIGINS=https://cyberpcangel.com` is in its
-`.env.production`, and prod runs #312 (prod 5c04fff, from 2026-10-30). Checked on 2026-10-31:
-- the preflights for `/user/login`, `/user/login/2fa`, `/user/`, `/billing/scrip/balance` and
-  `/user/logout` answer 200, allowing this origin, while an unlisted origin still gets 400;
-- a sign-in from the terminal page reaches tx.wtf.
+**CORS.** Each site must allow the origin `https://cyberpcangel.com`. txwtf reads its allowlist
+from `TXWTF_CORS_ORIGINS` (space-separated):
+- **tx.wtf** has `TXWTF_CORS_ORIGINS=https://cyberpcangel.com` in its `.env.production`. Its compose
+  file passes the variable to the backend from atx-crypto-club/txwtf#312 on (prod since 2026-10-30).
+- **The rest of the fleet** takes it from cy-pca/txwtf-fleet: `fleet.yaml`'s `cors_origins` goes
+  into each site's env, and the fleet's compose override passes it to the backend. The fleet's base
+  compose is older than #312. cvcpkg.com and dev.tx.wtf have their own override, so their base
+  compose carries #312's line instead. The fleet's RUNBOOK says how to add an origin to a live site.
 
-Without CORS the browser blocks the sign-in, and the page says "Can't reach tx.wtf".
+A site allows it when the preflights for `/user/login`, `/user/login/2fa`, `/user/`,
+`/billing/scrip/balance` and `/user/logout` answer 200 with
+`access-control-allow-origin: https://cyberpcangel.com`. An unlisted origin still gets 400:
 
-To use another instance, change both URLs in `ariadne.config.json`. The pages' Content-Security-Policy
-allows tx.wtf and dev.tx.wtf, for requests (`connect-src`) and for the video and audio the players
-stream from them (`media-src`); another instance also needs adding to `CONNECT` in
-[nicotina-deploy.sh](nicotina-deploy.sh), and that instance's CORS.
+```bash
+curl -s -o /dev/null -D - -X OPTIONS https://<site>/user/login \
+  -H 'Origin: https://cyberpcangel.com' -H 'Access-Control-Request-Method: POST'
+```
+
+Without CORS the browser blocks the sign-in, and the page says "Can't reach <site>".
+
+Each site's CSP entry covers requests (`connect-src`) and the video and audio the players stream from
+it (`media-src`). To add a site:
+1. add it to fleet.policy and main.ari's `fleet-sites`;
+2. add it to `ariadne.config.json` and `INSTANCES`;
+3. install `nicotina-deploy.sh` on the box;
+4. give the site CORS.
 
 ## How it deploys
 
@@ -91,7 +108,7 @@ verify.py          every staged file served byte for byte, the CSP, the redirect
 - **Apache** (`nicotina.conf`, scoped to the two directories): `application/wasm`, deflate, no
   directory listings, no rewrites into WordPress, `DirectoryIndex ari.html` for the terminal site,
   `Cache-Control: no-cache` (a redeploy shows on the next load), and
-  `Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://tx.wtf https://dev.tx.wtf; img-src 'self' data: blob:; media-src 'self' blob: https://tx.wtf https://dev.tx.wtf; ...; frame-ancestors 'self'`.
+  `Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://tx.wtf ... https://dev2.tx.wtf; img-src 'self' data: blob:; media-src 'self' blob: https://tx.wtf ... https://dev2.tx.wtf; ...; frame-ancestors 'self'`, where `...` is the fleet's other sites (`INSTANCES`).
   `'unsafe-inline'` styles are for xterm.js's DOM renderer, which it falls back to without WebGL2.
   `media-src` is for the `video:` and `audio:` players, which are the browser's own `<video>` and
   `<audio>`: without it they fall back to `default-src 'self'`, and Chrome refuses every

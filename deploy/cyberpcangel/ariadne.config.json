@@ -2,6 +2,22 @@
   "title": "nicotina",
   "src": "main.ari",
   "src_param": false,
-  "flags": ["--net-allow", "https://tx.wtf", "--net-allow", "https://dev.tx.wtf"],
+  "flags": [
+    "--net-allow", "https://tx.wtf",
+    "--net-allow", "https://social.sublevels.net",
+    "--net-allow", "https://social.thegermfactoryrockclub.com",
+    "--net-allow", "https://texasdogecoin.com",
+    "--net-allow", "https://ncviz.com",
+    "--net-allow", "https://asilaydating.com",
+    "--net-allow", "https://sno-bunny.com",
+    "--net-allow", "https://social.cyberpcangel.com",
+    "--net-allow", "https://cvcpkg.com",
+    "--net-allow", "https://riveras.net",
+    "--net-allow", "https://rivera.rocks",
+    "--net-allow", "https://rivera.zone",
+    "--net-allow", "https://rivera.world",
+    "--net-allow", "https://dev.tx.wtf",
+    "--net-allow", "https://dev2.tx.wtf"
+  ],
   "args": ["--instance", "https://tx.wtf"]
 }

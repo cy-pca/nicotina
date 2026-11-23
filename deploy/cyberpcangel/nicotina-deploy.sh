@@ -19,9 +19,27 @@ umask 022
 
 SITES=(nicotina nicotina-term)
 # The instances a page may talk to (its CSP connect-src), and play video and audio from (media-src:
-# the players stream an attachment from the instance's /uploads). The page config's --net-allow
-# picks one.
-CONNECT="https://tx.wtf https://dev.tx.wtf"
+# the players stream an attachment from the instance's /uploads): the TX.WTF fleet, as in
+# share/nicotina/fleet.policy. The page config's --net-allow names the same sites, and each one
+# allows https://cyberpcangel.com in its CORS (tests/run.sh checks the three lists agree).
+INSTANCES=(
+  https://tx.wtf
+  https://social.sublevels.net
+  https://social.thegermfactoryrockclub.com
+  https://texasdogecoin.com
+  https://ncviz.com
+  https://asilaydating.com
+  https://sno-bunny.com
+  https://social.cyberpcangel.com
+  https://cvcpkg.com
+  https://riveras.net
+  https://rivera.rocks
+  https://rivera.zone
+  https://rivera.world
+  https://dev.tx.wtf
+  https://dev2.tx.wtf
+)
+CONNECT="${INSTANCES[*]}"
 MAX_BYTES=$((512 * 1024 * 1024))
 # Overridable only so the script can be tested off the box; the forced command sets neither.
 APACHE=${NICOTINA_APACHE_ETC:-/etc/apache2}
