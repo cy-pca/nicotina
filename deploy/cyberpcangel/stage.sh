@@ -30,6 +30,9 @@ site() {  # site DIR FILE...: the documents, the config, the licenses, then the 
   local dir=$1; shift
   install -d "$dir"
   cp -R "$docs/." "$dir/"
+  # fleet.policy is the desktop launcher's --net-policy. A page gets its sites from the config's
+  # --net-allow instead, and nicotina-deploy.sh refuses a file type no page serves.
+  rm -f "$dir/fleet.policy"
   install -m 644 "$here/ariadne.config.json" "$web/LICENSE" "$web/THIRD_PARTY_NOTICES.md" "$dir/"
   local f
   for f in "$@"; do cp -R "$web/$f" "$dir/"; done
