@@ -5,7 +5,7 @@ Python stdlib only. It answers with the shapes of the live API's schema
 (https://tx.wtf/openapi.json, txwtf 0.4.0, browsable at https://tx.wtf/docs),
 and with the errors tx.wtf answers that the schema doesn't list:
 
-  POST /user/login           {username, password} -> LoginResponse, or a
+  POST /user/login           {username, password, expire_delta} -> LoginResponse, or a
                              LoginChallengeResponse for an account with 2FA,
                              or 400 {"detail": "Access denied! (...)"}
   POST /user/login/2fa       {challenge, code} -> LoginResponse, or 400
@@ -1600,6 +1600,9 @@ def make_handler(state):
                     {"detail": [{"loc": ["body"], "msg": "Field required", "type": "missing"}]},
                 )
             username = body["username"]
+            # the session's length the client asked for (txwtf's expire_delta, seconds; an hour
+            # when it sends none), for the tests to check
+            state.log({"login": username, "expire_delta": body.get("expire_delta")})
             if username not in USERS:
                 return self.reply(400, {"detail": "Access denied! (UserDoesNotExist)"})
             if USERS[username].get("shadow"):  # signs in at its home instance only

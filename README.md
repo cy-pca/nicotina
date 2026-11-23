@@ -79,6 +79,9 @@ The host holds the token, never the documents:
 - Sign-in posts to `/user/login` with `capture_auth`. The host takes `token` out of the reply,
   keeps it as credential `txwtf` for the instance's origin, and hands the document the reply
   with `"[redacted]"` in its place.
+- The session lasts an hour, TX.WTF's default. The sign-in form's **Advanced options** pick a
+  longer one (4, 8 or 12 hours, a day, a week or 30 days), as the web app's do; the form sends
+  it as `expire_delta`, and an emailed code keeps it.
 - Every later request names the credential (`auth: txwtf`) and the host adds the
   `Authorization` header.
 - With `--credential-store`, the host keeps it across runs in an owner-only file (0600 in a
