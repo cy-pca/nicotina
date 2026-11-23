@@ -129,6 +129,20 @@ then
 else
   fail "fleet.policy [$policy_sites], the web --net-allow [$web_sites] and CSP [$csp_sites] differ"
 fi
+# The web payload: stage.sh, with a stand-in arigl-web, makes one that nicotina-deploy.sh's checks
+# accept (it then stops at the docroot, which only the box has). A document file a page doesn't
+# serve, like fleet.policy, would fail the deploy on the box.
+stage=$work/stage
+mkdir -p "$stage/web/xterm" "$stage/tmp" "$stage/apache/sites-enabled"
+for f in index.html arigl-web.js arigl-web.css arigl.js arigl.wasm ari.html ari.js ari.wasm \
+         ari-web.js ari-web.css LICENSE THIRD_PARTY_NOTICES.md xterm/xterm.js; do
+  echo stand-in >"$stage/web/$f"
+done
+{ bash "$root/deploy/cyberpcangel/stage.sh" "$stage/web" "$root/share/nicotina" "$stage/payload" &&
+  tar czf - -C "$stage/payload" nicotina nicotina-term |
+  NICOTINA_TMPDIR="$stage/tmp" NICOTINA_APACHE_ETC="$stage/apache" \
+    bash "$root/deploy/cyberpcangel/nicotina-deploy.sh"; } >"$out/web-payload.txt" 2>&1 || true
+check "the web payload passes nicotina-deploy.sh's checks" "$out/web-payload.txt" "payload ok:"
 launch launcher-nodisplay -- --instance "$base"
 check "launcher: no display gets ari" "$out/launcher-nodisplay.txt" "$ARI 'run' '--net'"
 launch launcher-ssh DISPLAY= SSH_CONNECTION="10.0.0.2 5000 10.0.0.1 22" -- --instance "$base"
