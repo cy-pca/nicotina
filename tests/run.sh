@@ -117,6 +117,18 @@ if [ -n "$policy_sites" ] && [ "$policy_sites" = "$main_sites" ]; then
 else
   fail "fleet.policy [$policy_sites] and main.ari's fleet-sites [$main_sites] differ"
 fi
+# The cyberpcangel.com pages reach the same sites: the page config's --net-allow, and the CSP's
+# connect-src and media-src (nicotina-deploy.sh's INSTANCES), in fleet.policy's order.
+web_sites=$(grep -o '"--net-allow", *"https://[^"]*"' "$root/deploy/cyberpcangel/ariadne.config.json" |
+  sed 's|.*"https://||; s|"$||' | tr '\n' ' ')
+csp_sites=$(sed -n '/^INSTANCES=(/,/^)/p' "$root/deploy/cyberpcangel/nicotina-deploy.sh" |
+  sed -n 's|^ *https://||p' | tr '\n' ' ')
+if [ -n "$policy_sites" ] && [ "$web_sites" = "$policy_sites" ] && [ "$csp_sites" = "$policy_sites" ]
+then
+  pass "the web pages' --net-allow and CSP list fleet.policy's sites"
+else
+  fail "fleet.policy [$policy_sites], the web --net-allow [$web_sites] and CSP [$csp_sites] differ"
+fi
 launch launcher-nodisplay -- --instance "$base"
 check "launcher: no display gets ari" "$out/launcher-nodisplay.txt" "$ARI 'run' '--net'"
 launch launcher-ssh DISPLAY= SSH_CONNECTION="10.0.0.2 5000 10.0.0.1 22" -- --instance "$base"

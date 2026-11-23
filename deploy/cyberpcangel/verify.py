@@ -8,6 +8,7 @@ served byte for byte, uncompressed, with the page's Content-Security-Policy; the
 URL must serve its page (index.html, or ari.html for the terminal), and the URL without the
 trailing slash must redirect to it. Python's urllib only (the CI runner's curl is broken).
 """
+import json
 import pathlib
 import sys
 import urllib.error
@@ -55,6 +56,16 @@ def main():
         # Chrome refuses every attachment from the instance ("Media load rejected by URL safety
         # check").
         check("media-src 'self' blob:" in csp, "Content-Security-Policy lets video and audio play")
+        # Each site the page config lets the document reach (--net-allow) must be in the CSP's
+        # connect-src and media-src too, or the browser blocks it: the Site combo would offer a
+        # site the page can't sign in to.
+        directives = {d.split()[0]: d.split()[1:] for d in csp.split(";") if d.split()}
+        flags = json.loads((root / "ariadne.config.json").read_text())["flags"]
+        allowed = [flags[i + 1] for i, f in enumerate(flags[:-1]) if f == "--net-allow"]
+        for name in ("connect-src", "media-src"):
+            missing = [a for a in allowed if a not in directives.get(name, [])]
+            check(not missing, f"{name} lists the page config's {len(allowed)} --net-allow sites"
+                  + (f" (missing {' '.join(missing)})" if missing else ""))
         status, headers, _ = get(f"{base}/{site}", follow=False)
         check(status in (301, 302) and headers.get("Location", "").endswith(f"/{site}/"),
               f"/{site} redirects to /{site}/")
