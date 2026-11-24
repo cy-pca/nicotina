@@ -903,6 +903,7 @@ def login_response(username):
 # txwtf's default avatar (the default_avatar setting), for an account with none of its own. Header
 # and card images have no default: null means the theme's colour.
 DEFAULT_AVATAR = "/static/img/atxcf_logo_small.jpg"
+SITE_VERSION = "0.6.0"  # the txwtf version /social/site-info reports
 
 
 def profile_response(username):
@@ -1093,6 +1094,18 @@ def make_handler(state):
                 gear = png(32, 32, lambda x, y: (120, 120, 130) if 64 <= (x - 16) ** 2 + (y - 16) ** 2
                            <= 196 else (250, 200, 60))
                 return self.reply_bytes(200, gear, "image/png"), None
+            if method == "GET" and path == "/social/site-info":
+                # what the sign-in form shows of a site, public as txwtf's: its title, tagline
+                # (description), version and logo (a path on the instance, as txwtf's default)
+                site = ADMIN.site if ADMIN else {}
+                return self.reply(200, {
+                    "title": site.get("title", ""), "description": site.get("description", ""),
+                    "version": SITE_VERSION, "logo": DEFAULT_AVATAR,
+                    "logo_small": DEFAULT_AVATAR, "logo_file_id": None,
+                    "logo_small_file_id": None, "logo_file_url": None,
+                    "logo_small_file_url": None, "login_hero_file_id": None,
+                    "login_hero_file_url": None, "login_hero_url": None,
+                    "default_theme": None}), None
             if method == "GET" and path.startswith("/site/"):
                 # the site's settings, public as txwtf's: the client's window is titled by
                 # /site/title; the Admin view's Site section shows the rest

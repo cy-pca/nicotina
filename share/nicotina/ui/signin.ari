@@ -53,6 +53,32 @@ units:
         options: (string.split (state-get "fleet.labels") "\n")
         on: (state-set "ui.cmd" "site")
         enabled_when: (!= (state-get "ui.busy") "1")
+      # The picked site as its own sign-in page shows it (site_info: GET /social/site-info): its
+      # logo, where the host draws pictures and may reach it, beside its name, tagline and txwtf
+      # version. Nothing while it is asked, or when the site doesn't say.
+      - type: group
+        layout: {kind: horizontal}
+        visible_when: (!= (state-get "site_info.name") "")
+        children:
+          - image: ""
+            bind: site_info.logo
+            size: [48, 48]
+            fit: contain
+            visible_when: (!= (state-get "site_info.logo") "")
+          - text: " "            # a terminal's gap; a window spaces its items itself
+            visible_when: (and (!= (state-get "site_info.logo") "") (= (state-get "app.term") "1"))
+          - type: group
+            children:
+              - text: ""
+                bind: site_info.name
+              - text: ""
+                bind: site_info.tagline
+                color: [0.6, 0.6, 0.6]
+                visible_when: (!= (state-get "site_info.tagline") "")
+              - text: ""
+                bind: site_info.version
+                color: [0.6, 0.6, 0.6]
+                visible_when: (!= (state-get "site_info.version") "")
       - separator
       - input_text: Username
         bind: login.username
