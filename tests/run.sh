@@ -5,7 +5,9 @@
 #   ARI=/path/to/ari ARIGL=/path/to/arigl tests/run.sh
 #
 #  1. bin/nicotina --dry-run: the host, flags and credential store it picks.
-#  2. ari check: without the network flags the document refuses to load, and says why.
+#  2. ari check: without the network flags the document refuses to load, and says why. ari
+#     validate, where this ari has it: every document fits the .ari schema, and main.ari's load
+#     gives no warning.
 #  3. ari snapshot, FTXUI and tvision: the sign-in form; a stored session, resumed (the TX.WTF
 #     window: its bar, the feed; the profile, laid out as the web app's: the banner and avatar
 #     slots, the card, the Posts tab; the Settings tab, your content filter); a stored session the
@@ -199,6 +201,32 @@ check "ari check without --net: the document says it needs the network" \
 "$ARI" check --net-allow "$base" "$main" >"$out/check-net.txt" 2>&1
 echo "exit $?" >>"$out/check-net.txt"
 check "ari check with --net-allow: it loads" "$out/check-net.txt" "exit 0"
+
+# ari validate (libcvc 4.0.7, transfix/libcvc#1464): the documents against the .ari schema, whose
+# every map is closed, so a misspelt key or one on the wrong widget is caught here and not by its
+# missing effect. Each file's structure on its own; then main.ari's load, which runs nothing and
+# reaches the rest (its import:, its load: of nicotina.ari, and nicotina.ari's ui/ includes),
+# with --strict so a loader warning fails it too. An older ari has neither validate nor `ari
+# schema` (and refuses validate's flags before the command), and one built without
+# json-schema-validator says so (exit 4): both skip.
+docs=("$root"/share/nicotina/*.ari "$root"/share/nicotina/ui/*.ari)
+if ! "$ARI" schema >/dev/null 2>&1; then
+  skip "ari validate (this ari has none: libcvc 4.0.7, transfix/libcvc#1464)"
+else
+  "$ARI" validate --structural-only "${docs[@]}" >"$out/validate-structure.txt" 2>&1
+  validate=$?
+  echo "exit $validate" >>"$out/validate-structure.txt"
+  if [ "$validate" = 4 ]; then
+    skip "ari validate (this ari was built without json-schema-validator)"
+  else
+    check "ari validate: all ${#docs[@]} documents fit the .ari schema" \
+      "$out/validate-structure.txt" "exit 0"
+    "$ARI" validate --strict --net-allow "$base" "$main" >"$out/validate-load.txt" 2>&1
+    echo "exit $?" >>"$out/validate-load.txt"
+    check "ari validate --strict: main.ari's load reaches every part, with no warning" \
+      "$out/validate-load.txt" "exit 0"
+  fi
+fi
 
 # --- 3. ari snapshot --------------------------------------------------------------------------
 
