@@ -67,7 +67,6 @@ units:
           - input_text: Passphrase
             bind: dm.pass
             password: true
-            hint: for a backup of your keys
           - type: group
             layout: {kind: horizontal}
             children:
