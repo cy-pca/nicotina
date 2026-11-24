@@ -440,10 +440,19 @@ check "ari snapshot: a post: its text, hashtags, counts, reactions, buttons and 
   "Reactions: :thumbsup: 12  :heart: 9" "[ Like ][ Dislike ][ Repost ][ Author ][ Delete ]" \
   "Link: $base/app/post/312" "[image] engine-diagram.png · 47 KB · The engine, from the side" \
   "[ View ]"
-check "ari snapshot: ... its replies, oldest first, and the reply box" "$out/snap-view-post.txt" \
-  "2 replies" "Grace Hopper  @grace@$hostport  2026-10-30 22:50  ↩1" "Splendid. How many digits?" \
-  "Alan Turing  @alan@peer.example  2026-10-30 23:10" "A fine machine. #engines" \
+# Its replies are post cards, as the feed's: who, when, the text, its hashtags, the counts and
+# the card's buttons.
+check "ari snapshot: ... its replies, oldest first, each a card, and the reply box" \
+  "$out/snap-view-post.txt" "2 replies" " Grace Hopper  @grace@$hostport" "2026-10-30 22:50" \
+  "│Splendid. How many digits?" "│↩1 ⇄0 ♥2" " Alan Turing  @alan@peer.example" \
+  "2026-10-30 23:10" "│A fine machine. #engines" "│#engines" \
   "Reply: [Write a reply (Enter sends it)"
+if [ "$(grep -c '\[ Open \]\[ Reply \]\[ Like \]\[ Repost \]' "$out/snap-view-post.txt")" = 2 ]; then
+  pass "ari snapshot: ... both replies have a card's Open, Reply, Like and Repost"
+else
+  fail "ari snapshot: ... both replies have a card's Open, Reply, Like and Repost" \
+    "$out/snap-view-post.txt"
+fi
 # (Delete, on Charles's post: ada is the stub's administrator. grace's view of it, below, has none.)
 check_not "ari snapshot: ... not a reply's reply" "$out/snap-view-post.txt" "Thirty-one"
 view mention post:306

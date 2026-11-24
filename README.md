@@ -222,7 +222,8 @@ In the terminal, Tab moves between fields and buttons and Enter presses a button
 you see your home feed: Left or Right on its Show row picks Following or Everyone, Tab walks the
 cards (the window scrolls to keep the focused one in view), a card's Open shows the whole post,
 and Load more, at the end, adds the next page. A post opened whole has Like, Dislike, Repost and
-Author (and Delete on your own). Profile opens the profile: Tab reaches its tabs (Posts, Replies,
+Author (and Delete on your own), and under it its replies, each a card as in the feed (a post
+looks the same wherever it is shown). Profile opens the profile: Tab reaches its tabs (Posts, Replies,
 Balances, Settings) and Left or Right picks one; Older and Newer page through the posts; Settings
 is your content filter, Hide below, the score (likes less dislikes) under which the instance
 leaves posts out of your feeds. Feed goes back. F10 opens the nicotina menu (Sign in to another

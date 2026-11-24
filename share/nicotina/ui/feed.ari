@@ -375,45 +375,14 @@ units:
             bind: post.media.{i}.player
             visible_when: (= (state-get "post.media.{i}.v_aud") "1")
       - separator
-      # The replies, oldest first: who and when, then two lines of each. Where a click on a
-      # group is its own (outside a terminal) a click on who and when opens one; in a terminal,
-      # the line padded to a column, then Open.
+      # The replies, oldest first, each a post card as everywhere else posts are listed
+      # (ui/card.ari): its avatar, who and when, its text, hashtags, pictures, counts and
+      # buttons. A click on the card (outside a terminal) or its Open opens the reply.
       - text: ""
         bind: post.replies_head
         color: [0.6, 0.6, 0.6]
-      - type: group
-        repeat: (state-get "post.replies")
-        children:
-          - type: group
-            visible_when: (= (state-get "post.replies.{i}.v_click") "1")
-            on_click: (if (has? "ui.group_click") (begin (state-set "post.want" (state-get "post.replies.{i}.id")) (state-set "post.focus_reply" "") (state-set "ui.cmd" "open")))
-            hover: highlight
-            children:
-              - text: ""
-                bind: post.replies.{i}.label
-          - type: group
-            layout: {kind: horizontal}
-            visible_when: (= (state-get "post.replies.{i}.v_btns") "1")
-            children:
-              - text: ""
-                bind: post.replies.{i}.head
-              - button: Open
-                on: (begin (state-set "post.want" (state-get "post.replies.{i}.id")) (state-set "post.focus_reply" "") (state-set "ui.cmd" "open"))
-          - text: ""
-            runs: post.replies.{i}.runs
-            emoji: post.replies.{i}.emoji
-            max_lines: 2
-            size: 592
-            on_link: (begin (state-set "link.href" (get-attr event "href")) (state-set "ui.cmd" "link"))
-            visible_when: (= (state-get "post.replies.{i}.v_runs") "1")
-          - text: ""
-            bind: post.replies.{i}.l0
-            emoji: post.replies.{i}.emoji
-            visible_when: (!= (state-get "post.replies.{i}.l0") "")
-          - text: ""
-            bind: post.replies.{i}.l1
-            emoji: post.replies.{i}.emoji
-            visible_when: (!= (state-get "post.replies.{i}.l1") "")
+      - include: card_list
+        args: {list: post.replies}
       - button: More replies
         on: (state-set "ui.cmd" "more-replies")
         visible_when: (= (state-get "post.replies_more") "1")
