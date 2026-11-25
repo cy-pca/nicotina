@@ -372,6 +372,20 @@ for backend in ftxui tvision; do
   check "ari snapshot ($backend): two sites' sessions: a copy each, a menu each, both signed in" \
     "$out/snap-$backend-two.txt" "$two_menus" \
     " @grace@$hostport2  Grace Hopper" "Signed in to $hostport2."
+  # One tray for every site (main.ari's), where the host has one (notify): one mail icon,
+  # counting every site's unread conversations, and one bell, however many sites are signed in.
+  if ! "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement notify"; then
+    if python3 -I -B -c '
+import sys
+bar = next(l for l in open(sys.argv[1], encoding="utf-8") if not l.startswith("ari: "))
+sys.exit(0 if bar.count("✉") == 1 and bar.count("\U0001F514") == 1 else 1)' \
+      "$out/snap-$backend-two.txt"; then
+      pass "ari snapshot ($backend): ... one tray for both sites: one mail icon, one bell"
+    else
+      fail "ari snapshot ($backend): ... one tray for both sites: one mail icon, one bell" \
+        "$out/snap-$backend-two.txt"
+    fi
+  fi
   snap "snap-$backend-resume" "$backend" "$store" --start profile
   check "ari snapshot ($backend): --start profile: the profile, as the web app lays it out" \
     "$out/snap-$backend-resume.txt" " TX.WTF " "$bar" " @ada@$hostport  Ada Lovelace" \

@@ -3655,16 +3655,18 @@ menubar:
   # The tray, at the bar's right end, as the web app's bar has its bell (transfix/libcvc#1241, the
   # release after libcvc 4.0.0; an older host loads this as nothing, with a warning):
   #   the mail icon  how many conversations have a message not yet read here; a click opens the
-  #                  DMs view. Each site signed in to has its own.
-  #   the bell       the host's own, before the clock: TX.WTF's notifications and the direct
-  #                  messages that came while their conversation wasn't shown (the controller
-  #                  posts them to the host's notification feed, each named by its site). A click
-  #                  on one opens what it is about.
+  #                  DMs view. Only where this copy runs alone: under main.ari (which links its
+  #                  slots as peers) main.ari's one mail icon counts every site's.
+  #   the bell       the host's own: TX.WTF's notifications and the direct messages that came
+  #                  while their conversation wasn't shown (the controller posts them to the
+  #                  host's notification feed, each named by its site). A click on one opens what
+  #                  it is about, in this copy's window.
   - tray_icon: mail
     badge: (state-get "ui.dm_unread")
     tooltip: Direct messages
     on: (state-set "ui.cmd" "dms")
-    visible_when: (and (!= (state-get "ui.screen") "signin") (!= (state-get "ui.screen") "2fa")
+    visible_when: (and (not (state-exists "peers.open"))
+                       (!= (state-get "ui.screen") "signin") (!= (state-get "ui.screen") "2fa")
                        (!= (state-get "ui.screen") "boot") (!= (state-get "ui.screen") "closed"))
 
 windows:
