@@ -104,6 +104,20 @@ functions: |
             (begin
               (state-set (slot-key at "screen") "boot")
               (state-set (slot-key at "cmd") "reopen")))))))
+  ;; Whether a slot is signed in: open, and past its sign-in form.
+  (defun slot-signed-in (i)
+    (let ((s (state-get (slot-key i "screen"))))
+      (and (slot-open i) (!= s "boot") (!= s "signin") (!= s "2fa"))))
+  ;; How many of a slot's conversations have a message not read there (its ui.dm_unread: "" or
+  ;; a count).
+  (defun slot-dms (i)
+    (let ((v (text-of (state-get (slot-key i "dm_unread")))))
+      (if (= v "") 0 (int v))))
+  (defun text-of (v) (if (= (type-of v) "nil") "" (if (is-string v) v (str v))))
+  ;; The tray's mail icon: the direct messages of the site slots.dm_site names (the first signed
+  ;; in with one unread, else the first signed in), in its window.
+  (defun open-dms ()
+    (state-set (slot-key (int (state-get "slots.dm_site")) "cmd") "dms"))
   ;; Sign out of every site: each open slot signs out and closes, but for the first, which
   ;; shows its sign-in form again.
   (defun sign-out-all ()
@@ -131,6 +145,23 @@ menubar:
       - separator
       - menu_item: Quit
         on: quit
+  # The tray, at the bar's right end, one for every site signed in to (transfix/libcvc#1241, the
+  # release after libcvc 4.0.0; an older host loads it as nothing, with a warning):
+  #   the mail icon  how many conversations have a message not read yet, every site's together;
+  #                  a click opens the direct messages of the first site with one, in its window
+  #   the bell       the host's own, shown always (notifications: always, below): each site's
+  #                  TX.WTF notifications and the direct messages that came while their
+  #                  conversation wasn't shown, each named by its site (each copy posts them to
+  #                  the host's one feed). A click on one opens it in its site's window.
+  - tray_icon: mail
+    badge: (state-get "slots.dm_total")
+    tooltip: Direct messages
+    on: (open-dms)
+    visible_when: (> (int (state-get "slots.signed_in")) 0)
+  - bell
+
+# The tray's bell shows even with nothing in it (libcvc 4.0.5; an older host takes it as false).
+notifications: always
 
 # The slots: slots.n of them, each a copy of the client at slots.<i>.ui (ui.site its site,
 # ui.screen where it is). The sites: fleet.labels, --instance's, then --sites', then the fleet's,
@@ -153,6 +184,8 @@ init: |
   (state-set "slots.open" 0)
   (state-set "slots.signed_in" 0)
   (state-set "slots.free" (length labels))
+  (state-set "slots.dm_total" "")
+  (state-set "slots.dm_site" 0)
   (for label labels
     (if (net-auth-has? (site-cred (site-url label)) (site-url label))
       (open-site (site-url label))))
@@ -168,16 +201,28 @@ on_tick: |
   (if (!= n (int (state-get "slots.n"))) (state-set "slots.n" n))
   (set open 0)
   (set signed 0)
+  (set dms 0)
+  (set first_in -1)
+  (set first_dm -1)
   (set i 0)
   (while (< i n)
-    (if (slot-open i)
-      (begin
-        (set open (+ open 1))
-        (set s (state-get (slot-key i "screen")))
-        (if (and (!= s "boot") (!= s "signin") (!= s "2fa")) (set signed (+ signed 1)))))
+    (begin
+      (if (slot-open i) (set open (+ open 1)))
+      (if (slot-signed-in i)
+        (begin
+          (set signed (+ signed 1))
+          (if (< first_in 0) (set first_in i))
+          (set d (slot-dms i))
+          (set dms (+ dms d))
+          (if (and (> d 0) (< first_dm 0)) (set first_dm i)))))
     (set i (+ i 1)))
   (if (!= open (int (state-get "slots.open"))) (state-set "slots.open" open))
   (if (!= signed (int (state-get "slots.signed_in"))) (state-set "slots.signed_in" signed))
+  ;; the tray's mail icon: every site's unread conversations, and whose DMs a click opens
+  (set total (if (> dms 0) (str dms) ""))
+  (if (!= total (state-get "slots.dm_total")) (state-set "slots.dm_total" total))
+  (set at (if (>= first_dm 0) first_dm (if (>= first_in 0) first_in 0)))
+  (if (!= at (int (state-get "slots.dm_site"))) (state-set "slots.dm_site" at))
   (set free (- (length (string.split (state-get "fleet.labels") "\n")) open))
   (if (!= free (int (state-get "slots.free"))) (state-set "slots.free" free))
 

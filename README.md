@@ -85,8 +85,9 @@ Under the combo, the picked site as its own sign-in page shows it (txwtf's publi
 pictures and may reach the logo's URL.
 
 You can be signed in to several at once. Each site is its own copy of the client (`main.ari`
-loads `nicotina.ari` once a site): its own sign-in, session, windows, tray mail icon, and menu in
-the bar, named by its host (libcvc 4.0.7; before it, "nicotina 1", "nicotina 2"...).
+loads `nicotina.ari` once a site): its own sign-in, session, windows, and menu in the bar, named
+by its host (libcvc 4.0.7; before it, "nicotina 1", "nicotina 2"...). The tray is one for them
+all (below).
 
 - **nicotina > Sign in to another site** opens a second sign-in form, at the first site no window
   is at; its Site combo picks another. A form has **Close** while another site is open.
@@ -124,13 +125,17 @@ refuses to load it and says what is missing.
 ### The tray: notifications and new messages
 
 Where the host has the menu bar's tray and its notification feed (transfix/libcvc#1241, in the
-release after libcvc 4.0.0), the bar's right end is the web app's bar:
-- **The bell** is the host's notification feed. TX.WTF's unread notifications go into it, and so
-  does a direct message that comes while its conversation isn't open. Its badge is the unread
-  count; a click on an entry opens its post, profile or conversation, and marks a notification
-  read at the instance. Opening Alerts marks them all read, as the web app does.
-- **The mail icon** counts the conversations with a message you haven't read here; a click opens
-  DMs, where they are marked ●.
+release after libcvc 4.0.0), the bar's right end is the web app's bar, one for every site you're
+signed in to:
+- **The bell** is the host's notification feed, and it is always there (libcvc 4.0.5). Every
+  site's unread TX.WTF notifications go into it, and so does a direct message that comes while
+  its conversation isn't open, each entry named by its site. Its badge is the unread count; a
+  click on an entry opens its post, profile or conversation in that site's window (brought to the
+  front), and marks a notification read at its instance. Opening a site's Alerts marks its
+  notifications read, as the web app does.
+- **The mail icon** counts the conversations with a message you haven't read here, every site's
+  together; a click opens the DMs of the first site that has one (else the first site signed
+  in), where they are marked ●.
 
 What's new is asked for every 30 s while you're signed in, as the web app polls. txwtf's
 conversation list carries no unread count, so nicotina counts the messages that come while it
