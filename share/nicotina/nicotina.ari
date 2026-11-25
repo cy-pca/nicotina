@@ -1435,41 +1435,17 @@ on_tick: |
                                       " (HTTP " (str (status r)) ")."))))
                 nil)))))
 
-      ;; A reply, as the post's view lists it: who and when (and Open, 8 columns), then two
-      ;; lines of it.
-      (defun reply-row (q)
-        (let ((lines (wrap (one-line (opt q "content" "")) WIDE))
-              (a (opt q "author" (dict))))
-          (begin
-            (if (> (length lines) 2)
-              (set lines (list (nth lines 0) (clip (str-concat (nth lines 1) " " (nth lines 2)) WIDE))))
-            (collections.dict-merge (click-flags) (dict "id" (text (opt q "id" ""))
-                  ;; a reply to click, or in a terminal the line then Open
-                  "label" (str-concat (author-name a) "  " (handle (text (opt a "username" "?")))
-                                      "  " (posted-at (opt q "created_at" ""))
-                                      "  ↩" (text (opt q "reply_count" 0)))
-                  "head" (pad (str-concat (author-name a) "  " (handle (text (opt a "username" "?")))
-                                          "  " (posted-at (opt q "created_at" ""))
-                                          "  ↩" (text (opt q "reply_count" 0)))
-                              (- WIDE 8))
-                  ;; two lines of it: rich text where the host draws it, else plain
-                  "v_runs" (if (rich?) "1" "")
-                  "runs" (if (rich?)
-                           (let ((rs (runs-of (opt q "content_html" nil) (opt q "content" ""))))
-                             (if (= (length rs) 0) (list "(no text)") rs))
-                           (list))
-                  "l0" (if (rich?) "" (if (= (length lines) 0) "(no text)" (nth lines 0)))
-                  "l1" (if (rich?) "" (nth-or lines 1))
-                  "emoji" (emoji-of (opt q "content_html" nil)))))))
       ;; The post's replies (GET /social/posts/{id}/replies), oldest first: the first page, or the
-      ;; next one added below.
+      ;; next one added below. Each is a card, as the feed's, a profile's, a hashtag's and
+      ;; search's posts are (feed-card; ui/card.ari's card_list over post.replies): a post looks
+      ;; the same wherever it is shown, and a reply's Like, Repost, View and Open work as a card's.
       (set REPLYPAGE 10)
       (defun load-replies (first)
         (let ((off (if first 0 (int (state-get "post.replies")))))
           (let ((r (get-query (str-concat "/social/posts/" (text (state-get "post.pid")) "/replies")
                               (dict "limit" (text REPLYPAGE) "offset" (text off)))))
             (if (ok? r)
-              (let ((rows (collections.map (opt (reply-json r) "replies" (list)) reply-row)))
+              (let ((rows (collections.map (opt (reply-json r) "replies" (list)) feed-card)))
                 (begin
                   (if first
                     (state-set-tree "post.replies" rows)
