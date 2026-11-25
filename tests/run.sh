@@ -308,6 +308,12 @@ for backend in ftxui tvision; do
     "[ ] Advanced options"
   check_not "ari snapshot ($backend): ... the session's length only under them" \
     "$out/snap-$backend-signin.txt" "Session:"
+  # Under the Site combo, the site as its sign-in page shows it (GET /social/site-info): its
+  # name, tagline and txwtf version, beside its logo where this ari draws pictures by URL.
+  check "ari snapshot ($backend): ... under Site, the site's name, tagline and txwtf version" \
+    "$out/snap-$backend-signin.txt" "TX.WTF" "Austin's crypto club, on the web." "txwtf 0.6.0" &&
+    check "ari snapshot ($backend): ... from GET /social/site-info" "$out/stub.log" \
+      '"path": "/social/site-info"'
 
   store=$work/snap-$backend/credentials
   seed_store "$store" ada

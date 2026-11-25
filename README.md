@@ -80,6 +80,9 @@ social.sublevels.net, social.thegermfactoryrockclub.com, texasdogecoin.com, ncvi
 asilaydating.com, sno-bunny.com, social.cyberpcangel.com, cvcpkg.com, riveras.net, rivera.rocks,
 rivera.zone, rivera.world, dev.tx.wtf, dev2.tx.wtf), each only where the host may reach it. So the
 launcher's `fleet.policy` offers them all, and a page in a browser the ones its config allows.
+Under the combo, the picked site as its own sign-in page shows it (txwtf's public
+`/social/site-info`): its name, tagline and txwtf version, beside its logo where the host draws
+pictures and may reach the logo's URL.
 
 You can be signed in to several at once. Each site is its own copy of the client (`main.ari`
 loads `nicotina.ari` once a site): its own sign-in, session, windows, tray mail icon, and menu in
