@@ -10,6 +10,8 @@
 #   compose   a new post
 #   viewer    a post's pictures and videos, one at a time, as wide as the window
 #   dms, dm   your direct messages, and one conversation (ui/dm.ari)
+#   mail, mailmsg, mailnew
+#             the site's webmail: a mailbox's folder, one message, an email to write (ui/mail.ari)
 #   admin     for the instance's administrators: its users, groups, invite codes, settings and
 #             system log; auser, agroup and agperm, one account, one group and its permissions
 #             (ui/admin.ari)
@@ -100,15 +102,24 @@ units:
         on: (state-set "ui.cmd" "dms")
         tooltip: Messages
         selected: (or (= (state-get "ui.screen") "dms") (= (state-get "ui.screen") "dm"))
+      - button: "📬"
+        icon: (state-get "nav.icon.mail")
+        on: (state-set "ui.cmd" "mail")
+        tooltip: Mail
+        selected: (or (= (state-get "ui.screen") "mail") (= (state-get "ui.screen") "mailmsg")
+                      (= (state-get "ui.screen") "mailnew"))
       - button: "🛠"
         icon: (state-get "nav.icon.admin")
         on: (state-set "ui.cmd" "admin")
         tooltip: Admin
         selected: (= (state-get "ui.screen") "admin")
         visible_when: (= (state-get "ui.admin") "1")
+      # How many notifications are new, where the host has no notification feed: with one, the
+      # tray's bell counts them (main.ari), and the row keeps its room for the buttons.
       - text: ""
         bind: alerts.badge
         color: [0.95, 0.75, 0.3]
+        visible_when: (!= (state-get "app.notify") "1")
 
   # In words. A terminal draws a button as its label in brackets, so the bar is 70 columns; the
   # unread count follows it as a bare number (" 2"), so the row stays within the window's 74
@@ -219,6 +230,21 @@ units:
         visible_when: (= (state-get "ui.screen") "dm")
         children:
           - include: dm_view
+      - type: group
+        id: v_mail
+        visible_when: (= (state-get "ui.screen") "mail")
+        children:
+          - include: mail_view
+      - type: group
+        id: v_mailmsg
+        visible_when: (= (state-get "ui.screen") "mailmsg")
+        children:
+          - include: mailmsg_view
+      - type: group
+        id: v_mailnew
+        visible_when: (= (state-get "ui.screen") "mailnew")
+        children:
+          - include: mailnew_view
       - type: group
         id: v_admin
         visible_when: (= (state-get "ui.screen") "admin")

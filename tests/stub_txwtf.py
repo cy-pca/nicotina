@@ -88,6 +88,9 @@ Notifications and the custom emoji list:
   POST /notifications/{id}/viewed (one), Bearer
   GET  /social/emojis?limit=&offset=      Bearer -> {emojis, total, limit, offset}: :gear:
 
+Mail (txwtf/api/mailbox.py's /mail routes: mailboxes, folders, messages, send, save-to-files)
+is in tests/stub_mail.py; --mail-api next adds the routes nicotina's Mail view proposes.
+
 Accounts (password "correct horse" for all of them):
 
   ada    plain sign-in
@@ -142,10 +145,12 @@ from urllib.parse import parse_qs, unquote
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # python -I leaves it out
 import stub_admin  # noqa: E402
+import stub_mail  # noqa: E402
 
 PASSWORD = "correct horse"
 TOP_LEVEL = ("/user/", "/billing/", "/social/", "/uploads/", "/static/", "/notifications",
-             "/search/", "/site/", "/group/", "/invite/", "/logs/", "/perms/", "/e2ee/")
+             "/search/", "/site/", "/group/", "/invite/", "/logs/", "/perms/", "/e2ee/",
+             "/mail/")
 TWO_FACTOR_CODE = "123456"
 CHALLENGE = "Q9mUj4Z1x0bR7nVt2LcYw8sDp3HkGfA5"
 # Each account with the second factor: its challenge and its emailed code.
@@ -567,6 +572,7 @@ LIVE = None
 # The admin side (tests/stub_admin.py): accounts disabled, admins, groups, invite codes, the
 # site's settings, the system log. main() makes it.
 ADMIN = None
+MAIL = None  # stub_mail.Mail: the /mail routes
 
 
 def all_posts():
@@ -1128,6 +1134,10 @@ def make_handler(state):
                 if data is None:
                     return self.reply(404, {"detail": "Not Found"}), None
                 return self.reply_bytes(200, data, mime), None
+            if method == "GET" and MAIL:  # a mail attachment by its signed URL: no auth
+                done = MAIL.attachment(self, path)
+                if done is not None:
+                    return done, None
             user, refused = self.bearer_user()
             if refused:
                 return self.reply(401, {"detail": refused}), None
@@ -1301,6 +1311,8 @@ def make_handler(state):
                 )
             if path.startswith("/social/dm/") or path.startswith("/e2ee/"):
                 return self.direct(method, path, query, user), user
+            if path.startswith("/mail/") and MAIL:
+                return MAIL.handle(self, method, path, query, user), user
             return self.reply(404, {"detail": "Not Found"}), user
 
         def files(self, method, path, user):
@@ -1692,11 +1704,37 @@ def main():
         metavar="USER",
         help="start with USER's token live, as if they had signed in earlier",
     )
+    ap.add_argument(
+        "--mail-api",
+        choices=["0.4", "next"],
+        default="0.4",
+        help="the /mail routes txwtf 0.4.0 has, or those and the ones nicotina proposes "
+        "(tests/stub_mail.py)",
+    )
     args = ap.parse_args()
 
-    global LIVE, ADMIN
+    global LIVE, ADMIN, MAIL
     state = State(args.log)
     LIVE = state
+
+    def blob_of(kind, name):
+        if kind == "picture":  # a post's picture, drawn for this name
+            return picture("/uploads/media/" + name) or png(
+                160, 120, lambda x, y: (60, 140, 200) if (x // 16 + y // 16) % 2 else (230, 225, 210))
+        if kind == "pdf":
+            return b"%PDF-1.4\n% nicotina mail test\n%%EOF\n"
+        with open(os.path.join(FIXTURES, kind), "rb") as f:
+            return f.read()
+
+    def save_file(user, name, mime, data):
+        with state.lock:
+            return upload_record(user, name, mime, data, state)
+
+    def file_of(fid):
+        with state.lock:
+            return state.files.get(fid)
+
+    MAIL = stub_mail.Mail(args.mail_api, blob_of, save_file, file_of, state.log)
     ADMIN = stub_admin.Admin(
         {**USERS, **AUTHORS},
         avatar_of=lambda n: (USERS.get(n) or AUTHORS[n]).get("avatar_url", DEFAULT_AVATAR),

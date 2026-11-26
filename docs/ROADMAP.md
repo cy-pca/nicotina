@@ -128,6 +128,16 @@ on TX.WTF is tracked as T-items in the TX.WTF repository.
     menu, Sign out among its items; the nicotina menu signs in to another site, or out of every
     site. In a browser a site needs its CORS to allow the page's origin: on cyberpcangel.com,
     tx.wtf and dev.tx.wtf do.
+  - Drafted (needs no new host feature): Mail, the site's webmail (txwtf's `/mail` routes, the same
+    in txwtf 0.4.0 and master), in the same window: your mailboxes and their folders (Inbox,
+    Sent, Drafts and the rest), a page of a folder's messages, one message as plain text (its
+    HTML part's text where it has no plain one) with its attachments as a post's are, and a form
+    to write one (To, Cc, Subject, files attached as a new post's are) with Send, Save draft,
+    Reply, Reply all, Forward, and Edit for a draft. The bar's 📬 where it is icons, the site's
+    menu, `--start mail`. Two things need txwtf: an attachment shown in the message (a URL for
+    its bytes that `image:` and `video:` can fetch; txwtf 0.4.0 has only save-to-files, which Save
+    to files uses) and Save draft (`POST /mail/{id}/drafts`; 0.4.0 has no drafts route). Next:
+    forwarding a message's attachments, and new mail in the tray.
 - **M3, SCRIP:** live balance, top-up through hosted checkout in the system
   browser, and the metered prompt chat.
 - **M4, ship:** publish the cvcpkg recipe for linux-x86_64, macOS and Windows,

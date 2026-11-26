@@ -39,6 +39,12 @@
 # one locked on a host that keeps no keys. tests/e2ee.sh is the end-to-end encrypted round trip
 # with a host that does (libcvc 3.7.14) and TX.WTF's own e2ee.js on the other side.
 #
+# So is Mail (ui/mail.ari, the stub's /mail routes in tests/stub_mail.py): a mailbox's inbox, a
+# message with a picture, a video and a PDF, an HTML-only one as its text, the Drafts folder and a
+# draft, the form; an account with no mailbox; and, on the second site, a message as txwtf 0.4.0
+# answers it, its attachments with no URL. In 5: open a message, Reply and Send; Write, Save draft
+# and Send; and on the second site Save to files, which shows the picture.
+#
 # `ari snapshot` lays a frame out with FTXUI whatever --backend says, so 5 is what checks the
 # tvision desktop itself. 5 needs tmux; without it those cases are skipped.
 #
@@ -62,9 +68,11 @@ for name, token in list(s.TOKENS.items()) + [('stale', s.STALE_TOKEN)]: print(na
 awk '{ print $2 }' "$work/token-names" >"$work/tokens" # for the scan at the end
 token() { awk -v n="$1" '$1 == n { print $2 }' "$work/token-names"; } # never echoed
 
+# Its mail has the routes Mail proposes to txwtf too (stub_mail.py's --mail-api next); the second
+# site's (below) is txwtf 0.4.0's, as the fleet's sites are.
 python3 -I -B "$here/stub_txwtf.py" --port 0 --port-file "$work/port" --log "$out/stub.log" \
   --signed-in ada --signed-in grace --signed-in mary --signed-in bob@peer.example \
-  --signed-in slowpoke --signed-in ivy \
+  --signed-in slowpoke --signed-in ivy --mail-api next \
   2>"$out/stub.stderr" &
 stub_pid=$!
 for _ in $(seq 100); do [ -s "$work/port" ] && break; sleep 0.05; done
@@ -268,6 +276,18 @@ page1_links=0
 # post then has Attach. ari has no picker of its own, so the Runtime draws an Open file window.
 attach=
 "$ARI" check --net "$main" 2>&1 | grep -q "optional requirement file-pick" || attach=1
+# Whether this ari saves a URL as a file (save-url, libcvc 4.0.9's #1533): a mail attachment with
+# a URL then has Save between View and Save to files.
+saveurl=
+"$ARI" check --net "$main" 2>&1 | grep -q "optional requirement save-url" || saveurl=1
+mail_btns="[ View ][ Save to files ]"
+[ -n "$saveurl" ] && mail_btns="[ View ][ Save ][ Save to files ]"
+# check_line NAME FILE A B: a line of FILE has both A and B (a row and its buttons).
+check_line() {
+  if grep -F -- "$3" "$2" | grep -qF -- "$4"; then pass "$1"; else
+    fail "$1: no line with [$3] and [$4]" "$2"
+  fi
+}
 # Whether a window's title bar has a maximize button (ui.maximize, libcvc 3.7.13's #1086): the
 # nicotina menu's Maximize the window is on then, and the tmux walk below uses it.
 maximize=
@@ -605,6 +625,98 @@ check "ari snapshot: an encrypted conversation where the host keeps no keys: loc
   "These messages are end-to-end encrypted, and stay locked here:"
 check_not "ari snapshot: ... no box to write in, and no ciphertext" "$out/snap-view-dm-locked.txt" \
   "Message: [" "c3RhbmQtaW4"
+
+# Mail (ui/mail.ari): ada's first mailbox (she has two: a combo), its inbox, a page of ten; a
+# message whose picture, video and PDF each have their own URL here (the route Mail proposes,
+# stub_mail.py's --mail-api next); an HTML-only message, as its text; Drafts, and a draft; the
+# form. The inbox is first: reading a message marks it read.
+view mail mail
+check "ari snapshot: Mail: a mailbox's inbox, the newest first, a page of ten" \
+  "$out/snap-view-mail.txt" "$bar" "Mailbox: < ada@analytical.example >  [ Write ][ Refresh ]" \
+  "Folder: (*) Inbox  ( ) Sent  ( ) Drafts  ( ) Archive  ( ) Spam  ( ) Trash" "Inbox: 12 messages" \
+  "● Grace Hopper       Engine drawings and the test run  2026-11-24 [ Open ]" \
+  "  Charles Babbage    Re: The Difference Engine, par... 2026-11-23 [ Open ]" \
+  "  Charles Babbage    Notes, week 34                    2026-11-08 [ Open ]" \
+  "[ Newer ][ Older ]  1-10 of 12"
+check_not "ari snapshot: ... the oldest two on the next page" "$out/snap-view-mail.txt" \
+  "Notes, week 33" "Notes, week 32"
+# (in a taller frame, 80x100: where the host has a player, the video plays under its row too,
+# which pushes the PDF's row past 60 rows, as a post's video pushes its replies)
+"$ARI" snapshot --width 80 --height 100 --net-allow "$base" --credential-store "$store" "$main" \
+  --instance "$base" --start mail:inbox:112 >"$out/snap-view-mail-msg.txt" 2>&1
+check "ari snapshot: a message: its subject, who, to whom, when, Reply, and its text" \
+  "$out/snap-view-mail-msg.txt" "Engine drawings and the test run" \
+  "From: Grace Hopper <grace@navy.example>" "To: ada@analytical.example" \
+  "Cc: Charles Babbage <charles@engine.example>" "Date: 2026-11-24 14:02" \
+  "[ Reply ][ Reply all ][ Forward ]" \
+  "Here are the drawings of the engine, and a short film of yesterday's test" \
+  "run. The log of the run is in the PDF: the carry mechanism jammed twice," \
+  "Could you check the punched cards for the Bernoulli numbers against it"
+check "ari snapshot: ... its attachments as a post's: a row each" "$out/snap-view-mail-msg.txt" \
+  "3 attachments:" "[image] engine-diagram.png · 456 B" "[video] test-run.mp4 · 11 KB" \
+  "[file] test-log.pdf · 36 B"
+check_line "ari snapshot: ... View on the picture" "$out/snap-view-mail-msg.txt" \
+  "[image] engine-diagram.png" "$mail_btns"
+check_line "ari snapshot: ... and on the video" "$out/snap-view-mail-msg.txt" \
+  "[video] test-run.mp4" "$mail_btns"
+if [ -n "$saveurl" ]; then
+  check_line "ari snapshot: ... the PDF's Save, no View" "$out/snap-view-mail-msg.txt" \
+    "[file] test-log.pdf" "  [ Save ][ Save to files ]"
+else
+  check_line "ari snapshot: ... the PDF's Save to files, no View" "$out/snap-view-mail-msg.txt" \
+    "[file] test-log.pdf" "  [ Save to files ]"
+fi
+if [ -n "$pictures" ]; then
+  if grep -A1 -F "[image] engine-diagram.png" "$out/snap-view-mail-msg.txt" | grep -qF "▀▀▀▀▀▀▀▀"; then
+    pass "ari snapshot: ... the picture in the message, under its row"
+  else
+    fail "ari snapshot: ... no picture under the picture's row" "$out/snap-view-mail-msg.txt"
+  fi
+fi
+view mail-html mail:inbox:111
+check "ari snapshot: an HTML-only message: its text, the tags out" "$out/snap-view-mail-html.txt" \
+  "Re: The Difference Engine, part two" "Dear Ada," \
+  "The second engine needs fewer parts & less brass than the first:" \
+  "• 25,000 parts, not 30,000" "• three tons, not fifteen" "I'd value your notes on it." \
+  "Sent from the Analytical Society"
+check_not "ari snapshot: ... nothing of its style, script or tags" "$out/snap-view-mail-html.txt" \
+  "color: #333" "tracker" "<p>" "&nbsp;" "&amp;"
+view mail-drafts mail:drafts
+check "ari snapshot: Drafts: whom each is to" "$out/snap-view-mail-drafts.txt" \
+  "(*) Drafts" "Drafts: 1 message" "  To grace@navy.e... Notes for the meeting"
+view mail-draft mail:drafts:5
+check "ari snapshot: a draft: Edit, not Reply" "$out/snap-view-mail-draft.txt" \
+  "Notes for the meeting" "To: grace@navy.example" "Cc: mary@somerville.example" "[ Edit ]" \
+  "- the carry mechanism, column four"
+check_not "ari snapshot: ... no Reply or Forward" "$out/snap-view-mail-draft.txt" "[ Reply ]" \
+  "[ Forward ]"
+view mail-new mail:new
+check "ari snapshot: an email to write: From, To, Cc, Subject, its text, Send, Save draft" \
+  "$out/snap-view-mail-new.txt" "From: < ada@analytical.example >" "To: [" "Cc: [" \
+  "Subject: [" "Message: [Write your email (Send sends it)" "[ Send ][ Save draft ]"
+if [ -n "$attach" ]; then
+  check "ari snapshot: ... and Attach, as a new post's" "$out/snap-view-mail-new.txt" \
+    "[ Attach ][ Send ][ Save draft ]"
+fi
+# mary has no mailbox at the stub.
+mail_store=$work/snap-mail-none/credentials
+seed_store "$mail_store" mary
+"$ARI" snapshot --width 80 --height 30 --net-allow "$base" --credential-store "$mail_store" \
+  "$main" --instance "$base" --start mail >"$out/snap-view-mail-none.txt" 2>&1
+check "ari snapshot: Mail with no mailbox: it says so" "$out/snap-view-mail-none.txt" \
+  "You have no mailbox at $hostport yet: the web app's Mail makes one." "[ Write ][ Refresh ]"
+# The second site answers as txwtf 0.4.0 does: an attachment has no URL, so it shows only once
+# Save to files has copied it into grace's files there.
+mail_store2=$work/snap-mail-04/credentials
+seed_store "$mail_store2" grace "$base2"
+"$ARI" snapshot --width 80 --height 30 --net-allow "$base2" --credential-store "$mail_store2" \
+  "$main" --instance "$base2" --start mail:inbox:7 >"$out/snap-view-mail-04.txt" 2>&1
+check "ari snapshot: a message from txwtf 0.4.0: its attachments' rows, Save to files on each" \
+  "$out/snap-view-mail-04.txt" "The punched cards" "From: Ada Lovelace <ada@analytical.example>" \
+  "2 attachments:" "To see one here, Save to files: it shows from your files." \
+  "[image] cards.png · 456 B                                [ Save to files ]" \
+  "[file] bernoulli-table.pdf · 36 B                        [ Save to files ]"
+check_not "ari snapshot: ... nothing to View yet" "$out/snap-view-mail-04.txt" "[ View ]"
 
 # The tray (transfix/libcvc#1241, the release after libcvc 4.0.0), where the host keeps a
 # notification feed: TX.WTF's unread notifications and the direct messages that come while the
@@ -1474,6 +1586,108 @@ else
     type_text "Thursday works, from $backend."
     keys Enter
     step "$t: sent: the message, below the others" "Sent." "  Thursday works, from $backend."
+
+    # Mail (ui/mail.ari), which a terminal's bar has no room for: --start mail. Past the bar, the
+    # mailbox combo, Write, Refresh and the folders to the newest message's Open (grace's), then
+    # Reply, the first of its buttons: the form, the text focused under the quote. A line typed
+    # there, then past Attach to Send: back at the message, and the stub has it, as a reply.
+    start "$backend" "$xdg" "$base" -- --start mail
+    step "$t: Mail: the inbox" "Inbox: 12 messages" \
+      "Grace Hopper       Engine drawings and the test run"
+    for _ in $(seq 12); do keys Tab; done
+    keys Enter # the first message's Open
+    step "$t: Mail: Open: grace's message" "From: Grace Hopper <grace@navy.example>" \
+      "[ Reply ][ Reply all ][ Forward ]" "3 attachments:"
+    for _ in $(seq 8); do keys Tab; done
+    keys Enter # Reply
+    step "$t: Mail: Reply: the form, to her" "Replying to Grace Hopper." \
+      "To: [Grace Hopper <grace@navy.example>" "Subject: [Re: Engine drawings and the test run"
+    type_text "The cards check out, from $backend."
+    keys Tab
+    [ -n "$attach" ] && keys Tab
+    keys Enter # Send
+    step "$t: Mail: Send: back at the message, sent" "Sent to Grace Hopper." \
+      "From: Grace Hopper <grace@navy.example>"
+    if grep -F '"mail_send"' "$out/stub.log" | grep -F '"to": ["grace@navy.example"]' |
+      grep -F '"subject": "Re: Engine drawings and the test run"' |
+      grep -F '"in_reply_to": "<engine-112@navy.example>"' | grep -F "> Ada," |
+      grep -qF "The cards check out, from $backend."; then
+      pass "$t: Mail: ... the stub got it: to grace, a reply to hers, quoting it, with the line"
+    else
+      fail "$t: Mail: ... the stub has no such reply" "$out/stub.log"
+    fi
+    # Back to the inbox, Write (past the bar and the combo): To has the focus. An address in To
+    # and one in Cc, a Subject, the text; past Attach and Send to Save draft (the drafts route Mail
+    # proposes); then back to Send, which sends it and drops the draft.
+    keys Enter # Back, which a new view focuses
+    step "$t: Mail: Back: the inbox" "Inbox: 12 messages"
+    for _ in $(seq 9); do keys Tab; done
+    keys Enter # Write
+    step "$t: Mail: Write: the form, To focused" "Message: [Write your email (Send sends it)"
+    type_text "mary@somerville.example"
+    keys Tab; type_text "charles@engine.example"
+    keys Tab; type_text "Lunch, $backend"
+    keys Tab; type_text "One o'clock, from $backend."
+    # Where the host picks files, the picture attached (the Open file window, as a post's), the
+    # focus back in the text: past its Remove, Attach and Send to Save draft.
+    mail_files='"files": []'
+    if [ -n "$attach" ]; then
+      keys Tab; keys Enter # Attach
+      step "$t: Mail: Attach: the Open file window" "Attach to the email" "Name: ["
+      type_text "$attach_file"
+      keys Enter
+      step "$t: Mail: attached: the picture, listed, the text kept" "1 file to attach." \
+        "[ Remove ]kitten.png · $attach_size B" "One o'clock, from $backend."
+      for _ in $(seq 4); do keys Tab; done
+      mail_files='"files": ["kitten.png"]'
+    else
+      keys Tab; keys Tab
+    fi
+    keys Enter # Save draft
+    step "$t: Mail: Save draft" "Draft saved, in Drafts."
+    if grep -F '"mail_draft"' "$out/stub.log" | grep -F '"to": ["mary@somerville.example"]' |
+      grep -F "$mail_files" | grep -qF "\"subject\": \"Lunch, $backend\""; then
+      pass "$t: Mail: ... the stub has the draft, with its file"
+    else
+      fail "$t: Mail: ... the stub has no such draft" "$out/stub.log"
+    fi
+    keys BTab; keys Enter # Send
+    step "$t: Mail: Send: back at the inbox, sent" \
+      "Sent to mary@somerville.example and the others." "Inbox: 12 messages"
+    if grep -F '"mail_send"' "$out/stub.log" |
+      grep -F '"to": ["mary@somerville.example"], "cc": ["charles@engine.example"]' |
+      grep -F "$mail_files" | grep -qF "One o'clock, from $backend."; then
+      pass "$t: Mail: ... the stub got it, to and cc each as written, with its file"
+    else
+      fail "$t: Mail: ... the stub got no such email" "$out/stub.log"
+    fi
+    if grep -F '"mail_delete"' "$out/stub.log" | grep -qF '"folder": "Drafts"'; then
+      pass "$t: Mail: ... and its draft is gone"
+    else
+      fail "$t: Mail: ... its draft is still there" "$out/stub.log"
+    fi
+
+    # The second site, as txwtf 0.4.0 answers: grace's message has a picture with no URL. Save to
+    # files (past the bar and the three buttons, the picture's) copies it into her files, and the
+    # message shows it, with View.
+    xdg04=$work/xdg-mail04-$backend
+    seed_store "$xdg04/nicotina/credentials" grace "$base2"
+    start "$backend" "$xdg04" "$base2" -- --start mail:inbox:7
+    step "$t: Mail on txwtf 0.4.0: a message, its attachments' rows" "The punched cards" \
+      "To see one here, Save to files: it shows from your files."
+    for _ in $(seq 11); do keys Tab; done
+    keys Enter # Save to files
+    # (the window keeps the focused button in view, which may scroll the status line out of it)
+    step "$t: Mail on txwtf 0.4.0: Save to files: View, and the picture" "[ View ]"
+    check_line "$t: Mail on txwtf 0.4.0: ... on the picture's row" \
+      "$out/tmux-$(slug "$t: Mail on txwtf 0.4.0: Save to files: View, and the picture").txt" \
+      "[image] cards.png · 456 B" "$mail_btns"
+    if grep -qF '"mail_save_to_files": {"account": 41, "folder": "INBOX", "uid": 7, "index": 0' \
+      "$out/stub2.log"; then
+      pass "$t: Mail on txwtf 0.4.0: ... through POST .../attachments/0/save-to-files"
+    else
+      fail "$t: Mail on txwtf 0.4.0: ... the stub saved nothing" "$out/stub2.log"
+    fi
 
     start "$backend" "$xdg" "$base"
     step "$t: started again, still signed in" "$bar" " Charles Babbage"
