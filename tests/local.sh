@@ -23,7 +23,9 @@
 #     arigl snapshot), and on restart; sign-out, after which the server refuses her old token;
 #   - grace: the emailed code, a wrong one and then the one from the email; no posts, and a
 #     balance of zero;
-#   - linus: told to change his password in the web app first, and no session kept.
+#   - linus: told to change his password in the web app first, and no session kept;
+#   - a new account (joan-BACKEND), made from the sign-in form's Create an account, signed in at
+#     Settings, its email address verified with the code the server emailed.
 # Then ada, the instance's administrator, in the Admin view: each part as the server answers it;
 # eve (tests/txwtf_local.py's fourth account) disabled, refused at sign-in, enabled; a group made,
 # eve added and removed, a permission granted and revoked, the group deleted; an invite code made
@@ -305,6 +307,47 @@ for backend in ftxui tvision; do
   if [ "$(sessions_in "$store")" = 0 ]; then pass "$t: and no session is kept"; else
     fail "$t: a session was kept for an account that must change its password"
   fi
+  stop
+
+  # A new account through the client: the sign-in form's Create an account (past the password,
+  # Sign in and Advanced options), the form (POST /user/register), then signed in to it at
+  # Settings, the server having emailed a code as it made the account. Send code (past the bar,
+  # Refresh, Sign out, the tabs and Hide below): the server emails another (to the sink), and
+  # Verify sends it back (POST /email/verify).
+  newbie=joan-$backend
+  new_xdg=$work/xdg-new-$backend
+  start "$backend" "$new_xdg" "$base"
+  step "$t: the sign-in form, for a new account" "No account here? [ Create an account ]"
+  form_focus
+  for _ in $(seq 4); do keys Tab; done
+  keys Enter # Create an account
+  step "$t: the new account's form" "Create an account at 127.0.0.1:$port" "Invite code: ["
+  type_text "$newbie"; keys Tab; type_text "Joan Clarke"; keys Tab
+  type_text "$newbie@example.org"; keys Tab
+  type_secret "$work/password"; keys Tab; type_secret "$work/password"; keys Tab
+  keys Tab; keys Enter # past the invite code (sign-up is open here): Create account
+  STEP_SECONDS=30 step "$t: the server made it, signed in, at Settings" \
+    "Welcome! Type in the code from your email, then Verify." \
+    "Email: $newbie@example.org  · not verified yet" "Joan Clarke"
+  if python3 -I -B "$here/smtp_sink.py" --dir "$work/mail" --code-for "$newbie@example.org" \
+    >/dev/null; then
+    pass "$t: ... and the server emailed a code as it made the account"
+  else
+    fail "$t: ... the server emailed no code as it made the account"
+  fi
+  tokens_from "$new_xdg/nicotina/credentials"
+  for _ in $(seq 12); do keys Tab; done
+  keys Enter # Send code
+  STEP_SECONDS=30 step "$t: Send code: the server emailed one" "Code sent. It's in your email."
+  if python3 -I -B "$here/smtp_sink.py" --dir "$work/mail" --code-for "$newbie@example.org" |
+    tr -d '\n' >"$work/code-$backend" && [ -s "$work/code-$backend" ]; then
+    pass "$t: ... the code came by email"
+  else
+    fail "$t: ... no code in the mail the server sent"
+  fi
+  keys Tab; type_secret "$work/code-$backend"; keys Tab; keys Enter # the code, Verify
+  STEP_SECONDS=30 step "$t: Verify: the server has the address verified" \
+    "Your email address is verified." "Email: $newbie@example.org  · verified"
   stop
 done
 

@@ -91,6 +91,22 @@ Notifications and the custom emoji list:
 Mail (txwtf/api/mailbox.py's /mail routes: mailboxes, folders, messages, send, save-to-files)
 is in tests/stub_mail.py; --mail-api next adds the routes nicotina's Mail view proposes.
 
+A new account, and an email address verified:
+
+  POST /user/register        {username, password, verify_password, name, email, invite_code}
+                             (no auth) -> the User; 400 "message (Code)" as txwtf's
+                             register_user refuses one: InviteRequired (sign-up invite-only:
+                             stub_admin's mode), InvalidInviteCode, PasswordMismatch,
+                             PasswordTooShort (under 8), EmailExists, InvalidIdentifier,
+                             UsernameExists. It signs in with its own password; its token is
+                             new_token(username), its address unverified
+  GET  /invite/mode, GET /invite/validate/{code}   public: {invite_only}, {valid, error}
+  POST /email/verify/send    Bearer -> {success, message}: the code (VERIFY_CODE) "sent"; the
+                             log says to whom
+  POST /email/verify         Bearer, {code} -> {success, message}, or 400 "Invalid
+                             verification code (InvalidInput)"; then GET /user/ says
+                             email_verified. mary's address starts unverified, the rest verified
+
 Accounts (password "correct horse" for all of them):
 
   ada    plain sign-in
@@ -129,6 +145,7 @@ file, once whole, gets a line of its own with its name, size and sha256.
 """
 
 import argparse
+import base64
 import html
 import hashlib
 import json
@@ -171,6 +188,22 @@ TOKENS = {
 }
 # A well-formed token this server never issued: a session that has expired.
 STALE_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoxLCJ1dWlkIjoib2xkIn0.c3R1Yi1zaWctZXhwaXJlZC10b2tlbg"
+
+
+def new_token(username):
+    """The token of an account made here (POST /user/register): JWT-shaped, from its name, so a
+    test can scan output for it as for TOKENS'."""
+    tail = base64.urlsafe_b64encode(("stub-sig-new-" + username).encode()).decode().rstrip("=")
+    return "eyJhbGciOiJIUzI1NiJ9.eyJuZXciOiJhY2NvdW50In0." + tail
+
+
+def token_of(username):
+    return TOKENS.get(username) or new_token(username)
+
+
+# The code an email verification sends (POST /email/verify/send), for every account.
+VERIFY_CODE = "246810"
+IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,30}$")
 
 USERS = {
     "ada": {
@@ -226,6 +259,7 @@ USERS = {
         "cents": 350,
         "groups": ["users"],
         "profile_delay": 3.0,
+        "email_verified": False,
     },
     "slowpoke": {
         "id": 6,
@@ -873,12 +907,23 @@ class State:
         self.arrived = False  # whether ARRIVAL has come (on ivy's first GET of her conversations)
         self.keys = {}     # username -> the published identity, signed prekey, one-time prekeys
         self.backups = {}  # username -> the backup blob, as given
+        self.next_user = 100  # the ids of accounts made here (POST /user/register)
+        self.verify_sent = set()  # who asked for an email verification code
+        self.verified = set()  # who sent it back
 
     def log(self, entry):
         if not self.log_path:
             return
         with self.lock, open(self.log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
+
+
+def email_verified(username):
+    """An account's address verified: as its entry says (mary's isn't, nor one made here), or since
+    the code came back (POST /email/verify)."""
+    if LIVE is not None and username in LIVE.verified:
+        return True
+    return USERS.get(username, {}).get("email_verified", True)
 
 
 def login_response(username):
@@ -893,14 +938,14 @@ def login_response(username):
         "modified_time": u["created_time"],
         "accessed_time": "2026-10-30T11:59:00",
         "enabled": True,
-        "email_verified": True,
+        "email_verified": email_verified(username),
         "login_2fa_email_enabled": u["login_2fa_email_enabled"],
         "force_password_change": u["force_password_change"],
     }
     return {
         "user": user,
         "expires": "2026-10-30T13:00:00",
-        "token": TOKENS[username],
+        "token": token_of(username),
         "session_uuid": "session-" + username,
         "force_password_change": u["force_password_change"],
     }
@@ -928,7 +973,7 @@ def profile_response(username):
         "card_image_file_id": 13 if u.get("card_image_url") else None,
         "profile_bg_url": u.get("profile_bg_url"),
         "profile_bg_file_id": 14 if u.get("profile_bg_url") else None,
-        "email_verified": True,
+        "email_verified": email_verified(username),
         "notification_email_enabled": True,
         "login_2fa_email_enabled": u["login_2fa_email_enabled"],
         "description": u["description"],
@@ -1134,6 +1179,14 @@ def make_handler(state):
                 if data is None:
                     return self.reply(404, {"detail": "Not Found"}), None
                 return self.reply_bytes(200, data, mime), None
+            # A new account, and what its form asks first: public, as txwtf's
+            if method == "POST" and path == "/user/register":
+                return self.register(), None
+            if method == "GET" and path == "/invite/mode":
+                return self.reply(200, {"invite_only": bool(ADMIN and ADMIN.invite_only)}), None
+            if method == "GET" and path.startswith("/invite/validate/"):
+                ok, why = ADMIN.invite_check(unquote(path.rsplit("/", 1)[1])) if ADMIN else (False, "no codes")
+                return self.reply(200, {"valid": ok, "error": None if ok else why}), None
             if method == "GET" and MAIL:  # a mail attachment by its signed URL: no auth
                 done = MAIL.attachment(self, path)
                 if done is not None:
@@ -1311,6 +1364,23 @@ def make_handler(state):
                 )
             if path.startswith("/social/dm/") or path.startswith("/e2ee/"):
                 return self.direct(method, path, query, user), user
+            if method == "POST" and path == "/email/verify/send":
+                # the code, "emailed": the log has it (an account's own address only)
+                with state.lock:
+                    state.verify_sent.add(user)
+                state.log({"email_verify_sent": user, "to": USERS[user]["email"]})
+                return self.reply(200, {"success": True, "message": "Verification email sent. "
+                                        "Check your inbox for the code."}), user
+            if method == "POST" and path == "/email/verify":
+                code = str((self.json_body() or {}).get("code", ""))
+                with state.lock:
+                    sent = user in state.verify_sent
+                if not sent or code != VERIFY_CODE:
+                    return self.reply(400, {"detail": "Invalid verification code (InvalidInput)"}), user
+                with state.lock:
+                    state.verified.add(user)
+                state.log({"email_verified": user})
+                return self.reply(200, {"success": True, "message": "Email verified successfully!"}), user
             if path.startswith("/mail/") and MAIL:
                 return MAIL.handle(self, method, path, query, user), user
             return self.reply(404, {"detail": "Not Found"}), user
@@ -1612,7 +1682,7 @@ def make_handler(state):
                 # disabled while its code was out)
                 return self.reply(400, {"detail": f"Disabled user {USERS[username]['id']} (DisabledUser)"})
             with state.lock:
-                state.live[TOKENS[username]] = username
+                state.live[token_of(username)] = username
             return self.reply(200, login_response(username))
 
         def login(self):
@@ -1632,7 +1702,7 @@ def make_handler(state):
                 return self.reply(400, {"detail": "Access denied! (UserDoesNotExist)"})
             if USERS[username].get("shadow"):  # signs in at its home instance only
                 return self.reply(400, {"detail": "Access denied! (UserPasswordIncorrect)"})
-            if body["password"] != PASSWORD:
+            if body["password"] != USERS[username].get("password", PASSWORD):
                 return self.reply(400, {"detail": "Access denied! (UserPasswordIncorrect)"})
             # The emailed code, where the account has it (an administrator may have turned it
             # off: stub_admin). A disabled account gets none, as txwtf's execute_login: it is
@@ -1649,6 +1719,57 @@ def make_handler(state):
                     },
                 )
             return self.sign_in(username)
+
+        def register(self):
+            """POST /user/register, as txwtf's register_user checks it (the detail is "message
+            (Code)", 400): an invite code where sign-up is invite-only, the passwords alike and
+            long enough, an address and a username no one has, a username txwtf's
+            valid_identifier takes. The new account signs in with its own password, and, as
+            txwtf's registration does, is "emailed" a code to verify its address."""
+            b = self.json_body()
+            if b is None:
+                return self.reply(422, {"detail": "a JSON object"})
+            for k in ("username", "password", "verify_password", "name", "email"):
+                if not isinstance(b.get(k), str):
+                    return self.reply(422, {"detail": [{"loc": ["body", k], "msg": "Field required",
+                                                        "type": "missing"}]})
+            username, email, code = b["username"], b["email"], b.get("invite_code")
+            if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+                return self.reply(422, {"detail": [{"loc": ["body", "email"], "type": "value_error",
+                                                    "msg": "value is not a valid email address"}]})
+            invite_only = bool(ADMIN and ADMIN.invite_only)
+            if invite_only and not code:
+                return self.reply(400, {"detail": "Registration requires an invite code (InviteRequired)"})
+            if code:
+                ok, why = ADMIN.invite_check(code) if ADMIN else (False, "Invalid invite code")
+                if not ok:
+                    return self.reply(400, {"detail": f"{why} (InvalidInviteCode)"})
+            if b["password"] != b["verify_password"]:
+                return self.reply(400, {"detail": "Password mismatch! (PasswordMismatch)"})
+            if len(b["password"]) < 8:
+                return self.reply(400, {"detail": "length should be at least 8 (PasswordTooShort)"})
+            with state.lock:
+                if any(u.get("email") == email for u in USERS.values()):
+                    return self.reply(400, {"detail": "Email address already exists (EmailExists)"})
+                if not IDENTIFIER.match(username):
+                    return self.reply(400, {"detail": f"Invalid identifier {username} (InvalidIdentifier)"})
+                if username in USERS or username in AUTHORS:
+                    return self.reply(400, {"detail": "Username already exists (UsernameExists)"})
+                state.next_user += 1
+                USERS[username] = {
+                    "id": state.next_user, "name": b["name"], "email": email, "description": None,
+                    "post_count": 0, "created_time": "2026-11-26T12:00:00",
+                    "login_2fa_email_enabled": False, "force_password_change": False,
+                    "balance": "0E-10", "runway_days": None, "cents": 0, "groups": ["users"],
+                    "password": b["password"], "email_verified": False,
+                }
+                state.verify_sent.add(username)
+            if code and ADMIN:
+                ADMIN.invite_use(code)
+            state.log({"register": {"username": username, "name": b["name"], "email": email,
+                                    "invite_code": code}})
+            state.log({"email_verify_sent": username, "to": email})
+            return self.reply(200, login_response(username)["user"])
 
         def login_2fa(self):
             body = self.json_body() or {}

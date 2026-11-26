@@ -138,6 +138,13 @@ on TX.WTF is tracked as T-items in the TX.WTF repository.
     its bytes that `image:` and `video:` can fetch; txwtf 0.4.0 has only save-to-files, which Save
     to files uses) and Save draft (`POST /mail/{id}/drafts`; 0.4.0 has no drafts route). Next:
     forwarding a message's attachments, and new mail in the tray.
+  - Drafted (needs no new host feature): a new account and its email address, as the web app has
+    them. The sign-in form's Create an account opens the registration form at the site picked
+    (username, name, email, the password twice, an invite code, required where the site is
+    invite-only: `GET /invite/mode`), and Create account (`POST /user/register`) signs in to it at
+    the profile's Settings, `--start signup` the same. Settings shows your address and whether it
+    is verified, and until it is, Send code (`POST /email/verify/send`) and the code typed in to
+    Verify (`POST /email/verify`).
 - **M3, SCRIP:** live balance, top-up through hosted checkout in the system
   browser, and the metered prompt chat.
 - **M4, ship:** publish the cvcpkg recipe for linux-x86_64, macOS and Windows,
