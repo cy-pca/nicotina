@@ -640,7 +640,10 @@ check "ari snapshot: Mail: a mailbox's inbox, the newest first, a page of ten" \
   "[ Newer ][ Older ]  1-10 of 12"
 check_not "ari snapshot: ... the oldest two on the next page" "$out/snap-view-mail.txt" \
   "Notes, week 33" "Notes, week 32"
-view mail-msg mail:inbox:112
+# (in a taller frame, 80x100: where the host has a player, the video plays under its row too,
+# which pushes the PDF's row past 60 rows, as a post's video pushes its replies)
+"$ARI" snapshot --width 80 --height 100 --net-allow "$base" --credential-store "$store" "$main" \
+  --instance "$base" --start mail:inbox:112 >"$out/snap-view-mail-msg.txt" 2>&1
 check "ari snapshot: a message: its subject, who, to whom, when, Reply, and its text" \
   "$out/snap-view-mail-msg.txt" "Engine drawings and the test run" \
   "From: Grace Hopper <grace@navy.example>" "To: ada@analytical.example" \
