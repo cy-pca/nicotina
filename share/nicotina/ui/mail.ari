@@ -1,0 +1,321 @@
+# Mail: the TX.WTF window's Mail (the bar's 📬 and the site's menu), the site's webmail as the web
+# app's is (txwtf's /mail routes, on the Mail-in-a-Box mailboxes the site gives its accounts).
+#
+#   mail      a mailbox's folder, a page of its messages, the newest first: who (for Sent and
+#             Drafts, to whom), the subject and the day, ● before one not yet read. Open (or a
+#             click on the row, outside a terminal) reads one. Over the list, the mailbox (a
+#             combo when the account has several), Write, Refresh and the folders: Inbox, Sent,
+#             Drafts, then the rest the server has. Older and Newer page through.
+#   mailmsg   one message: its subject, who it is from and to, when, Reply, Reply all and
+#             Forward (Edit, for a draft), its text, and its attachments as a post's are shown
+#             (ui/card.ari's grid, and a row each with View).
+#   mailnew   an email to write: From (where the account has several mailboxes), To, Cc,
+#             Subject, the text, files attached with the host's file picker (as a new post's
+#             Attach), Send and Save draft.
+#
+# Ariadne draws no HTML, so a message shows its plain-text part, or the HTML one's text with
+# its tags out (the controller's mail-text). An attachment shows as a post's does where the
+# site gives it a URL the host can fetch (a picture in the message, a video with its player, a
+# recording's player; View opens the viewer at it). txwtf 0.4.0 gives none: there Save to files
+# copies one into your files at the site (txwtf's own "Save to my files"), and it shows from
+# there. Save, where the host saves a URL as a file (save-url, libcvc 4.0.9), downloads one.
+#
+# A terminal is 80x24: every row fits the window's 74 columns, a message's row then Open.
+
+units:
+  mail_view:
+    type: group
+    children:
+      # Outside a terminal, where a window may be a phone's: Write and Refresh, then the mailbox
+      # and the folder, a combo each, so nothing runs past a narrow window's edge.
+      - type: group
+        visible_when: (!= (state-get "app.term") "1")
+        children:
+          - type: group
+            layout: {kind: horizontal}
+            children:
+              - button: Write
+                on: (state-set "ui.cmd" "mail-new")
+                tooltip: Write an email
+              - button: Refresh
+                on: (state-set "ui.cmd" "refresh")
+          - combo: Mailbox
+            bind: mail.acct_pick
+            options: (string.split (state-get "mail.acct_opts") "|")
+            on: (state-set "ui.cmd" "mail-box")
+            visible_when: (= (state-get "mail.v_accts") "1")
+          - text: ""
+            bind: mail.acct_line
+            visible_when: (!= (state-get "mail.v_accts") "1")
+          - combo: Folder
+            bind: mail.folder_pick
+            options: (string.split (state-get "mail.folder_opts") "|")
+            on: (state-set "ui.cmd" "mail-folder")
+            visible_when: (!= (state-get "mail.folder_opts") "")
+      # In a terminal: the mailbox, Write and Refresh on a line, and the folders as a radio row.
+      - type: group
+        layout: {kind: horizontal}
+        visible_when: (= (state-get "app.term") "1")
+        children:
+          - combo: Mailbox
+            bind: mail.acct_pick
+            options: (string.split (state-get "mail.acct_opts") "|")
+            on: (state-set "ui.cmd" "mail-box")
+            visible_when: (= (state-get "mail.v_accts") "1")
+          - text: "  "
+            visible_when: (= (state-get "mail.v_accts") "1")
+          - text: ""
+            bind: mail.acct_line
+            visible_when: (!= (state-get "mail.v_accts") "1")
+          - button: Write
+            on: (state-set "ui.cmd" "mail-new")
+            tooltip: Write an email
+          - button: Refresh
+            on: (state-set "ui.cmd" "refresh")
+      - radio_row: Folder
+        bind: mail.folder_pick
+        options: (string.split (state-get "mail.folder_opts") "|")
+        on: (state-set "ui.cmd" "mail-folder")
+        visible_when: (and (!= (state-get "mail.folder_opts") "") (= (state-get "app.term") "1"))
+      - text: ""
+        bind: mail.head
+        color: [0.6, 0.6, 0.6]
+      - separator
+      # A message is a row to click where a click on a group is its own (outside a terminal);
+      # in a terminal, its line padded to a column, then Open.
+      - type: group
+        repeat: (state-get "mail.rows")
+        children:
+          - type: group
+            visible_when: (= (state-get "mail.rows.{i}.v_click") "1")
+            on_click: (if (has? "ui.group_click") (begin (state-set "mail.want" (state-get "mail.rows.{i}.uid")) (state-set "ui.cmd" "mail-open")))
+            hover: highlight
+            children:
+              - text: ""
+                bind: mail.rows.{i}.label
+              - text: ""
+                bind: mail.rows.{i}.sub
+                color: [0.6, 0.6, 0.6]
+          - type: group
+            visible_when: (= (state-get "mail.rows.{i}.v_btns") "1")
+            layout: {kind: horizontal}
+            children:
+              - text: ""
+                bind: mail.rows.{i}.line
+              - button: Open
+                on: (begin (state-set "mail.want" (state-get "mail.rows.{i}.uid")) (state-set "ui.cmd" "mail-open"))
+      # Older and Newer, where the folder has more than a page: never hidden once shown (a
+      # terminal that loses the focused widget scrolls back to the top); at an end they say so.
+      - type: group
+        layout: {kind: horizontal}
+        visible_when: (!= (state-get "mail.page") "")
+        children:
+          - button: Newer
+            on: (state-set "ui.cmd" "mail-newer")
+          - button: Older
+            on: (state-set "ui.cmd" "mail-older")
+          - text: ""
+            bind: mail.page
+            color: [0.6, 0.6, 0.6]
+
+  mailmsg_view:
+    type: group
+    children:
+      - text: ""
+        bind: mail.msg.subject
+      - text: ""
+        bind: mail.msg.from_line
+      - text: ""
+        bind: mail.msg.to_line
+        color: [0.6, 0.6, 0.6]
+      - text: ""
+        bind: mail.msg.cc_line
+        color: [0.6, 0.6, 0.6]
+        visible_when: (!= (state-get "mail.msg.cc_line") "")
+      - text: ""
+        bind: mail.msg.date_line
+        color: [0.6, 0.6, 0.6]
+      # What you can do with it: answer it, or a draft, go on writing it. Nothing here takes the
+      # focus by itself: Back, pressed again and again, walks back through the views.
+      - type: group
+        layout: {kind: horizontal}
+        children:
+          - button: Reply
+            on: (state-set "ui.cmd" "mail-reply")
+            visible_when: (!= (state-get "mail.msg.draft") "1")
+          - button: Reply all
+            on: (state-set "ui.cmd" "mail-reply-all")
+            visible_when: (!= (state-get "mail.msg.draft") "1")
+          - button: Forward
+            on: (state-set "ui.cmd" "mail-forward")
+            visible_when: (!= (state-get "mail.msg.draft") "1")
+          - button: Edit
+            on: (state-set "ui.cmd" "mail-edit")
+            visible_when: (= (state-get "mail.msg.draft") "1")
+            tooltip: Go on writing this draft
+      - separator
+      # Its text, plain: the text part, or the HTML part's text (mail-text), wrapped to the
+      # window's 74 columns.
+      - type: group
+        repeat: (state-get "mail.msg.lines")
+        children:
+          - text: ""
+            bind: mail.msg.lines.{i}
+      # Its attachments: the pictures and videos the site gives a URL for laid out as a post's
+      # (ui/card.ari's media_grid where the host measures the line, media_fgrid at fixed sizes
+      # elsewhere outside a terminal); a click on one opens the viewer (view.post "mail").
+      - type: group
+        visible_when: (!= (state-get "mail.msg.atts_head") "")
+        children:
+          - separator
+          - text: ""
+            bind: mail.msg.atts_head
+            color: [0.6, 0.6, 0.6]
+          - text: ""
+            bind: mail.msg.atts_note
+            color: [0.6, 0.6, 0.6]
+            visible_when: (!= (state-get "mail.msg.atts_note") "")
+      - type: group
+        visible_when: (= (state-get "mail.msg.v_grid") "1")
+        children:
+          - include: media_grid
+            args: {p: mail.msg, pid: mail.msg.vpid}
+      - type: group
+        visible_when: (= (state-get "mail.msg.v_fgrid") "1")
+        children:
+          - include: media_fgrid
+            args: {p: mail.msg, pid: mail.msg.vpid}
+      # Each attachment: its row, View (the viewer at it), Save (the file, where the host saves
+      # a URL) and Save to files (a copy in your files at the site). In a terminal its picture or
+      # video follows (384 x 216 px), as a post's; a recording has its player everywhere.
+      - type: group
+        repeat: (state-get "mail.msg.atts")
+        children:
+          - type: group
+            layout: {kind: horizontal}
+            children:
+              - text: ""
+                bind: mail.msg.atts.{i}.row
+                color: [0.45, 0.75, 0.85]
+              - button: View
+                on: (begin (state-set "view.post" "mail") (state-set "view.i" (state-get "mail.msg.atts.{i}.vi")) (state-set "ui.cmd" "view"))
+                visible_when: (= (state-get "mail.msg.atts.{i}.v_view") "1")
+              - button: Save
+                on: (let ((r (save-url (state-get "mail.msg.atts.{i}.url") (dict "name" (state-get "mail.msg.atts.{i}.name"))))) (if (not (get-attr r "ok")) (if (not (get-attr r "cancelled")) (begin (state-set "mail.save_error" (get-attr r "error")) (state-set "ui.cmd" "mail-save-failed")))))
+                visible_when: (= (state-get "mail.msg.atts.{i}.v_dl") "1")
+                tooltip: Save the file on this device
+              - button: Save to files
+                on: (begin (state-set "mail.att_i" "{i}") (state-set "ui.cmd" "mail-keep"))
+                tooltip: Keep a copy in your files at the site
+          - image: ""
+            bind: mail.msg.atts.{i}.url
+            size: [384, 216]
+            fit: contain
+            visible_when: (= (state-get "mail.msg.atts.{i}.v_img_t") "1")
+          - video: video
+            src: (state-get "mail.msg.atts.{i}.url")
+            size: [384, 216]
+            fit: contain
+            controls: false
+            autoplay: true
+            muted: true
+            loop: true
+            bind: mail.msg.atts.{i}.player
+            visible_when: (= (state-get "mail.msg.atts.{i}.v_vid_t") "1")
+          - audio: recording
+            src: (state-get "mail.msg.atts.{i}.url")
+            bind: mail.msg.atts.{i}.player
+            visible_when: (= (state-get "mail.msg.atts.{i}.v_aud") "1")
+
+  # The form. The text is a message field (§5.15) whose Enter adds a line at its end here rather
+  # than sending (its on: puts the text back with a line break): Send sends. Shift+Enter (Alt+Enter
+  # in a terminal) adds one where the cursor is. A new email starts with the focus in To, a reply
+  # in the text, and after Attach or Remove the focus is back in the text: the controller sets
+  # mail.new.focus, and the copy of the field that appears has autofocus (as compose_view's).
+  mailnew_view:
+    type: group
+    children:
+      - combo: From
+        bind: mail.new.from_pick
+        options: (string.split (state-get "mail.acct_opts") "|")
+        visible_when: (= (state-get "mail.v_accts") "1")
+      - text: ""
+        bind: mail.new.from_line
+        visible_when: (!= (state-get "mail.v_accts") "1")
+      - input_text: To
+        bind: mail.new.to
+        autofocus: true
+        visible_when: (= (state-get "mail.new.focus") "to")
+      - input_text: To
+        bind: mail.new.to
+        visible_when: (!= (state-get "mail.new.focus") "to")
+      - input_text: Cc
+        bind: mail.new.cc
+      - input_text: Subject
+        bind: mail.new.subject
+      - message_input: Message
+        bind: mail.new.body
+        hint: Write your email (Send sends it)
+        max_length: 65536
+        max_lines: 10
+        live: true
+        on: (state-set "mail.new.body" (str-concat (get-attr event "text") "\n"))
+        visible_when: (= (state-get "mail.new.focus") "to")
+      - message_input: Message
+        bind: mail.new.body
+        hint: Write your email (Send sends it)
+        max_length: 65536
+        max_lines: 10
+        live: true
+        autofocus: true
+        on: (state-set "mail.new.body" (str-concat (get-attr event "text") "\n"))
+        visible_when: (= (state-get "mail.new.focus") "a")
+      - message_input: Message
+        bind: mail.new.body
+        hint: Write your email (Send sends it)
+        max_length: 65536
+        max_lines: 10
+        live: true
+        autofocus: true
+        on: (state-set "mail.new.body" (str-concat (get-attr event "text") "\n"))
+        visible_when: (= (state-get "mail.new.focus") "b")
+      # Its files, each with Remove: picked with the host's file picker (file-pick) and sent up
+      # with Send or Save draft, each once (as a new post's are; your files at the site, kept
+      # private), then attached by id.
+      - type: group
+        id: m_files
+        visible_when: (= (state-get "app.attach") "1")
+        children:
+          - type: group
+            repeat: (state-get "mail.new.files")
+            layout: {kind: horizontal}
+            children:
+              - button: Remove
+                on: (begin (state-set "mail.new.drop" "{i}") (state-set "ui.cmd" "mail-detach"))
+                disabled_when: (= (state-get "mail.new.uploading") "1")
+              - text: ""
+                bind: mail.new.files.{i}.label
+      - type: group
+        layout: {kind: horizontal}
+        children:
+          - button: Attach
+            on: (state-set "ui.cmd" "mail-attach")
+            disabled_when: (= (state-get "mail.new.uploading") "1")
+            visible_when: (= (state-get "app.attach") "1")
+            tooltip: Pick files to attach to the email
+          - button: Send
+            on: (state-set "ui.cmd" "mail-send")
+            disabled_when: (= (state-get "mail.new.uploading") "1")
+          - button: Save draft
+            on: (state-set "ui.cmd" "mail-draft")
+            disabled_when: (= (state-get "mail.new.uploading") "1")
+      - progress: ""
+        bind: mail.new.progress
+        visible_when: (= (state-get "mail.new.uploading") "1")
+      - text: "Text only: this host can't attach files."
+        visible_when: (!= (state-get "app.attach") "1")
+        color: [0.6, 0.6, 0.6]
+      - text: ""
+        bind: mail.new.note
+        color: [0.6, 0.6, 0.6]
+        visible_when: (!= (state-get "mail.new.note") "")

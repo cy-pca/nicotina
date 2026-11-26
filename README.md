@@ -55,7 +55,7 @@ nicotina [--instance URL] [--terminal] [--backend ftxui|tvision] [host flags...]
 | `--backend ftxui\|tvision` | the terminal backend (FTXUI by default); implies `--terminal` |
 | `--dry-run` | print the host command instead of running it |
 | other options | go to the host, before the document (`--fps 30`, `--no-mouse`, ...) |
-| after `--` | go to the document: `--user NAME` fills in the sign-in form; `--start profile` opens the profile first, not the feed; `--sites URL,URL` adds sites to the Site combo (allow each with `--net-allow`) |
+| after `--` | go to the document: `--user NAME` fills in the sign-in form; `--start profile` opens the profile first, not the feed (`--start mail` your mail); `--sites URL,URL` adds sites to the Site combo (allow each with `--net-allow`) |
 
 It picks the terminal when there is no display: no `DISPLAY` or `WAYLAND_DISPLAY` on
 Linux and the BSDs, or an SSH session without X forwarding anywhere. It runs
@@ -210,6 +210,26 @@ The keys are this device's:
   holds shows its messages as "encrypted on another device", and nicotina won't write in it: a
   new session there would break the other person's copy.
 
+### Mail
+
+The site's webmail, as the web app's Mail is: your mailboxes at the site (Mail-in-a-Box, through
+txwtf's `/mail` routes). It is the bar's **📬** where the bar is icons, and the site's menu's
+**Mail** everywhere (a terminal's bar has no room for it); `--start mail` opens it, and
+`mail:sent`, `mail:drafts:UID` or `mail:new` a folder, a message or a new email.
+- **A folder** is a page of ten messages, the newest first, ● on one not read; Older and Newer
+  page through. The mailbox is a combo where you have several, and the folders are Inbox, Sent,
+  Drafts, then the rest the site has.
+- **A message** shows who it is from and to, when, and its text, plain: its text part, or its
+  HTML part's text where it has none (Ariadne draws no HTML). Its attachments show as a post's
+  do, a picture in the message, a video with a player, a row each with View, where the site
+  gives each a URL. txwtf 0.4.0 gives none: **Save to files** copies one into your files at the
+  site (txwtf's own "Save to my files"), and it shows from there. **Save** (libcvc 4.0.9) saves
+  one on this device.
+- **Write**, **Reply**, **Reply all**, **Forward** and a draft's **Edit** open the form: To, Cc,
+  Subject, the text (Enter adds a line; Send sends), and files attached with the host's file
+  picker, sent up as a new post's are but private, then attached by id. **Save draft** needs a
+  txwtf with `POST /mail/{id}/drafts`, which 0.4.0 doesn't have; it says so there.
+
 ## Running M0 today
 
 M0 runs in the stock hosts: the `ari` and `arigl` packages from cvcpkg.org, 3.7.8 or newer
@@ -315,6 +335,10 @@ ARI=$NICOTINA_ARI ARIGL=$NICOTINA_ARIGL tests/run.sh
 - `arigl snapshot`, as text (`--terminal`) and as a PNG.
 - `ari snapshot`, direct messages: the conversations, a plaintext one with its box, and an
   encrypted one on a host that keeps no keys (locked, saying why, with no box).
+- `ari snapshot`, mail (`tests/stub_mail.py`): an inbox, a message with a picture, a video and a
+  PDF, an HTML-only one as its text, Drafts and a draft, the form, an account with no mailbox,
+  and a message from a txwtf 0.4.0 site, whose attachments have no URL. In tmux: a reply sent, a
+  new email with a Cc and a picture saved as a draft and sent, and Save to files on 0.4.0.
 - In tmux: sign in to the home feed; a post opened whole and back; Load more; Everyone; a
   direct message sent; the profile's tabs (Replies, Balances) and an older page of posts; a post
   with a picture and a big file attached (the Open file window, then the uploads, which the stub

@@ -27,7 +27,8 @@
 # Then ada, the instance's administrator, in the Admin view: each part as the server answers it;
 # eve (tests/txwtf_local.py's fourth account) disabled, refused at sign-in, enabled; a group made,
 # eve added and removed, a permission granted and revoked, the group deleted; an invite code made
-# and turned off, where this txwtf has invite codes. Then the moderation baseline: ada dislikes a
+# and turned off, where this txwtf has invite codes. Mail: the server has no mailbox for her (no
+# Mail-in-a-Box here), and the view says so. Then the moderation baseline: ada dislikes a
 # post eve made, a content filter of 0 leaves it out of the public timeline (it scores -1), the
 # default brings it back, and ada deletes it as the administrator (a txwtf from
 # atx-crypto-club/txwtf#324 on; an older one refuses, and that step is skipped).
@@ -349,6 +350,11 @@ admin_snap user auser:1
 check "$t: Admin: an account, from the server" "$out/txwtf-admin-user.txt" \
   "@ada@127.0.0.1:$port  Ada Lovelace" "Administrator: yes" "Email: ada@example.org" \
   "Your own account: Disable and Remove admin aren't offered."
+# Mail, through the server's own /mail routes: this instance has no Mail-in-a-Box, so GET
+# /mail/accounts lists no mailbox for ada, and the view says so.
+admin_snap mail mail
+check "$t: Mail: the server lists no mailbox, and the view says so" "$out/txwtf-admin-mail.txt" \
+  "You have no mailbox at 127.0.0.1:$port yet: the web app's Mail makes one." "[ Write ][ Refresh ]"
 
 # eve: found, disabled, refused at sign-in, enabled, signed in.
 find_eve() { # from the Admin view's start: Find user, eve, her Open

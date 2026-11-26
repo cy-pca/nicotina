@@ -29,7 +29,7 @@ args:
           help: "More TX.WTF sites the Site combo offers, before the fleet's: base URLs, comma separated (the host must allow each: --net-allow)"}
   user: {type: string, help: "Fill in this username on the sign-in form"}
   start: {type: string, default: feed,
-          help: "The first view once signed in: feed, profile, settings, tags, alerts, search, compose, dms, post:ID, dm:ID, tag:NAME, user:ID, view:ID[:N] or search:TEXT; for an administrator also admin[:users|groups|invites|site|log], auser:ID, agroup:ID or agperm:ID"}
+          help: "The first view once signed in: feed, profile, settings, tags, alerts, search, compose, dms, mail, post:ID, dm:ID, tag:NAME, user:ID, view:ID[:N], search:TEXT, mail:FOLDER[:UID] (in the first mailbox) or mail:new; for an administrator also admin[:users|groups|invites|site|log], auser:ID, agroup:ID or agperm:ID"}
 
 # Without --net (or --net-allow) the host has no http-request and keeps no credentials, and the
 # load fails here, naming what is missing. (nicotina.ari lists the rest.)
@@ -59,7 +59,7 @@ functions: |
     (dict "back" "moonwalk"         "forward" "lambo"        "home" "igloo"
           "tags" "stonks"           "search" "notsureif,philosoraptor"
           "alerts" "alert"          "profile" "guyfawkes"    "compose" "faacts"
-          "dms" "yo"                "admin" "godmode"
+          "dms" "yo"                "mail" "mailbox,email"   "admin" "godmode"
           "following" "spartans"    "everyone" "this-is-fine" "friends" "shibe"))
   (defun slot-key (i k) (str-concat "slots." (str i) ".ui." k))
   ;; Whether a slot is a site's copy now: one that hasn't closed (signed out, or its form shut).
