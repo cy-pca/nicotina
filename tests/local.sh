@@ -321,7 +321,8 @@ for backend in ftxui tvision; do
   form_focus
   for _ in $(seq 4); do keys Tab; done
   keys Enter # Create an account
-  step "$t: the new account's form" "Create an account at 127.0.0.1:$port" "Invite code: ["
+  # (tvision cuts a window's title short: the site is checked on the form's first line)
+  step "$t: the new account's form" "(127.0.0.1:$port)" "Invite code: [" "Password again: ["
   type_text "$newbie"; keys Tab; type_text "Joan Clarke"; keys Tab
   type_text "$newbie@example.org"; keys Tab
   type_secret "$work/password"; keys Tab; type_secret "$work/password"; keys Tab
