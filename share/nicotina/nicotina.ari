@@ -3407,13 +3407,20 @@ on_tick: |
       ;; or a few, comma separated, the first the instance has winning). Where the host draws a
       ;; picture on a button (button.icon), nav.icon.KEY is the picture's URL at the instance
       ;; (/social/emojis/ID/image), else "": the button shows its own emoji, as it does until the
-      ;; picture has loaded and if it can't be.
+      ;; picture has loaded and if it can't be. Where main.ari names none (all ""), the site's emoji
+      ;; aren't asked for at all.
+      (defun nav-keys ()
+        (list "back" "forward" "home" "tags" "search" "alerts" "profile" "compose" "dms"
+              "mail" "admin" "following" "everyone" "friends"))
+      (defun nav-named? ()
+        (> (length (collections.filter (nav-keys)
+                     (lambda (k) (!= (string.trim (sget (str-concat "ui.nav_emoji." k))) ""))))
+           0))
       (defun nav-icons ()
-        (if (has? "button.icon")
+        (if (and (has? "button.icon") (nav-named?))
           (let ((ids (begin (site-emoji)
                             (try (json-parse (state-get "app.site_emoji_id")) (catch (e) (dict))))))
-            (for k (list "back" "forward" "home" "tags" "search" "alerts" "profile" "compose" "dms"
-                         "mail" "admin" "following" "everyone" "friends")
+            (for k (nav-keys)
               (begin
                 (state-set (str-concat "nav.icon." k) "")
                 (for n (string.split (text (state-get (str-concat "ui.nav_emoji." k))) ",")

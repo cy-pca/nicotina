@@ -55,12 +55,19 @@ functions: |
   ;; ui.nav_emoji), by name: a few names, comma separated, the first the site has. Where the host
   ;; draws a picture on a button (button.icon) and can fetch it, the button shows it; until then,
   ;; or with "" here, the button keeps its own emoji. Change them here.
+  ;;
+  ;; Off for now (2026-11-26: they distracted; better ones are to be picked): every name is "", so
+  ;; each button keeps its own emoji, and nothing asks the site for its custom ones. The names
+  ;; they had, to start from:
+  ;;   back moonwalk, forward lambo, home igloo, tags stonks, search notsureif,philosoraptor,
+  ;;   alerts alert, profile guyfawkes, compose faacts, dms yo, mail mailbox,email,
+  ;;   admin godmode, following spartans, everyone this-is-fine, friends shibe
   (defun nav-emoji ()
-    (dict "back" "moonwalk"         "forward" "lambo"        "home" "igloo"
-          "tags" "stonks"           "search" "notsureif,philosoraptor"
-          "alerts" "alert"          "profile" "guyfawkes"    "compose" "faacts"
-          "dms" "yo"                "mail" "mailbox,email"   "admin" "godmode"
-          "following" "spartans"    "everyone" "this-is-fine" "friends" "shibe"))
+    (dict "back" ""        "forward" ""     "home" ""
+          "tags" ""        "search" ""
+          "alerts" ""      "profile" ""     "compose" ""
+          "dms" ""         "mail" ""        "admin" ""
+          "following" ""   "everyone" ""    "friends" ""))
   (defun slot-key (i k) (str-concat "slots." (str i) ".ui." k))
   ;; Whether a slot is a site's copy now: one that hasn't closed (signed out, or its form shut).
   (defun slot-open (i) (!= (state-get (slot-key i "screen")) "closed"))
