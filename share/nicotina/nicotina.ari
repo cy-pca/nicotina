@@ -2812,13 +2812,14 @@ on_tick: |
                   (and (= pre "Fwd: ") (string.starts-with low "fw:")))
             s (str-concat pre s))))
       ;; A message's text for a reply or a forward, as plain-text mail writes it: broken into lines
-      ;; of 72 columns (a terminal's text field never wraps them), quoted with "> " for a reply;
-      ;; its first 200 lines.
+      ;; of 62 columns, quoted with "> " for a reply; its first 200 lines. A terminal's text field
+      ;; never wraps a line, and it stands 10 columns in ("Message: ["), so its lines fit the
+      ;; window's 74.
       (defun mail-plain (txt n)
         (let ((ls (wrap-lines (string.split txt "\n") n)))
           (if (> (length ls) 200) (slice ls 0 200) ls)))
       (defun mail-quote (txt)
-        (string.join (collections.map (mail-plain txt 70) (lambda (l) (str-concat "> " l))) "\n"))
+        (string.join (collections.map (mail-plain txt 60) (lambda (l) (str-concat "> " l))) "\n"))
       ;; Addresses but your own (the mailbox's), each once.
       (defun not-me (addrs)
         (let ((me (string.lower (mail-email (sget "mail.msg.acct")))) (seen (list)) (out (list))
@@ -2866,7 +2867,7 @@ on_tick: |
                      (str-concat "\n\n---------- Forwarded message ----------\nFrom: " (sget "mail.msg.from")
                                  "\nDate: " (sget "mail.msg.date") "\nSubject: " (sget "mail.msg.subject_raw")
                                  "\nTo: " (sget "mail.msg.to") "\n\n"
-                                 (string.join (mail-plain (sget "mail.msg.text") 72) "\n") "\n\n")
+                                 (string.join (mail-plain (sget "mail.msg.text") 62) "\n") "\n\n")
                      (if (= n 0) "Forwarding its text."
                        (str-concat "Forwarding its text: its " (n-of n "attachment" "attachments")
                                    " stay behind."))
@@ -2877,7 +2878,7 @@ on_tick: |
           (begin
             (mail-form (sget "mail.msg.acct") (sget "mail.msg.to") (sget "mail.msg.cc")
                        (sget "mail.msg.subject_raw")
-                       (str-concat (string.join (wrap-lines (string.split (sget "mail.msg.text") "\n") 72) "\n")
+                       (str-concat (string.join (wrap-lines (string.split (sget "mail.msg.text") "\n") 62) "\n")
                                    "\n")
                        (if (= n 0) "A draft: Send sends it, and drops the draft."
                          (str-concat "A draft: its " (n-of n "attachment" "attachments")
