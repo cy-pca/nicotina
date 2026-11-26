@@ -537,8 +537,11 @@ check "ari snapshot: a hashtag's posts, newest first, as cards" "$out/snap-view-
 # A content filter of -1 (set here through the API, as Settings sets it): the post scored -2 (the
 # stub's two dislikes on "The engine needs more #brass.") is left out of the hashtag's posts.
 # invite_mode true|false: sign-up invite-only or open, as ada (the administrator) through the
-# stub's API (PUT /invite/mode).
+# stub's API (PUT /invite/mode). She signs in first (POST /user/login, the stub's test password),
+# since a walk may have signed her out, and the stub gives her the same token again.
 invite_mode() {
+  curl -s -o /dev/null -X POST -H 'Content-Type: application/json' \
+    -d '{"username": "ada", "password": "correct horse"}' "$base/user/login"
   curl -s -o /dev/null -w '%{http_code}' -X PUT -H "Authorization: Bearer $(token ada)" \
     -H 'Content-Type: application/json' -d "{\"invite_only\": $1}" "$base/invite/mode"
 }
@@ -1827,7 +1830,7 @@ else
     # signed in to it at Settings, where a code was "emailed" at sign-up, as txwtf does. Send code
     # (past the bar, Refresh, Sign out, the tabs and Hide below) for another, typed in, Verify.
     newbie=joan-$backend
-    invite_mode true >/dev/null
+    [ "$(invite_mode true)" = 200 ] || fail "$t: the stub wouldn't make sign-up invite-only"
     signup_xdg=$work/xdg-signup-$backend
     start "$backend" "$signup_xdg" "$base"
     step "$t: the sign-in form, for a new account" "No account here? [ Create an account ]"
