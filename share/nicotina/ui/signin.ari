@@ -1,5 +1,5 @@
-# The signed-out windows: starting up, the sign-in form, and the emailed code. main.ari imports
-# these units and runs the commands their buttons set (ui.cmd).
+# The signed-out windows: starting up, the sign-in form, a new account's form, and the emailed
+# code. main.ari imports these units and runs the commands their buttons set (ui.cmd).
 #
 # Laid out for the terminal first (8 x 16 px cells): every window opens at column 2, row 2, and
 # fits what it shows. The controller keeps its messages to 60 characters, so a window stays within
@@ -112,6 +112,61 @@ units:
                   "30 days"]
         values: [3600, 14400, 28800, 43200, 86400, 604800, 2592000]
         visible_when: (= (state-get "login.advanced") "1")
+      # A new account at the picked site, as the web app's Register (ui.cmd "signup"): last, so
+      # Tab from the password still reaches Sign in first.
+      - type: group
+        layout: {kind: horizontal}
+        children:
+          - text: "No account here? "
+            color: [0.6, 0.6, 0.6]
+          - button: Create an account
+            on: (state-set "ui.cmd" "signup")
+            enabled_when: (!= (state-get "ui.busy") "1")
+
+  # A new account (POST /user/register), as the web app's Register form: who, the password twice,
+  # and an invite code, which an invite-only site requires (GET /invite/mode says which; the field
+  # is there either way, as the web app's). Create account makes it, then signs in to it and
+  # opens Settings, where the email address is verified.
+  register_window:
+    window: Create an account
+    bind: app.register_title
+    id: register
+    pos: [16, 32]
+    visible_when: (= (state-get "ui.screen") "register")
+    children:
+      - text: ""
+        bind: reg.site
+        color: [0.6, 0.6, 0.6]
+      - separator
+      - input_text: Username
+        bind: reg.username
+        autofocus: true
+      - input_text: Name
+        bind: reg.name
+      - input_text: Email
+        bind: reg.email
+      # Masked, as the sign-in form's; the controller clears both as soon as it sends them.
+      - input_text: Password
+        bind: reg.password
+        password: true
+      - input_text: Password again
+        bind: reg.password2
+        password: true
+      - input_text: Invite code
+        bind: reg.invite
+      - text: ""
+        bind: reg.invite_note
+        color: [0.6, 0.6, 0.6]
+      - type: group
+        layout: {kind: horizontal}
+        children:
+          - button: Create account
+            on: (state-set "ui.cmd" "signup-send")
+            enabled_when: (!= (state-get "ui.busy") "1")
+          - button: Back
+            on: (state-set "ui.cmd" "signup-back")
+            enabled_when: (!= (state-get "ui.busy") "1")
+      - include: status_line
 
   twofactor_window:
     window: Two-step verification

@@ -45,6 +45,11 @@
 # answers it, its attachments with no URL. In 5: open a message, Reply and Send; Write, Save draft
 # and Send; and on the second site Save to files, which shows the picture.
 #
+# And a new account: the sign-in form's Create an account, the form (--start signup), open and
+# invite-only, and the Settings tab's email address, verified (ada) or not yet (mary). In 5: an
+# account made with an invite code where sign-up is invite-only, signed in at Settings, then its
+# address verified (Send code, the code, Verify).
+#
 # `ari snapshot` lays a frame out with FTXUI whatever --backend says, so 5 is what checks the
 # tvision desktop itself. 5 needs tmux; without it those cases are skipped.
 #
@@ -63,7 +68,8 @@ on_exit stop_stub
 
 python3 -I -B -c "
 import sys; sys.path.insert(0, sys.argv[1]); import stub_txwtf as s
-for name, token in list(s.TOKENS.items()) + [('stale', s.STALE_TOKEN)]: print(name, token)" \
+made = [(n, s.new_token(n)) for n in ('joan-ftxui', 'joan-tvision')]  # signed up in 5
+for name, token in list(s.TOKENS.items()) + [('stale', s.STALE_TOKEN)] + made: print(name, token)" \
   "$here" >"$work/token-names"
 awk '{ print $2 }' "$work/token-names" >"$work/tokens" # for the scan at the end
 token() { awk -v n="$1" '$1 == n { print $2 }' "$work/token-names"; } # never echoed
@@ -325,7 +331,7 @@ for backend in ftxui tvision; do
   snap "snap-$backend-signin" "$backend" "" --user ada
   check "ari snapshot ($backend): the sign-in form" "$out/snap-$backend-signin.txt" \
     "Sign in to TX.WTF" "Site: < $base >" "Username: [ada" "Password: []" "[ Sign in ]" \
-    "[ ] Advanced options"
+    "[ ] Advanced options" "No account here? [ Create an account ]"
   check_not "ari snapshot ($backend): ... the session's length only under them" \
     "$out/snap-$backend-signin.txt" "Session:"
   # Under the Site combo, the site as its sign-in page shows it (GET /social/site-info): its
@@ -530,6 +536,15 @@ check "ari snapshot: a hashtag's posts, newest first, as cards" "$out/snap-view-
   "[ Load more ]"
 # A content filter of -1 (set here through the API, as Settings sets it): the post scored -2 (the
 # stub's two dislikes on "The engine needs more #brass.") is left out of the hashtag's posts.
+# invite_mode true|false: sign-up invite-only or open, as ada (the administrator) through the
+# stub's API (PUT /invite/mode). She signs in first (POST /user/login, the stub's test password),
+# since a walk may have signed her out, and the stub gives her the same token again.
+invite_mode() {
+  curl -s -o /dev/null -X POST -H 'Content-Type: application/json' \
+    -d '{"username": "ada", "password": "correct horse"}' "$base/user/login"
+  curl -s -o /dev/null -w '%{http_code}' -X PUT -H "Authorization: Bearer $(token ada)" \
+    -H 'Content-Type: application/json' -d "{\"invite_only\": $1}" "$base/invite/mode"
+}
 read_level() { # read_level AS LEVEL, through the stub's API
   curl -s -o /dev/null -w '%{http_code}' -X PUT -H "Authorization: Bearer $(token "$1")" \
     -H 'Content-Type: application/json' -d "{\"read_level\": $2}" "$base/social/settings/read-level"
@@ -625,6 +640,30 @@ check "ari snapshot: an encrypted conversation where the host keeps no keys: loc
   "These messages are end-to-end encrypted, and stay locked here:"
 check_not "ari snapshot: ... no box to write in, and no ciphertext" "$out/snap-view-dm-locked.txt" \
   "Message: [" "c3RhbmQtaW4"
+
+# A new account's form (--start signup, with no session kept): who, the password twice, and an
+# invite code, optional while sign-up is open (invite-only: after the Admin log's snapshot).
+signup_snap() { # signup_snap NAME
+  "$ARI" snapshot --width 80 --height 30 --net-allow "$base" "$main" --instance "$base" \
+    --start signup >"$out/snap-$1.txt" 2>&1
+}
+signup_snap signup
+check "ari snapshot: --start signup: a new account's form" "$out/snap-signup.txt" \
+  "Create an account at $hostport" "At TX.WTF ($hostport)" "Username: [" "Name: [" "Email: [" \
+  "Password: [" "Password again: [" "Invite code: [" "An invite code, if you have one (optional)." \
+  "[ Create account ][ Back ]"
+# Settings: your email address, and until it is verified, Send code and Verify (mary's isn't).
+view settings settings
+check "ari snapshot: Settings: ada's email address, verified" "$out/snap-view-settings.txt" \
+  "Email: ada@example.org  · verified"
+check_not "ari snapshot: ... nothing to send" "$out/snap-view-settings.txt" "[ Send code ]"
+mary_store=$work/snap-mary/credentials
+seed_store "$mary_store" mary
+"$ARI" snapshot --width 80 --height 30 --net-allow "$base" --credential-store "$mary_store" \
+  "$main" --instance "$base" --start settings >"$out/snap-settings-mary.txt" 2>&1
+check "ari snapshot: Settings: an address not verified yet, Send code and Verify" \
+  "$out/snap-settings-mary.txt" "Email: mary@example.org  · not verified yet" \
+  "[ Send code ]  Code: [][ Verify ]"
 
 # Mail (ui/mail.ari): ada's first mailbox (she has two: a combo), its inbox, a page of ten; a
 # message whose picture, video and PDF each have their own URL here (the route Mail proposes,
@@ -779,6 +818,16 @@ check "ari snapshot: Admin: the system log, newest first, a page of ten" \
   "2026-10-30 12:00 -            Stats Job Compl... Stats job comp..." \
   "2026-10-28 08:30 slowpoke     User Create" "[ Prev ][ Next ]  Page 1 of 2"
 check_not "ari snapshot: ... not the second page" "$out/snap-view-admin-log.txt" "Retention sweep"
+# A new account's form where sign-up is invite-only (GET /invite/mode): the code required. Here,
+# past the log's snapshot, since the stub logs each switch.
+if [ "$(invite_mode true)" = 200 ]; then
+  signup_snap signup-invite
+  check "ari snapshot: --start signup where sign-up is invite-only, the code required" \
+    "$out/snap-signup-invite.txt" "This site is invite-only: an invite code is required."
+  invite_mode false >/dev/null
+else
+  fail "the stub wouldn't make sign-up invite-only"
+fi
 view auser auser:9
 check "ari snapshot: an account, as an administrator sees it" "$out/snap-view-auser.txt" \
   "@eve@$hostport  Eve Example" "Account: active · Administrator: no · Two-step sign-in: on" \
@@ -1775,6 +1824,48 @@ else
     for _ in $(seq 9); do keys Tab; done
     keys Enter # past the bar and Refresh to Sign out
     step "$t: ada signs out at 80x24" "Signed out."
+
+    # A new account, where sign-up is invite-only: the sign-in form's Create an account (past
+    # the password, Sign in and Advanced options), the form filled in with an invite code, then
+    # signed in to it at Settings, where a code was "emailed" at sign-up, as txwtf does. Send code
+    # (past the bar, Refresh, Sign out, the tabs and Hide below) for another, typed in, Verify.
+    newbie=joan-$backend
+    [ "$(invite_mode true)" = 200 ] || fail "$t: the stub wouldn't make sign-up invite-only"
+    signup_xdg=$work/xdg-signup-$backend
+    start "$backend" "$signup_xdg" "$base"
+    step "$t: the sign-in form, for a new account" "No account here? [ Create an account ]"
+    form_focus
+    for _ in $(seq 4); do keys Tab; done
+    keys Enter # Create an account
+    # (tvision cuts a window's title short: the site is checked on the form's first line)
+    step "$t: Create an account: the form" "At TX.WTF ($hostport)" \
+      "This site is invite-only: an invite code is required."
+    type_text "$newbie"; keys Tab; type_text "Joan Clarke"; keys Tab
+    type_text "$newbie@example.org"; keys Tab
+    type_text "correct horse"; keys Tab; type_text "correct horse"; keys Tab
+    type_text "ENGINE-7Q2X"; keys Tab; keys Enter # Create account
+    STEP_SECONDS=20 step "$t: the new account, signed in, at Settings" \
+      "Welcome! Type in the code from your email, then Verify." \
+      "Email: $newbie@example.org  · not verified yet" "@$newbie@$hostport  Joan Clarke" \
+      "Sent to $newbie@example.org at sign-up. Send code sends another."
+    if grep -F '"register"' "$out/stub.log" | grep -F "\"username\": \"$newbie\"" |
+      grep -qF '"invite_code": "ENGINE-7Q2X"'; then
+      pass "$t: ... made with its invite code (POST /user/register)"
+    else
+      fail "$t: ... the stub made no such account" "$out/stub.log"
+    fi
+    invite_mode false >/dev/null
+    for _ in $(seq 12); do keys Tab; done
+    keys Enter # Send code
+    step "$t: Send code" "Code sent. It's in your email." "A code went to $newbie@example.org"
+    keys Tab; type_text 246810; keys Tab; keys Enter # the code, Verify
+    step "$t: Verify: the address is verified" "Your email address is verified." \
+      "Email: $newbie@example.org  · verified"
+    if grep -qF "{\"email_verified\": \"$newbie\"}" "$out/stub.log"; then
+      pass "$t: ... through POST /email/verify"
+    else
+      fail "$t: ... the stub verified no address for $newbie" "$out/stub.log"
+    fi
 
     start "$backend" "$xdg" "$base" -- --user linus
     step "$t: the form for linus" "Username: [linus"

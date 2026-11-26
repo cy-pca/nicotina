@@ -29,7 +29,7 @@ args:
           help: "More TX.WTF sites the Site combo offers, before the fleet's: base URLs, comma separated (the host must allow each: --net-allow)"}
   user: {type: string, help: "Fill in this username on the sign-in form"}
   start: {type: string, default: feed,
-          help: "The first view once signed in: feed, profile, settings, tags, alerts, search, compose, dms, mail, post:ID, dm:ID, tag:NAME, user:ID, view:ID[:N], search:TEXT, mail:FOLDER[:UID] (in the first mailbox) or mail:new; for an administrator also admin[:users|groups|invites|site|log], auser:ID, agroup:ID or agperm:ID"}
+          help: "The first view once signed in: feed, profile, settings, tags, alerts, search, compose, dms, mail, post:ID, dm:ID, tag:NAME, user:ID, view:ID[:N], search:TEXT, mail:FOLDER[:UID] (in the first mailbox) or mail:new; for an administrator also admin[:users|groups|invites|site|log], auser:ID, agroup:ID or agperm:ID. With no session kept, signup opens a new account's form instead of the sign-in form"}
 
 # Without --net (or --net-allow) the host has no http-request and keeps no credentials, and the
 # load fails here, naming what is missing. (nicotina.ari lists the rest.)
@@ -114,7 +114,7 @@ functions: |
   ;; Whether a slot is signed in: open, and past its sign-in form.
   (defun slot-signed-in (i)
     (let ((s (state-get (slot-key i "screen"))))
-      (and (slot-open i) (!= s "boot") (!= s "signin") (!= s "2fa"))))
+      (and (slot-open i) (!= s "boot") (!= s "signin") (!= s "2fa") (!= s "register"))))
   ;; How many of a slot's conversations have a message not read there (its ui.dm_unread: "" or
   ;; a count).
   (defun slot-dms (i)

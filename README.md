@@ -55,7 +55,7 @@ nicotina [--instance URL] [--terminal] [--backend ftxui|tvision] [host flags...]
 | `--backend ftxui\|tvision` | the terminal backend (FTXUI by default); implies `--terminal` |
 | `--dry-run` | print the host command instead of running it |
 | other options | go to the host, before the document (`--fps 30`, `--no-mouse`, ...) |
-| after `--` | go to the document: `--user NAME` fills in the sign-in form; `--start profile` opens the profile first, not the feed (`--start mail` your mail); `--sites URL,URL` adds sites to the Site combo (allow each with `--net-allow`) |
+| after `--` | go to the document: `--user NAME` fills in the sign-in form; `--start profile` opens the profile first, not the feed (`--start mail` your mail; `--start signup`, with no session kept, a new account's form); `--sites URL,URL` adds sites to the Site combo (allow each with `--net-allow`) |
 
 It picks the terminal when there is no display: no `DISPLAY` or `WAYLAND_DISPLAY` on
 Linux and the BSDs, or an SSH session without X forwarding anywhere. It runs
@@ -98,6 +98,22 @@ all (below).
 - One session a site: the combo won't move a form to a site another window is signed in to.
 - With `--credential-store`, every site's session is kept, and the next start opens each one,
   signed in.
+
+### A new account, and your email address
+
+The sign-in form's **Create an account** opens a new account's form at the site picked, as the
+web app's registration page has it: Username, Name, Email, the password twice, and an invite
+code. The form asks the site whether sign-up is open or invite-only (`GET /invite/mode`, public)
+and says which; where it is invite-only, the code is required. **Create account** posts
+`/user/register`, then signs in to the new account and opens its profile's Settings. The
+passwords leave the state as they are sent. The site's refusals (a username or an address
+someone has, an invite code that won't do, a password too short) show under the form, and
+**Back** returns to the sign-in form. `--start signup` opens the form, where no session is kept.
+
+The profile's **Settings** shows your email address and whether it is verified. Until it is,
+there is a code to type in: txwtf emails one as it makes the account, **Send code** sends another
+(`POST /email/verify/send`; a site that sends no email says so), and **Verify** sends it back
+(`POST /email/verify`).
 
 ### The session token
 
@@ -329,7 +345,9 @@ ARI=$NICOTINA_ARI ARIGL=$NICOTINA_ARIGL tests/run.sh
   and the profile); every kind of card (pictures, a video, a recording, a PDF, a repost, a paid
   post, rich text); an empty feed; an expired session (back to the form, and the host forgets
   it); an instance that doesn't answer; your content filter (the profile's Settings), and a
-  hashtag's posts with a post scored below it left out. The Admin view's parts, an account and a
+  hashtag's posts with a post scored below it left out. A new account's form (`--start
+  signup`), open and invite-only; your email address on Settings, verified, and not yet (with
+  Send code and Verify). The Admin view's parts, an account and a
   group, as ada, the stub's administrator, with Delete on anyone's post, and none of it for
   anyone else.
 - `arigl snapshot`, as text (`--terminal`) and as a PNG.
@@ -343,7 +361,8 @@ ARI=$NICOTINA_ARI ARIGL=$NICOTINA_ARIGL tests/run.sh
   direct message sent; the profile's tabs (Replies, Balances) and an older page of posts; a post
   with a picture and a big file attached (the Open file window, then the uploads, which the stub
   must get whole), where the host can; start again still signed in, sign out; a wrong password;
-  the emailed code, wrong and then right; an account that must change its password first; the
+  the emailed code, wrong and then right; a new account made with an invite code where sign-up is
+  invite-only, signed in to and its address verified; an account that must change its password first; the
   whole feed and profile in an 80x24 pane; Hide below changed and back; Dislike, a Like taking
   it off and it taking the Like off; an administrator's Delete on someone else's post, which asks
   first (Keep it, then Yes, delete it). And
@@ -382,6 +401,8 @@ signs in with the code from the real email. It also checks:
 - that the server refuses a token after sign-out;
 - the 429 txwtf answers once its login rate limit is used up;
 - a server that has gone away;
+- an account made through the client's Create an account, and its address verified with the
+  code the server emails;
 - the Admin view against the server's own admin routes: an account disabled (the server refuses
   its sign-in) and enabled, a group made, a member added and removed, a permission granted and
   revoked, the group deleted, an invite code made and turned off, the system log;
@@ -427,7 +448,9 @@ The client uses only an instance's public API:
   `GET /social/timeline/home` and `/social/timeline/public` (the feed, `mode=latest`, paged by
   `before_id`), `GET /social/posts/{id}` (a post opened whole, with its reactions),
   `GET /social/timeline/user/{id}` (the profile's Posts and Replies tabs),
-  `GET /billing/scrip/balance` and `POST /user/logout`. A new post's files go up as the web
+  `GET /billing/scrip/balance` and `POST /user/logout`. A new account is `GET /invite/mode` and
+  `POST /user/register`, and its address is verified with `POST /email/verify/send` and
+  `POST /email/verify`. A new post's files go up as the web
   app sends them: `POST /social/files` (multipart), or for one over 8 MiB the resumable upload
   (`POST /social/files/resumable`, a `PATCH` per chunk at its `Upload-Offset`, then
   `POST .../complete`), and the post names them in `attachment_ids`. Dislike is

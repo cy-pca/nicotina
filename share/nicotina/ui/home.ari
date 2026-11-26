@@ -227,6 +227,32 @@ units:
             visible_when: (= (state-get "set.v_level") "1")
             color: [0.6, 0.6, 0.6]
           - text: " "
+          # Your email address, and whether it is verified, as the web app's Settings has it.
+          # Until it is: Send code (POST /email/verify/send) emails a code, which Verify sends
+          # back (POST /email/verify). A verified address lets the site turn on the emailed
+          # second step at sign-in, and reach you.
+          - type: group
+            visible_when: (= (state-get "set.v_email") "1")
+            children:
+              - separator
+              - text: ""
+                bind: set.email_line
+              - type: group
+                layout: {kind: horizontal}
+                visible_when: (= (state-get "set.v_verify") "1")
+                children:
+                  - button: Send code
+                    on: (state-set "ui.cmd" "email-send")
+                    tooltip: Email a code to this address
+                  - text: "  "
+                  - input_text: Code
+                    bind: set.email_code
+                  - button: Verify
+                    on: (state-set "ui.cmd" "email-verify")
+              - text: ""
+                bind: set.email_note
+                color: [0.6, 0.6, 0.6]
+                visible_when: (!= (state-get "set.email_note") "")
 
   details_window:
     window: Details

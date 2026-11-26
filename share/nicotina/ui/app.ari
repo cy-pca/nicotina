@@ -163,7 +163,7 @@ units:
     size: [auto, "86%"]    # as wide as what it shows, 86% tall: what does not fit scrolls
     maximized: phone       # on a phone it fills the screen under the menu bar (libcvc 4.0.3)
     visible_when: (and (!= (state-get "ui.screen") "boot") (!= (state-get "ui.screen") "signin")
-                       (!= (state-get "ui.screen") "2fa") (!= (state-get "ui.screen") "closed"))
+                       (!= (state-get "ui.screen") "2fa") (!= (state-get "ui.screen") "register") (!= (state-get "ui.screen") "closed"))
     # The account's page background (profile_bg_url), faint, behind a profile in ImGui, as the
     # web app puts it behind the page. A terminal shows none: the card's is enough there.
     background: {bind: prof.bg_pic_shown, fit: cover, opacity: 0.25, terminal: none}

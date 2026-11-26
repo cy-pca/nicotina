@@ -166,6 +166,24 @@ class Admin:
     def is_admin(self, username):
         return username in self.admins
 
+    def invite_check(self, code):
+        """(valid, why not) for a sign-up's invite code, as txwtf's validate_invite_code."""
+        with self.lock:
+            c = next((c for c in self.invites if c["code"] == code), None)
+            if c is None:
+                return False, "Invalid invite code"
+            if not c["is_active"]:
+                return False, "This invite code is no longer active"
+            if c["max_uses"] and c["use_count"] >= c["max_uses"]:
+                return False, "This invite code has reached its usage limit"
+            return True, None
+
+    def invite_use(self, code):
+        with self.lock:
+            for c in self.invites:
+                if c["code"] == code:
+                    c["use_count"] += 1
+
     def uses_code(self, username):
         """Whether the account signs in with the emailed second factor (an admin may turn it off)."""
         return username in self.two_factor
