@@ -81,12 +81,36 @@ check_store() { # check_store NAME STORE: one session, owner-only (0600 in a 070
 pane() { tmux -L "$sock" capture-pane -p -t app 2>/dev/null; }
 slug() { printf '%s' "$1" | tr -cs 'A-Za-z0-9' '-'; }
 keys() { tmux -L "$sock" send-keys -t app "$@"; sleep 0.3; }
-type_text() { tmux -L "$sock" send-keys -t app -l "$1"; sleep 0.3; }
+# Typed text arrives all at once, and tvision takes a run of keys that come together for a paste:
+# a Tab or Enter still waiting behind them is pasted too, as a tab or a new line, not a key
+# (TEventQueue::getKeyOrPasteEvent). So typing waits until the client has taken the text: the
+# screen has changed and then held still, at most 6 s. On a busy machine a fixed pause was too
+# short, and the next Tab or Enter went into the field.
+settle() { # settle BEFORE: until the pane differs from BEFORE and then holds still for 0.3 s
+  local before=$1 prev=$1 cur changed=0 still=0 _
+  for _ in $(seq 40); do
+    sleep 0.15
+    cur=$(pane)
+    [ "$cur" != "$before" ] && changed=1
+    if [ "$cur" = "$prev" ]; then still=$((still + 1)); else still=0; fi
+    prev=$cur
+    [ "$changed" = 1 ] && [ "$still" -ge 2 ] && return 0
+  done
+  return 0
+}
+type_text() {
+  local before
+  before=$(pane)
+  tmux -L "$sock" send-keys -t app -l "$1"
+  settle "$before"
+}
 # type_secret FILE: type FILE's contents through a tmux buffer, so they are in no command line.
 type_secret() {
+  local before
+  before=$(pane)
   tmux -L "$sock" load-buffer -b secret "$1" &&
     tmux -L "$sock" paste-buffer -d -b secret -t app
-  sleep 0.3
+  settle "$before"
 }
 # start BACKEND XDG INSTANCE [nicotina args...]: the client in a 100x30 pane (PANE=80x24 for
 # another size), as a person runs it.
