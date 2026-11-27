@@ -348,7 +348,7 @@ each, as above. A host where the user adds sites while it runs (nicotina's Site 
 **Sign in to another site**) needs one more generic libcvc feature, because `repeat:` names its
 instances by number only (`{i}`):
 
-- **L27 (libcvc):** a repeated `load:` over the children of a state key, with `{key}`, each child's
+- **L27 (libcvc, transfix/libcvc#1585, open):** a repeated `load:` over the children of a state key, with `{key}`, each child's
   name, filled in wherever `{i}` is: `as:`, the `link:` targets and `name:`. Then
   `repeat: {children: sites}` with `as: "{key}"` and `session: {to: "sessions.{key}"}` mounts one
   session for each child of `sites`, each named by its site. ARIADNE_SHELL.md's `mounts:` names its
@@ -534,9 +534,9 @@ sublevels to test its components.
 | CD-5 | The pairing code needs a nicotina OIDC client on each fleet site. Register them? | Yes, as a deploy step on each site, with one client id everywhere if `register-oidc-client` can be given one (not checked); otherwise a table in `site.ari`. Until then `signin` offers the password form alone. |
 | CD-6 | The packages: names, organisation, versions | `nicotina-components` and `nicotina`, under cy-pca, both starting at nicotina's `meta.version` (0.0.1) and moving together. |
 | CD-7 | Guests (3.7) | Yes, in N4b. txwtf adds a public profile route and a setting that turns guest browsing off. Both are txwtf changes; nicotina works without them, with authors' names that open nothing for a guest. |
-| CD-8 | Multi-device E2EE in TX.WTF (4.1), the only way to encrypted DMs in every client: phone, browser and desktop at once | **Yes, as a txwtf protocol change first** (device ids, every device's bundle, a wrapped key per device, `dr-v2`), then libcvc's store and verbs, then nicotina (N7). It needs a design in txwtf before any code. |
-| CD-9 | One identity across TX.WTF, the conference rooms and the hub (3.8) | **TX.WTF's account is the root,** as sublevels' roadmap already says: arisrvx's authenticate hook accepts the TX.WTF session, and the device key proves the device. That design belongs in cy-pca/sublevels and txwtf. nicotina's part is `adopt` and guests. |
-| CD-10 | Site-named mounts for sites added while running (3.6) | Ask libcvc for L27: a repeated `load:` over a key's children, with `{key}`. Until then, `slot_of.<key>`. |
+| CD-8 | Multi-device E2EE in TX.WTF (4.1, designed in cy-pca/txwtf#18), the only way to encrypted DMs in every client: phone, browser and desktop at once | **Yes, as a txwtf protocol change first** (device ids, every device's bundle, a wrapped key per device, `dr-v2`), then libcvc's store and verbs, then nicotina (N7). It needs a design in txwtf before any code. |
+| CD-9 | One identity across TX.WTF, the conference rooms and the hub (3.8) | **TX.WTF's account is the root,** as sublevels' roadmap already says: arisrvx's authenticate hook accepts the TX.WTF session, and the device key proves the device. That design is cy-pca/sublevels#39. nicotina's part is `adopt` and guests. |
+| CD-10 | Site-named mounts for sites added while running (3.6) | L27, a repeated `load:` over a key's children with `{key}` (transfix/libcvc#1585, open). Until it's in a release, `slot_of.<key>`. |
 
 ## 8. Not in scope
 
