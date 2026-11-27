@@ -663,3 +663,464 @@ units:
           - include: post_card
             args: {list: "{list}"}
 
+# What a post card and a post show: text, rich runs, emoji, pictures and their grid, counts, and
+# what the host can draw (card-flags, post-flags, item-flags).
+# nicotina.ari's on_tick calls them; they were defined inside it until 2026-11.
+functions: |
+  ;; The full handle: @user@host. A brokered (federated) account's username already ends
+  ;; in its home instance (txwtf names it <user>@<home domain>), so it keeps that one.
+  (defun handle (u)
+    (str-concat "@" u (if (string.contains u "@") "" (str-concat "@" (state-get "app.host")))))
+  ;; The card's first row: the handle, then as much of the display name as fits.
+  (defun header (h name)
+    (let ((room (- (CARD) (string.length h) 2)))
+      (if (or (= name "") (< room 4)) (clip h (CARD)) (str-concat h "  " (clip name room)))))
+  (defun pad (s n) ;; s cut or filled with spaces to exactly n columns
+    (begin
+      (set s (clip s n))
+      (while (< (string.length s) n) (set s (str-concat s " ")))
+      s))
+  ;; Text as txwtf stores it is plain, or the rich editor's HTML (a tag in it, as txwtf
+  ;; tells them apart). One line of it: the tags out, the common entities decoded, every run
+  ;; of white space one space.
+  (defun one-line (s)
+    (begin
+      (set s (text s))
+      (if (string.contains s "<")
+        (begin
+          (set out "")
+          (set in-tag nil)
+          (set i 0)
+          (while (< i (string.length s))
+            (set c (string.char-at s i))
+            (if in-tag
+              (if (= c ">") (set in-tag nil))
+              (if (= c "<") (begin (set in-tag true) (set out (str-concat out " ")))
+                (set out (str-concat out c))))
+            (set i (+ i 1)))
+          (set s out)))
+      (for e (list (list "&nbsp;" " ") (list "&lt;" "<") (list "&gt;" ">")
+                   (list "&quot;" "\"") (list "&#39;" "'") (list "&amp;" "&"))
+        (set s (string.replace s (car e) (car (cdr e)))))
+      (set s (string.replace (string.replace (string.replace s "\r" " ") "\n" " ") "\t" " "))
+      (while (string.contains s "  ") (set s (string.replace s "  " " ")))
+      ;; a tag between a word and its punctuation left a space before it (a colon only where
+      ;; a space follows it: " :smile:" is an emoji's shortcode, kept apart from the word)
+      (for p (list "." "," ";" "!" "?")
+        (set s (string.replace s (str-concat " " p) p)))
+      (set s (string.replace s " : " ": "))
+      (string.trim s)))
+  ;; A picture's URL as a request names it: txwtf gives /uploads/... and /static/... from
+  ;; the instance's origin, or a whole URL; "" for none.
+  (defun picture-url (u)
+    (begin
+      (set u (text (if (= (type-of u) "nil") "" u)))
+      (if (or (string.starts-with u "https://") (string.starts-with u "http://")) u
+        (if (string.starts-with u "/") (str-concat (state-get "app.origin") u) ""))))
+  ;; A post's emoji, from the content_html txwtf renders (render_emoji_html): a custom one is
+  ;;   <img class="custom-emoji" src="/social/emojis/12/image" alt=":gear:" ...>
+  ;; and a standard one <span class="emoji" title=":100:">💯</span>. A map of their names to
+  ;; the picture's URL or the character, for the text's emoji: (the host draws a picture in
+  ;; the line, or puts the character in place of the shortcode).
+  (defun attr (tag name) ;; the value of name="..." in a tag's text, or ""
+    (let ((parts (string.split tag (str-concat name "=\""))))
+      (if (> (length parts) 1) (car (string.split (nth parts 1) "\"")) "")))
+  (defun shortcode (s) ;; ":gear:" -> "gear", else ""
+    (if (and (> (string.length s) 2) (string.starts-with s ":") (string.ends-with s ":"))
+      (string.substring s 1 (- (string.length s) 2))
+      ""))
+  (defun emoji-of (html)
+    (let ((m (dict))
+          (h (text (if (= (type-of html) "nil") "" html))))
+      (begin
+        (for part (cdr (string.split h "<img class=\"custom-emoji\""))
+          (let ((name (shortcode (attr part "alt")))
+                (src (picture-url (attr part "src"))))
+            (if (and (!= name "") (!= src "")) (set-attr m (string.lower name) src))))
+        (for part (cdr (string.split h "<span class=\"emoji\""))
+          (let ((name (shortcode (attr part "title")))
+                (pieces (string.split part ">")))
+            (if (and (!= name "") (> (length pieces) 1))
+              (let ((ch (car (string.split (nth pieces 1) "<"))))
+                (if (!= ch "") (set-attr m (string.lower name) ch))))))
+        m)))
+  ;; A post's text as rich text runs (text.runs: transfix/libcvc#1180), read from the same
+  ;; content_html: <strong> and <b> bold, <em> and <i> italic, <code> and <pre> code, an <a>
+  ;; a link to its href (txwtf's mention is /user/NAME, its hashtag /tag/NAME, a URL itself),
+  ;; </p>, <br> and an item a new line, a custom emoji its :name: (the text's emoji: draws
+  ;; it). A run is a string, or {text, style, href}: what a text's runs: takes. Without
+  ;; content_html (a reposted post's brief, a locked post), the plain text, its @names,
+  ;; #tags and URLs linked as txwtf links them.
+  (defun unescape (s)
+    (begin
+      (for e (list (list "&nbsp;" " ") (list "&lt;" "<") (list "&gt;" ">")
+                   (list "&quot;" "\"") (list "&#39;" "'") (list "&#x27;" "'") (list "&amp;" "&"))
+        (set s (string.replace s (car e) (car (cdr e)))))
+      s))
+  (defun run-style (b i c)
+    (string.trim (str-concat (if (> b 0) "bold " "") (if (> i 0) "italic " "")
+                             (if (> c 0) "code" ""))))
+  ;; (text style href) pieces, in order, as runs: neighbours alike joined, a plain one a
+  ;; string, the paragraph's leading and trailing line breaks dropped.
+  (defun merge-runs (parts)
+    (begin
+      (set out (list))
+      (set txt "")
+      (set st "")
+      (set hr "")
+      (for p parts
+        (if (!= (car p) "")
+          (if (and (= (nth p 1) st) (= (nth p 2) hr))
+            (set txt (str-concat txt (car p)))
+            (begin
+              (if (!= txt "") (set out (append out (run-item txt st hr))))
+              (set txt (car p))
+              (set st (nth p 1))
+              (set hr (nth p 2))))))
+      (while (string.ends-with txt "\n")
+        (set txt (string.substring txt 0 (- (string.length txt) 1))))
+      (if (!= txt "") (set out (append out (run-item txt st hr))))
+      out))
+  (defun run-item (txt st hr)
+    (if (= hr "")
+      (if (= st "") txt (dict "text" txt "style" st))
+      (if (= st "") (dict "text" txt "href" hr) (dict "text" txt "style" st "href" hr))))
+  (defun html-runs (h)
+    (begin
+      (set parts (list))
+      (set b 0)
+      (set i 0)
+      (set c 0)
+      (set href "")
+      (set lead true) ;; nothing written yet: a line break here is dropped
+      ;; each piece a tag and the text after it; the text before the first tag has none
+      (set split (string.split h "<"))
+      (set pieces (list (str-concat ">" (car split))))
+      (for pc (cdr split) (set pieces (append pieces pc)))
+      (for piece pieces
+        (begin
+          (set gt (string.split piece ">"))
+          (set tag (string.trim (car gt)))
+          (set after (string.join (cdr gt) ">"))
+          (set name (string.lower (car (string.split tag " "))))
+          (if (string.ends-with name "/")
+            (set name (string.substring name 0 (- (string.length name) 1))))
+          (if (or (= name "strong") (= name "b")) (set b (+ b 1)))
+          (if (or (= name "/strong") (= name "/b")) (set b (math.max 0 (- b 1))))
+          (if (or (= name "em") (= name "i")) (set i (+ i 1)))
+          (if (or (= name "/em") (= name "/i")) (set i (math.max 0 (- i 1))))
+          (if (or (= name "code") (= name "pre")) (set c (+ c 1)))
+          (if (or (= name "/code") (= name "/pre")) (set c (math.max 0 (- c 1))))
+          (if (= name "a") (set href (unescape (attr tag "href"))))
+          (if (= name "/a") (set href ""))
+          (if (and (not lead)
+                   (string.contains "|br|/p|/div|/h1|/h2|/h3|/h4|/h5|/h6|/blockquote|/pre|/li|"
+                                    (str-concat "|" name "|")))
+            (set parts (append parts (list "\n" "" ""))))
+          (if (= name "li") (set parts (append parts (list "• " "" ""))))
+          (if (and (= name "img") (string.contains tag "custom-emoji"))
+            (set parts (append parts (list (attr tag "alt") (run-style b i c) href))))
+          ;; the text after the tag: entities decoded, the source's line breaks spaces
+          ;; (outside code)
+          (set after (unescape after))
+          (if (= c 0)
+            (set after (string.replace (string.replace (string.replace after "\r" "") "\n" " ")
+                                       "\t" " ")))
+          (if (= c 0)
+            (while (and lead (string.starts-with after " "))
+              (set after (string.substring after 1 (- (string.length after) 1)))))
+          (if (!= after "") (set lead nil))
+          (if (and (= name "img") (string.contains tag "custom-emoji")) (set lead nil))
+          (set parts (append parts (list after (run-style b i c) href)))))
+      (merge-runs parts)))
+  ;; A word of plain text as txwtf links it: a URL (its trailing punctuation too, as txwtf's
+  ;; pattern takes it), or a #tag or @name without its trailing punctuation.
+  (defun word-parts (w)
+    (if (or (string.starts-with w "https://") (string.starts-with w "http://"))
+      (list (list w "" w))
+      (if (and (> (string.length w) 1)
+               (or (string.starts-with w "#") (string.starts-with w "@")))
+        (begin
+          (set core w)
+          (set tail "")
+          (set going true)
+          (while going
+            (if (> (string.length core) 2)
+              (let ((ch (string.substring core (- (string.length core) 1) 1)))
+                (if (string.contains ".,;:!?)'\"" ch)
+                  (begin
+                    (set tail (str-concat ch tail))
+                    (set core (string.substring core 0 (- (string.length core) 1))))
+                  (set going nil)))
+              (set going nil)))
+          (list (list core ""
+                      (str-concat (if (string.starts-with core "#") "/tag/" "/user/")
+                                  (string.substring core 1 (- (string.length core) 1))))
+                (list tail "" "")))
+        (list (list w "" "")))))
+  (defun plain-runs (s)
+    (begin
+      (set parts (list))
+      (set first-line true)
+      (for line (string.split (string.replace (text s) "\r" "") "\n")
+        (begin
+          (if (not first-line) (set parts (append parts (list "\n" "" ""))))
+          (set first-line nil)
+          (set first-word true)
+          (for w (string.split line " ")
+            (begin
+              (if (not first-word) (set parts (append parts (list " " "" ""))))
+              (set first-word nil)
+              (for p (word-parts w) (set parts (append parts p)))))))
+      (merge-runs parts)))
+  ;; Whether a post's text is drawn as rich text here (app.runs, asked once at start).
+  (defun rich? () (= (state-get "app.runs") "1"))
+  (defun runs-of (html plain)
+    (let ((h (text (if (= (type-of html) "nil") "" html))))
+      (if (= (string.trim h) "") (plain-runs (text (if (= (type-of plain) "nil") "" plain)))
+        (html-runs h))))
+  ;; A post's runs as a card or the post's view shows them: a repost's own words (a quote)
+  ;; before the post it reposts, " | " between, as body-of does.
+  (defun post-runs (q)
+    (let ((p (shown q))
+          (own (runs-of (opt q "content_html" nil) (opt q "content" ""))))
+      (if (= (type-of (opt q "reposted_post" nil)) "dict")
+        (let ((orig (runs-of (opt p "content_html" nil) (opt p "content" ""))))
+          (if (= (length own) 0) orig
+            (begin
+              (set all own)
+              (set all (append all " | "))
+              (for r orig (set all (append all r)))
+              all)))
+        own)))
+  ;; Whether a picture URL is a video, as txwtf's web app decides (isVideoMediaUrl): it plays
+  ;; .mp4, .webm, .mov and .m4v avatars, banners and backgrounds as muted loops. Until the
+  ;; host has a video widget, those keep their placeholder: image: can't draw them.
+  (defun video-url? (u)
+    (let ((path (string.lower (car (string.split (car (string.split (text u) "?")) "#")))))
+      (or (string.ends-with path ".mp4") (string.ends-with path ".webm")
+          (string.ends-with path ".mov") (string.ends-with path ".m4v"))))
+  ;; The URL for an image: slot: a picture's, or "" for none or a video.
+  (defun picture-only (u) (if (video-url? u) "" u))
+  ;; The avatar's placeholder: a frame with the initials, 8 x 4 (64 px square) in a terminal.
+  (defun initials (name)
+    (let ((words (collections.filter (string.split (string.trim name) " ")
+                                     (lambda (w) (!= w "")))))
+      (string.upper
+        (if (= (length words) 0) "?"
+          (if (= (length words) 1) (string.substring (car words) 0 1)
+            (str-concat (string.substring (car words) 0 1)
+                        (string.substring (nth words (- (length words) 1)) 0 1)))))))
+  (defun avatar-box (ini)
+    (if (has? "term")
+      (list "╭──────╮" "│      │" (str-concat "│" (pad (str-concat "  " ini) 6) "│")
+            "╰──────╯")
+      (list " " (str-concat "(" ini ")") " " " ")))
+  ;; s's words in lines of at most n columns; a longer word is cut.
+  (defun wrap (s n)
+    (begin
+      (set lines (list))
+      (set line "")
+      (for w (string.split s " ")
+        (if (!= w "")
+          (begin
+            (while (> (string.length w) n)
+              (if (!= line "") (begin (set lines (append lines line)) (set line "")))
+              (set lines (append lines (string.substring w 0 n)))
+              (set w (string.substring w n (string.length w))))
+            (if (= line "")
+              (set line w)
+              (if (<= (+ (string.length line) 1 (string.length w)) n)
+                (set line (str-concat line " " w))
+                (begin (set lines (append lines line)) (set line w)))))))
+      (if (!= line "") (set lines (append lines line)))
+      lines))
+  ;; Paragraphs, for a post shown whole: the rich editor's </p> and <br> end one.
+  (defun paragraphs (s)
+    (begin
+      (set s (text s))
+      (for b (list "</p>" "<br>" "<br/>" "<br />") (set s (string.replace s b "\n")))
+      (collections.filter (collections.map (string.split s "\n") one-line)
+                          (lambda (p) (!= p "")))))
+  (defun nth-or (l k) (if (> (length l) k) (nth l k) ""))
+  (defun posted-at (iso) ;; 2026-10-30T22:40:00 -> 2026-10-30 22:40 (txwtf's time, UTC)
+    (let ((stamp (text iso)))
+      (if (>= (string.length stamp) 16)
+        (str-concat (string.substring stamp 0 10) " " (string.substring stamp 11 5))
+        stamp)))
+  (defun human-size (n)
+    (let ((n (int n)))
+      (if (< n 1024) (str-concat (text n) " B")
+        (if (< n 1048576) (str-concat (text (int (math.round (/ n 1024)))) " KB")
+          (str-concat (text (/ (int (math.round (/ n 104857.6))) 10)) " MB")))))
+  ;; txwtf gives an attachment's mime type, never a kind.
+  (defun kind (mime)
+    (if (string.starts-with mime "image/") "image"
+      (if (string.starts-with mime "video/") "video"
+        (if (string.starts-with mime "audio/") "audio" "file"))))
+  (defun media-row (a)
+    (if (or (opt a "deleted" nil) (= (opt a "url" "") ""))
+      "[deleted attachment]"
+      (let ((alt (one-line (opt a "alt_text" ""))))
+        (str-concat "[" (kind (text (opt a "mime_type" ""))) "] " (text (opt a "filename" ""))
+                    " · " (human-size (opt a "file_size" 0))
+                    (if (= alt "") "" (str-concat " · " alt))))))
+  ;; A post's pictures and videos, in order, each with its place among what the viewer shows
+  ;; (every attachment with a URL but a file): the tiles of its grid.
+  (defun tiles-of (media)
+    (let ((tiles (list)) (vn 0))
+      (begin
+        (for m media
+          (if (and (!= (kind (text (opt m "mime_type" ""))) "file") (!= (opt m "url" "") ""))
+            (begin
+              (if (or (= (kind (text (opt m "mime_type" ""))) "image")
+                      (= (kind (text (opt m "mime_type" ""))) "video"))
+                (set tiles (append tiles (dict "url" (picture-url (opt m "url" nil))
+                                               "kind" (kind (text (opt m "mime_type" "")))
+                                               "vi" (text vn)))))
+              (set vn (+ vn 1)))))
+        tiles)))
+  (defun tile (tiles k f) (if (> (length tiles) k) (opt (nth tiles k) f "") ""))
+  ;; The grid, as tx.wtf lays a post's pictures and videos out: gn the tiles it shows (0 to
+  ;; 4), g0..g3 each tile's picture, kind and place in the viewer, and gmore "+N" when there
+  ;; are more than four (the viewer has them all).
+  (defun grid-fields (tiles)
+    (let ((n (length tiles)))
+      (dict "gn" (text (if (> n 4) 4 n))
+            "gmore" (if (> n 4) (str-concat "+" (text (- n 4))) "")
+            "gmore_line" (if (> n 4) (str-concat "+" (text (- n 4)) " more: View shows them all") "")
+            "g0_url" (tile tiles 0 "url") "g0_kind" (tile tiles 0 "kind") "g0_vi" (tile tiles 0 "vi")
+            "g1_url" (tile tiles 1 "url") "g1_kind" (tile tiles 1 "kind") "g1_vi" (tile tiles 1 "vi")
+            "g2_url" (tile tiles 2 "url") "g2_kind" (tile tiles 2 "kind") "g2_vi" (tile tiles 2 "vi")
+            "g3_url" (tile tiles 3 "url") "g3_kind" (tile tiles 3 "kind") "g3_vi" (tile tiles 3 "vi"))))
+  ;; The URL of the first attachment of a kind ("video", "audio"), or "".
+  (defun first-of (media k)
+    (let ((hits (collections.filter media
+                  (lambda (m) (and (= (kind (text (opt m "mime_type" ""))) k)
+                                   (!= (opt m "url" "") ""))))))
+      (if (= (length hits) 0) "" (picture-url (opt (nth hits 0) "url" nil)))))
+  ;; "1" when every attachment is a picture or a video: the grid shows them all, so a card on a
+  ;; host that draws the grid needs no rows for them.
+  (defun only-visual (media)
+    (if (= (length (collections.filter media
+                     (lambda (m) (let ((k (kind (text (opt m "mime_type" "")))))
+                                   (and (!= k "image") (!= k "video"))))))
+           0)
+      "1" ""))
+  ;; The show/hide decisions, "1" or "" each, from the host's capabilities (app.*, set once
+  ;; by init) and the post: the views' visible_when read them.
+  (defun flag (b) (if b "1" ""))
+  (defun cap (k) (= (state-get (str-concat "app." k)) "1"))
+  (defun card-flags (avpic tags pic vid au tiles only m0 viewable)
+    (let ((rich (cap "rich")) (term (cap "term")) (pics (cap "pics")) (media (cap "media")))
+      (dict "v_avpic" (flag (and pics (!= avpic "")))
+            "v_avtxt" (flag (not (and pics (!= avpic ""))))
+            ;; outside a terminal, where a click on a group is its own: the card opens its
+            ;; post, its count icons act, its hashtags are chips; elsewhere the buttons, and
+            ;; the hashtags a radio row (a line of them in a terminal)
+            "v_click" (flag (and (cap "clicks") (not term)))
+            "v_btns" (flag (not (and (cap "clicks") (not term))))
+            "v_chips" (flag (and (cap "clicks") (not term) (!= tags "")))
+            "v_tagline" (flag (and term (!= tags "")))
+            "v_tagrow" (flag (and (not term) (not (cap "clicks")) (!= tags "")))
+            ;; one picture or video, or a grid: as wide as the line where the host
+            ;; measures it (rich), else at fixed sizes; a terminal shows the first picture
+            ;; and the first video
+            "v_grid" (flag (and rich (> (length tiles) 0)))
+            "v_fgrid" (flag (and pics (not rich) (not term) (> (length tiles) 0)))
+            "v_pic_t" (flag (and pics term (!= pic "")))
+            "v_vid_t" (flag (and media term (!= vid "")))
+            "v_audio" (flag (and media (!= au "")))
+            ;; no rows where the pictures show every attachment: View moves to the buttons
+            "v_rows" (flag (and (!= m0 "") (not (and pics (not term) (= only "1")))))
+            "v_viewbtn" (flag (and pics (not term) (= only "1") viewable))
+            "v_gmore" (flag (and (> (length tiles) 4) (not (cap "badge")))))))
+  (defun post-flags (avpic tiles tags)
+    (let ((pics (cap "pics")) (click (and (cap "clicks") (not (cap "term")))))
+      (dict "v_avpic" (flag (and pics (!= avpic "")))
+            "v_avtxt" (flag (not (and pics (!= avpic ""))))
+            "v_click" (flag click)
+            "v_btns" (flag (not click))
+            "v_chips" (flag (and click (!= tags "")))
+            "v_tagrow" (flag (and (not click) (!= tags "")))
+            "v_grid" (flag (and (cap "rich") (> (length tiles) 0)))
+            "v_fgrid" (flag (and pics (not (cap "rich")) (not (cap "term")) (> (length tiles) 0)))
+            "v_term" (flag (cap "term"))
+            "v_gmore" (flag (and (> (length tiles) 4) (not (cap "badge")))))))
+  ;; An attachment's own (a post's, the viewer's): its picture or player as wide as the line
+  ;; (_fill), at a fixed size (_fix), in a terminal (_t), its recording's player, and View.
+  (defun item-flags (k)
+    (let ((term (cap "term")) (pics (cap "pics")) (media (cap "media")) (rich (cap "rich")))
+      (dict "v_img_fill" (flag (and rich (= k "image")))
+            "v_img_fix" (flag (and pics (not rich) (= k "image")))
+            "v_img_w" (flag (and pics (not rich) (not term) (= k "image")))
+            "v_img_t" (flag (and pics term (= k "image")))
+            "v_vid_fill" (flag (and media rich (= k "video")))
+            "v_vid_fix" (flag (and media (not rich) (= k "video")))
+            "v_vid_w" (flag (and media (not rich) (not term) (= k "video")))
+            "v_vid_t" (flag (and media term (= k "video")))
+            "v_aud" (flag (and media (= k "audio")))
+            "v_view" (flag (!= k "file")))))
+  ;; Its hashtags as chips: t0..t5, and tmore for the rest.
+  (defun chip-fields (tags)
+    (let ((l (if (= tags "") (list) (string.split tags "|"))))
+      (dict "t0" (nth-or l 0) "t1" (nth-or l 1) "t2" (nth-or l 2)
+            "t3" (nth-or l 3) "t4" (nth-or l 4) "t5" (nth-or l 5)
+            "tmore" (if (> (length l) 6) (str-concat "+" (text (- (length l) 6))) ""))))
+  ;; Its counts as icons to press: reply, repost (green once you have), like (red once you
+  ;; have), dislike (blue once you have), and the views. txwtf tells only a post's author
+  ;; how many dislike it (dislike_count); everyone else sees the icon alone.
+  (defun icon-fields (q)
+    (let ((dc (opt q "dislike_count" nil)))
+      (dict "c_reply" (str-concat " ↩ " (text (opt q "reply_count" 0)) " ")
+            "c_repost" (str-concat " ⇄ " (text (opt q "repost_count" 0)) " ")
+            "c_like" (str-concat " ♥ " (text (opt q "reaction_count" 0)) " ")
+            "c_dislike" (if (= (type-of dc) "nil") " ▼ " (str-concat " ▼ " (text dc) " "))
+            "c_views" (str-concat "· " (text (opt q "view_count" 0)) " views"))))
+  (defun merge4 (a b c d)
+    (collections.dict-merge (collections.dict-merge (collections.dict-merge a b) c) d))
+  (defun counts-of (q)
+    (str-concat "↩" (text (opt q "reply_count" 0)) " ⇄" (text (opt q "repost_count" 0))
+                " ♥" (text (opt q "reaction_count" 0)) " · " (text (opt q "view_count" 0))
+                " views"))
+  (defun author-name (a)
+    (let ((n (text (opt a "name" ""))))
+      (if (= n "") (text (opt a "username" "?")) n)))
+  ;; What a card shows of a post: a repost shows the post it reposts, under a note.
+  (defun shown (q)
+    (let ((r (opt q "reposted_post" nil)))
+      (if (= (type-of r) "dict") r q)))
+  (defun repost-note (q)
+    (if (= (type-of (opt q "reposted_post" nil)) "dict")
+      (clip (str-concat "⇄ " (author-name (opt q "author" (dict))) " reposted") (CARDW))
+      ""))
+  ;; A repost's own words (a quote) go before the post it reposts.
+  (defun body-of (q)
+    (let ((own (one-line (opt q "content" "")))
+          (orig (one-line (opt (shown q) "content" ""))))
+      (if (= (type-of (opt q "reposted_post" nil)) "dict")
+        (if (= own "") orig (str-concat own " | " orig))
+        own)))
+  (defun web-of (q) (str-concat (state-get "app.origin") "/app/post/" (text (opt q "id" 0))))
+  ;; The hashtags in a post's text, each once, in order, as txwtf finds them (#word): the
+  ;; options of a radio row, "|" between them, and a line of them.
+  (defun hashtags (s)
+    (let ((tags (list)))
+      (begin
+        (for w (string.split (one-line s) " ")
+          (begin
+            (while (and (> (string.length w) 1)
+                        (string.contains ".,;:!?)'\"" (string.substring w (- (string.length w) 1) 1)))
+              (set w (string.substring w 0 (- (string.length w) 1))))
+            (if (and (string.starts-with w "#") (> (string.length w) 1)
+                     (not (string.contains (string.substring w 1 (- (string.length w) 1)) "#")))
+              (set tags (append tags (string.lower w))))))
+        (collections.unique tags))))
+  (defun tag-options (q) (string.join (hashtags (str-concat (opt q "content" "") " "
+                                                            (opt (shown q) "content" "")))
+                                      "|"))
+  ;; Whether you liked, disliked or reposted it, after its counts.
+  (defun yours (p)
+    (str-concat (if (opt p "user_has_reacted" nil) " · liked" "")
+                (if (opt p "user_has_disliked" nil) " · disliked" "")
+                (if (opt p "user_has_reposted" nil) " · reposted" "")))

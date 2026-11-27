@@ -319,3 +319,670 @@ units:
         bind: mail.new.note
         color: [0.6, 0.6, 0.6]
         visible_when: (!= (state-get "mail.new.note") "")
+
+# Mail's functions: mailboxes and folders, a message, and the form.
+# nicotina.ari's on_tick calls them; they were defined inside it until 2026-11.
+functions: |
+  (defun mbox-path (acct folder)
+    (str-concat "/mail/" (word acct) "/folders/" (url-encode folder) "/messages"))
+  ;; A refusal's detail: txwtf's string, or the first message of pydantic's list.
+  (defun detail-of (r)
+    (let ((d (opt (reply-json r) "detail" "")))
+      (if (is-string d) d
+        (if (= (type-of d) "list")
+          (if (> (length d) 0) (text (opt (nth d 0) "msg" "")) "")
+          ""))))
+  ;; A mail request failed. txwtf answers 401 "(AccessDenied)" for an account the site gives
+  ;; no mail, 402 for a mailbox suspended for its scrip, 403 for one not yours, 404 for one
+  ;; gone, 502 when its mail server failed; only another 401 ends the session.
+  (defun mail-failed (r what)
+    (if (refused? r) (fail "This account may not use mail here.")
+      (if (or (= (status r) 401)
+              (and (= (status r) 0) (string.contains (get-attr r "error") "no credential")))
+        (session-over)
+        (if (= (status r) 0) (unreachable r)
+          (let ((d (detail-of r)))
+            (fail (str-concat "Couldn't " what (if (= d "") "" (str-concat ": " d))
+                              " (HTTP " (str (status r)) ").")))))))
+  ;; One line of a header: no line breaks, one space between words.
+  (defun plain-line (s)
+    (begin
+      (set s (string.replace (string.replace (string.replace (text s) "\r" " ") "\n" " ") "\t" " "))
+      (while (string.contains s "  ") (set s (string.replace s "  " " ")))
+      (string.trim s)))
+  (defun mail-subject (s)
+    (let ((sj (plain-line s))) (if (= sj "") "(no subject)" sj)))
+  ;; Addresses as a header writes them: "Grace Hopper <grace@navy.example>, bob@x.example".
+  ;; One's address, its name (the address where it has none), and a list's: split at its
+  ;; commas, a piece with no @ joined to the next ("Hopper, Grace" <g@x> has one in its name).
+  (defun addr-of (a)
+    (let ((s (string.trim (text a))))
+      (if (string.contains s "<")
+        (string.trim (car (string.split (nth (string.split s "<") 1) ">")))
+        (string.trim (string.replace s "\"" "")))))
+  (defun addr-name (a)
+    (let ((s (string.trim (text a))))
+      (if (string.contains s "<")
+        (let ((n (string.trim (string.replace (car (string.split s "<")) "\"" ""))))
+          (if (= n "") (addr-of s) n))
+        (addr-of s))))
+  (defun addr-split (s)
+    (let ((out (list)) (acc ""))
+      (begin
+        (for p (string.split (string.replace (text s) ";" ",") ",")
+          (begin
+            (set acc (if (= acc "") p (str-concat acc "," p)))
+            (if (string.contains acc "@")
+              (begin
+                (if (!= (string.trim acc) "") (set out (append out (string.trim acc))))
+                (set acc "")))))
+        (if (!= (string.trim acc) "") (set out (append out (string.trim acc))))
+        out)))
+  (defun addr-list (s) (collections.map (addr-split s) addr-of))
+  (defun first-addr (s) (let ((l (addr-split s))) (if (= (length l) 0) "" (nth l 0))))
+  ;; An address txwtf takes (pydantic's EmailStr): something@host.domain, no blanks.
+  (defun mail-addr? (a)
+    (let ((at (string.split (text a) "@")))
+      (if (!= (length at) 2) nil
+        (if (or (= (nth at 0) "") (string.contains (text a) " ")) nil
+          (string.contains (nth at 1) ".")))))
+  ;; A new list of a's items then b's (append adds to the list it is given).
+  (defun concat (a b)
+    (let ((out (list))) (begin (for x a (set out (append out x))) (for x b (set out (append out x))) out)))
+  (defun two (n) (if (< (int n) 10) (str-concat "0" (text (int n))) (text (int n))))
+  (defun digits? (s)
+    (let ((s2 (text s)) (all (> (string.length (text s)) 0)) (j 0))
+      (begin
+        (while (< j (string.length s2))
+          (begin
+            (if (not (string.contains "0123456789" (string.char-at s2 j))) (set all nil))
+            (set j (+ j 1))))
+        all)))
+  ;; A Date header ("Tue, 24 Nov 2026 14:02:11 -0600") as 2026-11-24 14:02, in the sender's
+  ;; time; mail-day its day. Anything else as it is.
+  (defun mail-when (d)
+    (let ((s (text d)) (parts (list)) (mon 0))
+      (begin
+        (if (string.contains s ",") (set s (nth (string.split s ",") 1)))
+        (set parts (collections.filter (string.split (plain-line s) " ") (lambda (x) (!= x ""))))
+        (if (>= (length parts) 4)
+          (for k (range 12)
+            (if (= (nth (MONTHS) k) (string.lower (string.substring (nth parts 1) 0 3)))
+              (set mon (+ k 1)))))
+        (if (and (> mon 0) (>= (length parts) 4))
+          (if (and (digits? (nth-or parts 0)) (digits? (nth-or parts 2)))
+            (str-concat (nth parts 2) "-" (two mon) "-" (two (nth parts 0)) " "
+                        (string.substring (nth parts 3) 0 5))
+            (plain-line d))
+          (plain-line d)))))
+  (defun mail-day (d)
+    (let ((w (mail-when d))) (if (> (string.length w) 10) (string.substring w 0 10) w)))
+  (defun has-flag? (m f)
+    (> (length (collections.filter (opt m "flags" (list)) (lambda (x) (= (text x) f)))) 0))
+
+  ;; Your mailboxes: GET /mail/accounts, once a sign-in (mail.loaded), as two lists kept
+  ;; "a|b" (mail.acct_ids, mail.acct_opts: the combo's options); mail.acct the one shown,
+  ;; the first until another is picked. True when they loaded, none being an answer too
+  ;; (and a site with no /mail at all, txwtf before its webmail).
+  (defun mail-ids () (if (= (sget "mail.acct_ids") "") (list) (string.split (sget "mail.acct_ids") "|")))
+  (defun mail-emails () (if (= (sget "mail.acct_opts") "") (list) (string.split (sget "mail.acct_opts") "|")))
+  (defun mail-email (id)
+    (let ((ids (mail-ids)) (ems (mail-emails)) (found ""))
+      (begin
+        (for k (range (length ids)) (if (= (nth ids k) (text id)) (set found (nth-or ems k))))
+        found)))
+  (defun mail-id-of (email)
+    (let ((ids (mail-ids)) (ems (mail-emails)) (found ""))
+      (begin
+        (for k (range (length ems)) (if (= (nth ems k) (text email)) (set found (nth-or ids k))))
+        found)))
+  (defun mail-use (id)
+    (begin
+      (state-set "mail.acct" (text id))
+      (state-set "mail.acct_pick" (mail-email id))
+      ;; beside [ Write ][ Refresh ], 20 columns
+      (state-set "mail.acct_line" (col-pad (str-concat "Mailbox: " (mail-email id)) (- (WIDE) 20)))))
+  (defun mail-accounts ()
+    (if (= (sget "mail.loaded") "1") true
+      (let ((r (get-authed "/mail/accounts")))
+        (if (or (ok? r) (= (status r) 404))
+          (let ((accts (collections.filter (opt (if (ok? r) (reply-json r) (dict)) "accounts" (list))
+                         (lambda (a) (and (!= (text (opt a "status" "")) "deleted")
+                                          (!= (word (opt a "id" "")) "")
+                                          (not (string.contains (text (opt a "email" "")) "|")))))))
+            (begin
+              (state-set "mail.acct_ids" (string.join (collections.map accts (lambda (a) (word (opt a "id" "")))) "|"))
+              (state-set "mail.acct_opts" (string.join (collections.map accts (lambda (a) (text (opt a "email" "")))) "|"))
+              (state-set "mail.v_accts" (if (> (length accts) 1) "1" ""))
+              (state-set "mail.none" (if (ok? r) "" "1"))
+              (if (> (length accts) 0)
+                (mail-use (if (= (mail-email (sget "mail.acct")) "") (word (opt (nth accts 0) "id" ""))
+                            (sget "mail.acct"))))
+              (state-set "mail.loaded" "1")
+              true))
+          (begin (mail-failed r "load your mailboxes") nil)))))
+  ;; The mailbox to show: id, else the one shown, else the first; "" when there's none.
+  (defun mail-pick (id)
+    (if (!= (mail-email id) "") (text id)
+      (if (!= (mail-email (sget "mail.acct")) "") (sget "mail.acct")
+        (if (> (length (mail-ids)) 0) (nth (mail-ids) 0) ""))))
+  ;; No mailbox: the view says so, with nothing to list.
+  (defun mail-empty ()
+    (begin
+      (state-set "mail.acct_line" "")
+      (state-set "mail.folder_opts" "")
+      (state-set-tree "mail.rows" (list))
+      (state-set "mail.page" "")
+      (state-set "mail.head"
+        (if (= (sget "mail.none") "1") (str-concat (state-get "app.host") " has no mail.")
+          (clip (str-concat "You have no mailbox at " (state-get "app.host")
+                            " yet: the web app's Mail makes one.")
+                (WIDE))))
+      true))
+
+  ;; A mailbox's folders, in the order the view offers them: the inbox, Sent, Drafts, then
+  ;; the rest as the server lists them (none it can't open), by the flags Dovecot gives them
+  ;; (\Sent, \Drafts) or their names. Kept for the sign-in: mail.fnames.<id> "INBOX|Sent|..."
+  ;; and each one's role, mail.froles.<id> "inbox|sent|drafts|...|" ("" for the rest).
+  (defun folder-label (name)
+    (if (= (string.upper name) "INBOX") "Inbox"
+      (let ((segs (string.split (string.replace name "/" ".") ".")))
+        (if (= (nth segs (- (length segs) 1)) "") name (nth segs (- (length segs) 1))))))
+  (defun mail-folders (acct)
+    (if (state-exists (str-concat "mail.fnames." (word acct))) true
+      (let ((r (get-authed (str-concat "/mail/" (word acct) "/folders"))))
+        (if (ok? r)
+          (let ((inbox (list)) (sent (list)) (drafts (list)) (rest (list)) (fl "") (n ""))
+            (begin
+              (for f (opt (reply-json r) "folders" (list))
+                (begin
+                  (set fl (string.join (collections.map (opt f "flags" (list)) text) " "))
+                  (set n (text (opt f "name" "")))
+                  (if (not (or (string.contains fl "\\Noselect") (string.contains fl "\\NonExistent")
+                               (= n "") (string.contains n "|")))
+                    (if (= (string.upper n) "INBOX") (set inbox (append inbox n))
+                      (if (or (string.contains fl "\\Sent") (= n "Sent")) (set sent (append sent n))
+                        (if (or (string.contains fl "\\Drafts") (= n "Drafts")) (set drafts (append drafts n))
+                          (set rest (append rest n))))))))
+              (set n (list))
+              (set fl (list))
+              (for x inbox (begin (set n (append n x)) (set fl (append fl "inbox"))))
+              (for x sent (begin (set n (append n x)) (set fl (append fl "sent"))))
+              (for x drafts (begin (set n (append n x)) (set fl (append fl "drafts"))))
+              (for x rest (begin (set n (append n x)) (set fl (append fl "other"))))
+              (state-set (str-concat "mail.fnames." (word acct)) (string.join n "|"))
+              (state-set (str-concat "mail.froles." (word acct)) (string.join fl "|"))
+              true))
+          (begin (mail-failed r "load your folders") nil)))))
+  (defun mail-fnames (acct)
+    (let ((s (sget (str-concat "mail.fnames." (word acct))))) (if (= s "") (list) (string.split s "|"))))
+  ;; A folder by its name, its label, or its name in other letters (a --start link is in
+  ;; lower case): its name as the server has it, else "".
+  (defun mail-folder-named (acct want)
+    (let ((found ""))
+      (begin
+        (for n (mail-fnames acct)
+          (if (and (= found "") (or (= n want) (= (string.lower n) (string.lower want))
+                                    (= (string.lower (folder-label n)) (string.lower want))))
+            (set found n)))
+        found)))
+  (defun mail-role (acct folder)
+    (let ((names (mail-fnames acct))
+          (roles (string.split (sget (str-concat "mail.froles." (word acct))) "|"))
+          (found "other"))
+      (begin
+        (for k (range (length names)) (if (= (nth names k) folder) (set found (nth-or roles k))))
+        found)))
+
+  ;; A folder's row for a message: who (for Sent and Drafts, whom to), its subject, its day,
+  ;; ● for one not read. A terminal's line is 66 columns, then [ Open ].
+  (defun mail-row (m role)
+    (let ((out (or (= role "sent") (= role "drafts")))
+          (unread (not (has-flag? m "\\Seen"))))
+      (let ((who (if out (str-concat "To " (addr-name (first-addr (opt m "to" ""))))
+                   (addr-name (opt m "from" ""))))
+            (sj (mail-subject (opt m "subject" "")))
+            (day (mail-day (opt m "date" ""))))
+        (collections.dict-merge (click-flags)
+          (dict "uid" (word (opt m "uid" ""))
+                "label" (str-concat (if unread "● " "") who " · " sj)
+                "sub" (str-concat day "  " (if out (clip (plain-line (opt m "to" "")) 60)
+                                             (addr-of (opt m "from" ""))))
+                "line" (str-concat (if unread "● " "  ") (pad who 18) " " (pad sj 33) " "
+                                   (pad day 10) " "))))))
+  ;; A folder of a mailbox, at off: its page of messages (GET .../messages), the folders to
+  ;; pick, and the pager. acct "" is the one shown (or the first); folder "" the inbox.
+  (defun load-mail (acct folder off)
+    (if (not (mail-accounts)) nil
+      (if (= (length (mail-ids)) 0) (mail-empty)
+        (begin
+          (set acct (mail-pick acct))
+          (mail-use acct)
+          (if (not (mail-folders acct)) nil
+            (begin
+              (set folder (mail-folder-named acct (if (= folder "") "INBOX" folder)))
+              (if (= folder "") (set folder (nth-or (mail-fnames acct) 0)))
+              (if (= folder "") (begin (fail "That mailbox has no folders.") nil)
+                (let ((r (get-query (mbox-path acct folder)
+                                    (dict "limit" (text (MAILPAGE)) "offset" (text off))))
+                      (role (mail-role acct folder)))
+                  (if (ok? r)
+                    (let ((b (reply-json r)))
+                      (let ((msgs (collections.filter (opt b "messages" (list))
+                                    (lambda (m) (not (has-flag? m "\\Deleted")))))
+                            (total (int (opt b "total" 0))))
+                        (begin
+                          (state-set "mail.folder" folder)
+                          (state-set "mail.folder_pick" (folder-label folder))
+                          (state-set "mail.folder_opts"
+                            (string.join (collections.map (mail-fnames acct) folder-label) "|"))
+                          (state-set "mail.offset" off)
+                          (state-set "mail.total" total)
+                          (state-set-tree "mail.rows" (collections.map msgs (lambda (m) (mail-row m role))))
+                          (state-set "mail.head"
+                            (if (= total 0) (str-concat "No mail in " (folder-label folder) ".")
+                              (str-concat (folder-label folder) ": " (n-of total "message" "messages"))))
+                          (state-set "mail.page"
+                            (if (<= total (MAILPAGE)) ""
+                              (str-concat "  " (text (+ off 1)) "-" (text (math.min total (+ off (MAILPAGE))))
+                                          " of " (text total))))
+                          true)))
+                    (begin (mail-failed r (str-concat "open " (folder-label folder))) nil))))))))))
+  ;; Where Mail goes: the folder shown last, else the first mailbox's inbox.
+  (defun mail-entry ()
+    (if (= (sget "mail.acct") "") "mail"
+      (str-concat "mail|" (sget "mail.acct") "|" (url-encode (sget "mail.folder")) "|0")))
+  (defun mail-here (acct folder off)
+    (str-concat "mail|" (word acct) "|" (url-encode folder) "|" (text off)))
+
+  ;; A message's text, as lines: its plain-text part, else its HTML part's text with the tags
+  ;; out (<style>, <script> and <head> with what's in them), a block's end a line's, a list
+  ;; item "• ", the common entities decoded. Ariadne draws no HTML.
+  (defun entities (s)
+    (begin
+      (for e (list (list "&nbsp;" " ") (list "&#160;" " ") (list "&lt;" "<") (list "&gt;" ">")
+                   (list "&quot;" "\"") (list "&#34;" "\"") (list "&#39;" "'") (list "&apos;" "'")
+                   (list "&rsquo;" "’") (list "&#8217;" "’") (list "&lsquo;" "‘") (list "&#8216;" "‘")
+                   (list "&ldquo;" "“") (list "&#8220;" "“") (list "&rdquo;" "”") (list "&#8221;" "”")
+                   (list "&ndash;" "–") (list "&#8211;" "–") (list "&mdash;" "—") (list "&#8212;" "—")
+                   (list "&hellip;" "…") (list "&#8230;" "…") (list "&bull;" "•") (list "&middot;" "·")
+                   (list "&copy;" "©") (list "&reg;" "®") (list "&trade;" "™") (list "&amp;" "&"))
+        (set s (string.replace s (car e) (car (cdr e)))))
+      s))
+  (defun html-text (h)
+    (let ((out "") (skip "") (first true) (tag "") (name "") (after ""))
+      (begin
+        (for p (string.split (text h) "<")
+          (if first (begin (set first nil) (set out p))
+            (if (not (string.contains p ">")) (if (= skip "") (set out (str-concat out "<" p)))
+              (begin
+                (set tag (car (string.split p ">")))
+                (set after (string.substring p (+ (string.length tag) 1) (string.length p)))
+                (set name (string.lower (car (string.split (string.trim (string.replace (string.replace tag "\n" " ") "\t" " ")) " "))))
+                (if (string.ends-with name "/") (set name (string.substring name 0 (- (string.length name) 1))))
+                (if (!= skip "")
+                  (if (= name (str-concat "/" skip)) (begin (set skip "") (set out (str-concat out after))))
+                  (if (or (= name "style") (= name "script") (= name "head") (= name "title"))
+                    (set skip name)
+                    (begin
+                      ;; a paragraph, heading, list or table a blank line before and after
+                      ;; (text-lines keeps one), a line's end a newline, a cell a space
+                      (if (= name "li") (set out (str-concat out "\n• "))
+                        (if (or (= name "p") (= name "/p") (= name "ul") (= name "/ul")
+                                (= name "ol") (= name "/ol") (= name "table") (= name "/table")
+                                (= name "blockquote") (= name "/blockquote") (= name "hr")
+                                (= name "h1") (= name "/h1") (= name "h2") (= name "/h2")
+                                (= name "h3") (= name "/h3") (= name "h4") (= name "/h4"))
+                          (set out (str-concat out "\n\n"))
+                          (if (or (= name "br") (= name "div") (= name "/div") (= name "tr")
+                                  (= name "/tr"))
+                            (set out (str-concat out "\n"))
+                            (if (or (= name "td") (= name "th")) (set out (str-concat out " "))))))
+                      (set out (str-concat out after)))))))))
+        (string.join (collections.map (string.split out "\n") (lambda (l) (plain-line (entities l)))) "\n"))))
+  ;; Plain text as lines: tabs as spaces, no blank lines at either end, never two together.
+  (defun text-lines (s)
+    (let ((out (list)) (blank nil) (t2 ""))
+      (begin
+        (for l (string.split (string.replace (text s) "\r" "") "\n")
+          (begin
+            (set t2 (string.replace l "\t" "    "))
+            (if (= (string.trim t2) "")
+              (set blank (> (length out) 0))
+              (begin
+                (if blank (set out (append out "")))
+                (set blank nil)
+                (set out (append out t2))))))
+        out)))
+  ;; A plain-text part's paragraphs, which its sender broke into lines for a wider window:
+  ;; a line joins the one before when that one was long (60 columns or more, so broken
+  ;; there), and neither is quoted (>), a list's item or indented.
+  (defun listy? (l)
+    (or (string.starts-with l ">") (string.starts-with l "-") (string.starts-with l "*")
+        (string.starts-with l "•") (string.starts-with l " ") (string.starts-with l "|")))
+  (defun reflow (ls)
+    (let ((out (list)) (cur "") (started nil) (last 0))
+      (begin
+        (for l ls
+          (if (and started (!= cur "") (!= l "") (>= last 60) (not (listy? l))
+                   (not (string.starts-with cur ">")))
+            (begin (set cur (str-concat cur " " (string.trim l))) (set last (string.length l)))
+            (begin
+              (if started (set out (append out cur)))
+              (set started true)
+              (set cur l)
+              (set last (string.length l)))))
+        (if started (set out (append out cur)))
+        out)))
+  (defun mail-text (q)
+    (let ((tb (opt q "text_body" "")))
+      (if (!= (string.trim (text tb)) "") (reflow (text-lines tb))
+        (text-lines (html-text (opt q "html_body" ""))))))
+  ;; Lines wrapped at n columns, each keeping its indent (up to 8), a blank one kept.
+  (defun wrap-lines (lines n)
+    (let ((out (list)) (ind 0) (pre ""))
+      (begin
+        (for l lines
+          (if (= l "") (set out (append out ""))
+            (begin
+              (set ind 0)
+              (while (and (< ind 8) (= (string.char-at l ind) " ")) (set ind (+ ind 1)))
+              (set pre (string.substring l 0 ind))
+              (for w (wrap (string.trim l) (- n ind)) (set out (append out (str-concat pre w)))))))
+        out)))
+  ;; The lines, a blank one a row of its own; at most MAILLINES. In a terminal, wrapped to the
+  ;; window's 74 columns; elsewhere a paragraph a line, which the window wraps at its own width.
+  (defun mail-body-lines (lines)
+    (let ((out (list)))
+      (begin
+        (for l (if (cap "term") (wrap-lines lines (WIDE)) lines)
+          (if (< (length out) (MAILLINES))
+            (set out (append out (if (= l "") " " l)))))
+        (if (>= (length out) (MAILLINES))
+          (set out (append (slice out 0 (MAILLINES)) "… (the rest is cut here)")))
+        (if (= (length out) 0) (set out (list "(no text)")))
+        out)))
+
+  ;; Its attachments (parts: txwtf lists every part with a file name or marked an attachment,
+  ;; in the order save-to-files counts them), each as a post's media item is (item-flags)
+  ;; where it has a URL the host can fetch: its own (parts[i].url, which txwtf 0.4.0 has
+  ;; none of), else the copy Save to files made (cache.mailkept.<...>.<i>.url). vi is its
+  ;; place in the viewer, which shows those with a URL but a file.
+  (defun mail-kept-key (acct folder uid i)
+    (str-concat "cache.mailkept." (word acct) "." (word (url-encode folder)) "." (word uid) "." (text i)))
+  (defun mail-atts (q acct folder uid)
+    (let ((out (list)) (vn 0) (i 0) (u "") (k "") (nm "") (room 0))
+      (begin
+        (for p (opt q "parts" (list))
+          (begin
+            (set k (kind (text (opt p "content_type" ""))))
+            (set nm (text (opt p "filename" (str-concat "attachment-" (text i)))))
+            (set u (picture-url (opt p "url" nil)))
+            (if (= u "") (set u (sget (str-concat (mail-kept-key acct folder uid i) ".url"))))
+            ;; beside its buttons: [ Save to files ] 17, [ View ] and [ Save ] 8 each
+            (set room (- (WIDE) 17 (if (and (!= u "") (!= k "file")) 8 0)
+                         (if (and (!= u "") (cap "save")) 8 0)))
+            (set out (append out
+              (collections.dict-merge
+                (item-flags (if (= u "") "none" k))
+                (dict "i" (text i) "name" nm "kind" k "url" u "vi" (text vn)
+                      "row" (col-pad (str-concat "[" k "] " nm " · " (human-size (opt p "size" 0))) room)
+                      "v_view" (flag (and (!= u "") (!= k "file")))
+                      "v_dl" (flag (and (!= u "") (cap "save")))))))
+            (if (and (!= u "") (!= k "file")) (set vn (+ vn 1)))
+            (set i (+ i 1))))
+        out)))
+  ;; A message, shown: mail.msg, its header lines, its text, its attachments' rows and the
+  ;; grid of its pictures and videos (grid-fields, as a post's), and what Reply, Reply all,
+  ;; Forward and Edit read of it.
+  (defun show-mail-msg (q acct folder uid role)
+    (let ((h (opt q "headers" (dict))) (atts (mail-atts q acct folder uid)) (body (mail-text q)))
+      (let ((tiles (collections.filter atts (lambda (a) (and (!= (get-attr a "url") "")
+                                                            (or (= (get-attr a "kind") "image")
+                                                                (= (get-attr a "kind") "video"))))))
+            (hidden (collections.filter atts (lambda (a) (and (= (get-attr a "url") "")
+                                                             (!= (get-attr a "kind") "file"))))))
+        (state-set-tree "mail.msg"
+          (collections.dict-merge
+            (grid-fields tiles)
+            (dict "acct" (word acct) "folder" folder "uid" (word uid) "role" role "vpid" "mail"
+                  "draft" (if (or (= role "drafts") (has-flag? q "\\Draft")) "1" "")
+                  "subject" (clip (mail-subject (opt h "subject" "")) (WIDE))
+                  "from_line" (clip (str-concat "From: " (plain-line (opt h "from" ""))) (WIDE))
+                  "to_line" (clip (str-concat "To: " (plain-line (opt h "to" ""))) (WIDE))
+                  "cc_line" (if (= (plain-line (opt h "cc" "")) "") ""
+                              (clip (str-concat "Cc: " (plain-line (opt h "cc" ""))) (WIDE)))
+                  "date_line" (str-concat "Date: " (mail-when (opt h "date" "")))
+                  ;; what Reply, Reply all, Forward and Edit read
+                  "from" (plain-line (opt h "from" "")) "to" (plain-line (opt h "to" ""))
+                  "cc" (plain-line (opt h "cc" "")) "reply_to" (plain-line (opt h "reply-to" ""))
+                  "date" (plain-line (opt h "date" "")) "subject_raw" (plain-line (opt h "subject" ""))
+                  "message_id" (plain-line (opt h "message-id" ""))
+                  "references" (plain-line (opt h "references" ""))
+                  "in_reply_to" (plain-line (opt h "in-reply-to" ""))
+                  "text" (string.join body "\n")
+                  "lines" (mail-body-lines body)
+                  "atts" atts
+                  "atts_head" (if (= (length atts) 0) "" (n-of (length atts) "attachment:" "attachments:"))
+                  "atts_note" (if (= (length hidden) 0) ""
+                                "To see one here, Save to files: it shows from your files.")
+                  "v_grid" (flag (and (cap "rich") (> (length tiles) 0)))
+                  "v_fgrid" (flag (and (cap "pics") (not (cap "rich")) (not (cap "term"))
+                                       (> (length tiles) 0)))
+                  "v_gmore" (flag (and (> (length tiles) 4) (not (cap "badge"))))))))))
+  (defun mail-msg-key (acct folder uid)
+    (str-concat "cache.mail." (word acct) "." (word (url-encode folder)) "." (word uid)))
+  ;; A message by mailbox, folder and UID: the copy kept, else GET .../messages/{uid}.
+  (defun kept-mail (k)
+    (if (and (not (cache-bypass?)) (cache-live? k))
+      (try (json-parse (state-get k)) (catch (e) nil))
+      nil))
+  (defun fetch-mail-msg (acct folder uid)
+    (let ((k (mail-msg-key acct folder uid)))
+      (let ((c (kept-mail k)))
+        (if (= (type-of c) "dict") c
+          (let ((r (get-authed (str-concat (mbox-path acct folder) "/" (word uid)))))
+            (if (ok? r)
+              (let ((q (reply-json r))) (begin (state-set k (json-encode q)) (state-expire k (POSTTTL)) q))
+              (begin (mail-failed r "open the message") nil)))))))
+  (defun load-mail-msg (acct folder uid)
+    (if (not (mail-accounts)) nil
+      (begin
+        (set acct (mail-pick acct))
+        (if (= acct "") (begin (fail "You have no mailbox here.") nil)
+          (if (not (mail-folders acct)) nil
+            (begin
+              (mail-use acct)
+              (set folder (mail-folder-named acct folder))
+              (if (= folder "") (begin (fail "That mailbox has no such folder.") nil)
+                (let ((q (fetch-mail-msg acct folder uid)))
+                  (if (= (type-of q) "dict")
+                    (begin (show-mail-msg q acct folder uid (mail-role acct folder)) true)
+                    nil)))))))))
+  ;; The viewer at a message's attachment: the ones with a URL, but files.
+  (defun mail-viewer (i)
+    (let ((items (list)) (n (int (state-get "mail.msg.atts"))) (at ""))
+      (begin
+        (for j (range n)
+          (begin
+            (set at (str-concat "mail.msg.atts." (text j) "."))
+            (if (and (!= (sget (str-concat at "url")) "") (!= (sget (str-concat at "kind")) "file"))
+              (set items (append items (dict "url" (sget (str-concat at "url"))
+                                             "kind" (sget (str-concat at "kind"))
+                                             "row" (clip (string.trim (sget (str-concat at "row"))) (WIDE))))))))
+        (state-set-tree "viewer.items" items)
+        (state-set "viewer.n" (length items))
+        (if (= (length items) 0)
+          (begin (fail "Nothing to view yet: Save to files first.") nil)
+          (begin (viewer-at i) true)))))
+
+  ;; The form (mail.new): from (a mailbox's id), to, cc, subject, body, files (picked, each
+  ;; with its id at the site once sent up), and what a reply or a draft carries: in_reply_to,
+  ;; references, draft (the UID in Drafts it replaces, once saved there or opened with Edit).
+  (defun mail-form (acct to cc sj body note focus)
+    (begin
+      ;; the files the form held before, let go
+      (if (has? "file-forget") (for f (mail-files) (file-forget (get-attr f "handle"))))
+      (mail-form-set acct to cc sj body note focus)))
+  (defun mail-form-set (acct to cc sj body note focus)
+    (state-set-tree "mail.new"
+      (dict "from" (text acct) "from_pick" (mail-email acct)
+            "from_line" (str-concat "From: " (mail-email acct))
+            "to" to "cc" cc "subject" sj "body" body "files" (list) "drop" ""
+            "uploading" "" "progress" 0 "focus" focus "note" note
+            "in_reply_to" "" "references" "" "draft" "" "draft_folder" "")))
+  (defun re-subject (pre s)
+    (let ((low (string.lower (string.trim s))))
+      (if (or (string.starts-with low (string.lower (string.trim pre)))
+              (and (= pre "Fwd: ") (string.starts-with low "fw:")))
+        s (str-concat pre s))))
+  ;; A message's text for a reply or a forward, as plain-text mail writes it: broken into lines
+  ;; of 62 columns, quoted with "> " for a reply; its first 200 lines. A terminal's text field
+  ;; never wraps a line, and it stands 10 columns in ("Message: ["), so its lines fit the
+  ;; window's 74.
+  (defun mail-plain (txt n)
+    (let ((ls (wrap-lines (string.split txt "\n") n)))
+      (if (> (length ls) 200) (slice ls 0 200) ls)))
+  (defun mail-quote (txt)
+    (string.join (collections.map (mail-plain txt 60) (lambda (l) (str-concat "> " l))) "\n"))
+  ;; Addresses but your own (the mailbox's), each once.
+  (defun not-me (addrs)
+    (let ((me (string.lower (mail-email (sget "mail.msg.acct")))) (seen (list)) (out (list))
+          (low ""))
+      (begin
+        (for a addrs
+          (begin
+            (set low (string.lower (addr-of a)))
+            (if (and (!= low me) (!= low "")
+                     (= (length (collections.filter seen (lambda (x) (= x low)))) 0))
+              (begin (set seen (append seen low)) (set out (append out a))))))
+        out)))
+  (defun mail-reply (all)
+    (let ((mine (= (sget "mail.msg.role") "sent")) (to (list)) (cc (list)))
+      (begin
+        ;; to whom it came from (its Reply-To where it has one); a reply to your own mail
+        ;; goes to whom it went to
+        (set to (addr-split (if mine (sget "mail.msg.to")
+                              (if (!= (sget "mail.msg.reply_to") "") (sget "mail.msg.reply_to")
+                                (sget "mail.msg.from")))))
+        (if all
+          (begin
+            (for a (addr-split (sget "mail.msg.to")) (set to (append to a)))
+            (set cc (addr-split (sget "mail.msg.cc")))))
+        (set to (not-me to))
+        (set cc (collections.filter (not-me cc)
+                  (lambda (c) (= (length (collections.filter to (lambda (t3) (= (string.lower (addr-of t3)) (string.lower (addr-of c)))))) 0))))
+        (mail-form (sget "mail.msg.acct") (string.join to ", ") (string.join cc ", ")
+                   (re-subject "Re: " (sget "mail.msg.subject_raw"))
+                   ;; as the web app quotes one, room for the reply above the quote (where an
+                   ;; ImGui field puts the cursor) and below it (where a terminal's does)
+                   (str-concat "\n\nOn " (mail-when (sget "mail.msg.date")) ", " (sget "mail.msg.from")
+                               " wrote:\n" (mail-quote (sget "mail.msg.text")) "\n\n")
+                   (clip (str-concat "Replying to " (if (> (length to) 0) (addr-name (nth to 0)) "it")
+                                     (if (> (+ (length to) (length cc)) 1) " and the others." "."))
+                         (WIDE))
+                   "a")
+        (state-set "mail.new.in_reply_to" (sget "mail.msg.message_id"))
+        (state-set "mail.new.references"
+          (string.trim (str-concat (sget "mail.msg.references") " " (sget "mail.msg.message_id")))))))
+  ;; Forward: its text under a header, as the web app forwards one; its attachments stay.
+  (defun mail-forward ()
+    (let ((n (int (state-get "mail.msg.atts"))))
+      (mail-form (sget "mail.msg.acct") "" "" (re-subject "Fwd: " (sget "mail.msg.subject_raw"))
+                 (str-concat "\n\n---------- Forwarded message ----------\nFrom: " (sget "mail.msg.from")
+                             "\nDate: " (sget "mail.msg.date") "\nSubject: " (sget "mail.msg.subject_raw")
+                             "\nTo: " (sget "mail.msg.to") "\n\n"
+                             (string.join (mail-plain (sget "mail.msg.text") 62) "\n") "\n\n")
+                 (if (= n 0) "Forwarding its text."
+                   (str-concat "Forwarding its text: its " (n-of n "attachment" "attachments")
+                               " stay behind."))
+                 "to")))
+  ;; Edit: a draft, in the form again; Send sends it and drops the draft.
+  (defun mail-edit ()
+    (let ((n (int (state-get "mail.msg.atts"))))
+      (begin
+        (mail-form (sget "mail.msg.acct") (sget "mail.msg.to") (sget "mail.msg.cc")
+                   (sget "mail.msg.subject_raw")
+                   (str-concat (string.join (wrap-lines (string.split (sget "mail.msg.text") "\n") 62) "\n")
+                               "\n")
+                   (if (= n 0) "A draft: Send sends it, and drops the draft."
+                     (str-concat "A draft: its " (n-of n "attachment" "attachments")
+                                 " stay in it, not in what Send sends."))
+                   "a")
+        (state-set "mail.new.in_reply_to" (sget "mail.msg.in_reply_to"))
+        (state-set "mail.new.references" (sget "mail.msg.references"))
+        (state-set "mail.new.draft" (sget "mail.msg.uid"))
+        (state-set "mail.new.draft_folder" (sget "mail.msg.folder")))))
+  ;; A new email, from the mailbox shown.
+  (defun mail-new () (mail-form (mail-pick "") "" "" "" "" "" "to"))
+  ;; The form's files, as dicts (handle, name, size, type, label, and id once sent up).
+  (defun mail-files ()
+    (let ((out (list)) (n (int (state-get "mail.new.files"))) (at ""))
+      (begin
+        (for i (range n)
+          (begin
+            (set at (str-concat "mail.new.files." (text i) "."))
+            (set out (append out (dict "handle" (state-get (str-concat at "handle"))
+                                       "name" (state-get (str-concat at "name"))
+                                       "size" (int (state-get (str-concat at "size")))
+                                       "type" (state-get (str-concat at "type"))
+                                       "label" (state-get (str-concat at "label"))
+                                       "id" (sget (str-concat at "id")))))))
+        out)))
+  ;; Each file not sent up yet, sent up now as a new post's is, kept private (owner-only,
+  ;; and any type, not only the ones a post may show): the ids of all, or nil.
+  (defun mail-upload (files)
+    (let ((ids (list)) (i 0) (n (length files)) (f nil) (id nil))
+      (begin
+        (state-set "mail.new.uploading" "1")
+        (while (and (!= (type-of ids) "nil") (< i n))
+          (begin
+            (set f (nth files i))
+            (if (!= (text (get-attr f "id")) "")
+              (set ids (append ids (int (get-attr f "id"))))
+              (begin
+                (say (str-concat "Uploading " (get-attr f "name")
+                                 (if (> n 1) (str-concat " (" (text (+ i 1)) " of " (text n) ")") "")
+                                 "..."))
+                (state-set "mail.new.progress" 0)
+                (set id (upload-file-as f "mail.new.progress" true))
+                (if (= (type-of id) "nil") (set ids nil)
+                  (begin
+                    (set ids (append ids id))
+                    (state-set (str-concat "mail.new.files." (text i) ".id") (text id))))))
+            (set i (+ i 1))))
+        (state-set "mail.new.uploading" "")
+        ids)))
+  (defun mail-payload (to cc ids)
+    ;; the text without the blank lines left at its ends (a reply's room above and below)
+    (let ((p (dict "to" to "cc" cc "subject" (plain-line (sget "mail.new.subject"))
+                   "body_text" (string.trim (sget "mail.new.body")))))
+      (begin
+        (if (> (length ids) 0) (set-attr p "existing_file_ids" ids))
+        (if (!= (sget "mail.new.in_reply_to") "") (set-attr p "in_reply_to" (sget "mail.new.in_reply_to")))
+        (if (!= (sget "mail.new.references") "") (set-attr p "references" (sget "mail.new.references")))
+        p)))
+  ;; After Send: the draft it was, dropped (DELETE: txwtf flags it deleted); the form, empty
+  ;; (its files let go); and back where the form was opened from, but never at that draft.
+  (defun mail-sent (acct to cc)
+    (let ((draft (sget "mail.new.draft")) (dfolder (sget "mail.new.draft_folder")) (e "")
+          ;; whom it went to, by name where To gives one
+          (who (addr-name (first-addr (sget "mail.new.to")))))
+      (begin
+        (if (!= draft "")
+          (begin
+            (send-authed "DELETE" (str-concat (mbox-path acct dfolder) "/" (word draft)) nil)
+            (state-delete (mail-msg-key acct dfolder draft))))
+        (mail-new)
+        ;; the form goes from the history
+        (state-set "ui.here" "")
+        (set e (pop-back))
+        (if (and (!= draft "")
+                 (= e (str-concat "mailmsg|" (word acct) "|" (url-encode dfolder) "|" (word draft))))
+          (set e (pop-back)))
+        (if (go (if (= e "") (mail-entry) e))
+          (say (clip (str-concat "Sent to " who
+                                 (if (> (+ (length to) (length cc)) 1) " and the others." "."))
+                     60))))))
+  (defun mail-refocus ()
+    (state-set "mail.new.focus" (if (= (state-get "mail.new.focus") "a") "b" "a")))

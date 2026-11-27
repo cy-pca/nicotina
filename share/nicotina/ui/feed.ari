@@ -406,3 +406,392 @@ units:
         autofocus: true
         on: (begin (state-set "post.reply_send" (get-attr event "text")) (state-set "ui.cmd" "reply"))
         visible_when: (= (state-get "post.focus_reply") "1")
+
+# The feed's and a post's functions: cards, pages, the cache's feeds, replies, a post opened whole,
+# and what a card's buttons do (like, dislike, repost, delete).
+# nicotina.ari's on_tick calls them; they were defined inside it until 2026-11.
+functions: |
+  (defun feed-card (q)
+    (let ((p (shown q))
+          (a (opt (shown q) "author" (dict))))
+      (begin
+        (set lines (wrap (body-of q) (CARDW)))
+        ;; three lines at most: the third ends in ... when there is more
+        (if (> (length lines) 3)
+          (set lines (list (nth lines 0) (nth lines 1)
+                           (clip (str-concat (nth lines 2) " " (nth lines 3)) (CARDW)))))
+        (set media (opt p "attachments" (list)))
+        (if (= (type-of media) "nil") (set media (list)))
+        (set ini (str-concat "(" (initials (author-name a)) ")"))
+        (set tags (tag-options q))
+        ;; View is there for a post with something the viewer shows
+        (set viewable (> (length (collections.filter media
+                                    (lambda (m) (and (!= (kind (text (opt m "mime_type" ""))) "file")
+                                                     (!= (opt m "url" "") ""))))) 0))
+        (set tiles (tiles-of media))
+        (set avpic (picture-only (picture-url (opt a "avatar_url" nil))))
+        ;; the first picture, shown inline where the host can
+        (set pic (let ((pics (collections.filter media
+                               (lambda (m) (and (= (kind (text (opt m "mime_type" ""))) "image")
+                                                (!= (opt m "url" "") ""))))))
+                   (if (= (length pics) 0) "" (picture-url (opt (nth pics 0) "url" nil)))))
+        (set vid (first-of media "video"))
+        (set au (first-of media "audio"))
+        (set only (only-visual media))
+        (set m0 (if (> (length media) 0)
+                  (if viewable (str-concat (pad (media-row (nth media 0)) (- (CARDW) 9)) " ")
+                    (clip (media-row (nth media 0)) (CARDW)))
+                  ""))
+        (collections.dict-merge
+         (merge4 (grid-fields tiles)
+                 (card-flags avpic tags pic vid au tiles only m0 viewable)
+                 (chip-fields tags)
+                 (icon-fields q))
+         (dict "id" (opt q "id" 0)
+              ;; the post the buttons act on: a repost's is the post it reposts
+              "pid" (opt p "id" (opt q "id" 0))
+              "liked" (if (opt p "user_has_reacted" nil) "1" "")
+              "disliked" (if (opt p "user_has_disliked" nil) "1" "")
+              "reposted" (if (opt p "user_has_reposted" nil) "1" "")
+              "my_repost" (text (opt p "user_repost_id" ""))
+              "web" (web-of p)
+              "note" (repost-note q)
+              "tags" tags
+              "tag_pick" ""
+              "tagline" (clip (string.replace tags "|" "  ") (CARDW))
+              "has_media" (if viewable "1" "")
+              "only_visual" only
+              "avatar" ini
+              ;; a picture for the avatar slot; a video avatar keeps the initials
+              "avatar_url" avpic
+              ;; beside the avatar (4 columns) and a space
+              "head" (clip (str-concat (author-name a) "  " (handle (text (opt a "username" "?"))))
+                           (- (CARDW) 5))
+              "at" (posted-at (opt p "created_at" ""))
+              "pic" pic
+              ;; its text: rich text where the host draws it (three lines of the card's
+              ;; width, ui/card.ari), else its first three lines, plain
+              "v_runs" (if (rich?) "1" "")
+              "runs" (if (rich?) (post-runs q) (list))
+              "l0" (if (rich?) "" (nth-or lines 0))
+              "l1" (if (rich?) "" (nth-or lines 1))
+              "l2" (if (rich?) "" (nth-or lines 2))
+              ;; the emoji in its text (a repost's quote and the post it reposts)
+              "emoji" (collections.dict-merge (emoji-of (opt q "content_html" nil))
+                                              (emoji-of (opt p "content_html" nil)))
+              ;; with [ View ] (8 columns) after it, for a post with something to view
+              "m0" m0
+              "m0_url" (if (> (length media) 0) (picture-url (opt (nth media 0) "url" nil)) "")
+              "m0_kind" (if (> (length media) 0) (kind (text (opt (nth media 0) "mime_type" ""))) "")
+              "m1" (if (> (length media) 1) (clip (media-row (nth media 1)) (CARDW)) "")
+              "m1_url" (if (> (length media) 1) (picture-url (opt (nth media 1) "url" nil)) "")
+              "m1_kind" (if (> (length media) 1) (kind (text (opt (nth media 1) "mime_type" ""))) "")
+              ;; the first video and the first recording, played in the card where the host can
+              "vid_url" vid
+              "au_url" au
+              "mmore" (if (> (length media) 2)
+                        (str-concat "+" (text (- (length media) 2)) " more (Open shows them all)")
+                        "")
+              ;; the buttons follow the counts: [ Open ][ Reply ][ Like ][ Repost ] take 35
+              ;; columns
+              "counts" (pad (str-concat (counts-of q) (yours p)) (- (CARDW) 35)))))))
+
+  ;; A page of the feed on the cards (b: its posts, next_before_id, has_more): the first
+  ;; replaces them, a later one is added below.
+  (defun feed-show (b first tagged everyone)
+    (let ((cards (list)) (n 0) (total 0))
+    (begin
+      (set cards (collections.map (opt b "posts" (list)) feed-card))
+      (if first
+        (state-set-tree "feed.items" cards)
+        (begin
+          (set n (int (state-get "feed.items")))
+          (for c cards
+            (state-set-tree (str-concat "feed.items." (text n)) c)
+            (set n (+ n 1)))
+          (state-set "feed.items" n)))
+      (set total (int (state-get "feed.items")))
+      (state-set "feed.before" (text (opt b "next_before_id" "")))
+      (state-set "feed.offset" total)
+      (state-set "feed.more" (if (opt b "has_more" nil) "1" ""))
+      (state-set "feed.empty"
+        (if (> total 0) ""
+          (if tagged (str-concat "No posts name #" (state-get "feed.tag") ".")
+            (if everyone "No posts yet."
+              (if (= (state-get "feed.mode") "Friends")
+                "No posts from friends yet: people you follow who follow you."
+                "Your feed is empty. Follow people, or pick Everyone.")))))
+      (if tagged
+        (state-set "feed.title"
+          (str-concat "#" (state-get "feed.tag") "  ·  "
+                      (text total) (if (= total 1) " post" " posts")
+                      (if (= (state-get "feed.more") "1") " so far" ""))))
+      (state-set "feed.tail"
+        (str-concat "  " (text total) (if (= total 1) " post" " posts")
+                    (if (= (state-get "feed.more") "1") "" "; no more")))
+      true)))
+  ;; The feed's mode's cache key, and what load-feed got kept there: the first page, or the
+  ;; pages so far with this one (a later page with nothing kept keeps nothing).
+  (defun feed-key () (str-concat "cache.feed." (word (state-get "feed.mode"))))
+  (defun feed-keep (b first)
+    (let ((k (feed-key))
+          (all (list)))
+      (if (or first (cache-live? k))
+        (begin
+          (if (not first)
+            (set all (opt (try (json-parse (state-get k)) (catch (e) (dict))) "posts" (list))))
+          (for q (opt b "posts" (list)) (set all (append all q)))
+          (state-set k (json-encode (dict "posts" all
+                                          "next_before_id" (opt b "next_before_id" "")
+                                          "has_more" (if (opt b "has_more" nil) true nil))))
+          (state-expire k (FEEDTTL))))))
+  ;; The feed's cards again from the copy kept, while it's kept: true, else nil (ask txwtf).
+  (defun feed-from-cache ()
+    (if (or (cache-bypass?) (not (cache-live? (feed-key)))) nil
+      (let ((b (try (json-parse (state-get (feed-key))) (catch (e) nil))))
+        (if (= (type-of b) "dict")
+          (feed-show b true nil (= (state-get "feed.mode") "Everyone"))
+          nil))))
+
+  ;; A page of the feed: Following is GET /social/timeline/home, Everyone the public one,
+  ;; Friends /social/timeline/friends. mode=latest pages cleanly by before_id (the ranked
+  ;; order re-ranks each page). A hashtag's posts (feed.source "tag") are GET
+  ;; /social/timeline/tag/{tag}, paged by offset. The first page replaces the cards; a later
+  ;; one is added below them.
+  (defun load-feed (first)
+    (let ((everyone (= (state-get "feed.mode") "Everyone"))
+          (tagged (= (state-get "feed.source") "tag")))
+      (let ((r (if tagged
+                 (get-query (str-concat "/social/timeline/tag/" (state-get "feed.tag"))
+                            (dict "limit" (text (FEEDPAGE))
+                                  "offset" (text (if first 0 (int (state-get "feed.offset"))))))
+                 (get-authed (str-concat "/social/timeline/"
+                                         (if everyone "public"
+                                           (if (= (state-get "feed.mode") "Friends") "friends" "home"))
+                                         "?mode=latest&limit=" (text (FEEDPAGE))
+                                         (if first ""
+                                           (str-concat "&before_id=" (state-get "feed.before"))))))))
+        (if (ok? r)
+          (let ((b (reply-json r)))
+            (begin
+              (if (not tagged) (feed-keep b first))
+              (feed-show b first tagged everyone)))
+          (begin
+            (if (session-over? r) (session-over)
+              (if (= (status r) 0) (unreachable r)
+                (fail (str-concat "Couldn't load " (if tagged "the hashtag" "the feed")
+                                  " (HTTP " (str (status r)) ")."))))
+            nil)))))
+  (defun load-replies (first)
+    (let ((off (if first 0 (int (state-get "post.replies")))))
+      (let ((r (get-query (str-concat "/social/posts/" (text (state-get "post.pid")) "/replies")
+                          (dict "limit" (text (REPLYPAGE)) "offset" (text off)))))
+        (if (ok? r)
+          (let ((rows (collections.map (opt (reply-json r) "replies" (list)) feed-card)))
+            (begin
+              (if first
+                (state-set-tree "post.replies" rows)
+                (begin
+                  (set n off)
+                  (for c rows
+                    (state-set-tree (str-concat "post.replies." (text n)) c)
+                    (set n (+ n 1)))
+                  (state-set "post.replies" n)))
+              (state-set "post.replies_more" (if (opt (reply-json r) "has_more" nil) "1" ""))
+              (set total (int (state-get "post.replies")))
+              (state-set "post.replies_head"
+                (if (= total 0) "No replies yet."
+                  (str-concat (text total) (if (= total 1) " reply" " replies")
+                              (if (= (state-get "post.replies_more") "1") " so far" ""))))
+              true))
+          (begin
+            (state-set "post.replies_head" "Couldn't load the replies.")
+            (state-set "post.replies_more" "")
+            true)))))
+
+  ;; A post's attachments, each a row (with View, 8 columns, for what the viewer shows), its
+  ;; picture's URL and kind, and vi, its place among what the viewer shows.
+  (defun post-media (media)
+    (let ((out (list)) (vn 0))
+      (begin
+        (for m media
+          (begin
+            (set out (append out
+                       (collections.dict-merge
+                        (item-flags (kind (text (opt m "mime_type" ""))))
+                        (dict "row" (if (= (kind (text (opt m "mime_type" ""))) "file")
+                                      (clip (media-row m) (WIDE))
+                                      (pad (media-row m) (- (WIDE) 8)))
+                              "url" (picture-url (opt m "url" nil))
+                              "kind" (kind (text (opt m "mime_type" "")))
+                              "vi" (text vn)
+                              "where" (clip (str-concat "  " (picture-url (opt m "url" nil))) (WIDE))))))
+            (if (and (!= (kind (text (opt m "mime_type" ""))) "file") (!= (opt m "url" "") ""))
+              (set vn (+ vn 1)))))
+        out)))
+
+  ;; One post in full: GET /social/posts/{id}, which also has its reactions.
+  (defun show-post (q)
+    (let ((p (shown q)))
+      (begin
+        (set lines (list))
+        (for para (if (= (type-of (opt q "reposted_post" nil)) "dict")
+                    (append (paragraphs (opt q "content" "")) (body-of (dict "content" (opt p "content" ""))))
+                    (paragraphs (opt q "content" "")))
+          (for l (wrap para (WIDE)) (set lines (append lines l))))
+        (set media (opt p "attachments" (list)))
+        (if (= (type-of media) "nil") (set media (list)))
+        (set reactions (collections.map (opt q "reactions_summary" (list))
+                         (lambda (e) (str-concat ":" (text (opt e "emoji" "?")) ": "
+                                                 (text (opt e "count" 0))))))
+        (set parent (opt p "reply_to_id" nil))
+        (set author (opt p "author" (dict)))
+        (set tiles (tiles-of media))
+        (set tags (tag-options q))
+        (state-set-tree "post"
+         (collections.dict-merge
+          (merge4
+           (grid-fields tiles)
+           (post-flags (picture-only (picture-url (opt (opt p "author" (dict)) "avatar_url" nil)))
+                       tiles tags)
+           (chip-fields tags)
+           (icon-fields q))
+          (dict "id" (opt q "id" 0)
+                ;; the post the buttons act on: a repost's is the post it reposts
+                "pid" (opt p "id" (opt q "id" 0))
+                "liked" (if (opt p "user_has_reacted" (opt q "user_has_reacted" nil)) "1" "")
+                "disliked" (if (opt p "user_has_disliked" (opt q "user_has_disliked" nil)) "1" "")
+                "reposted" (if (opt p "user_has_reposted" (opt q "user_has_reposted" nil)) "1" "")
+                "my_repost" (text (opt p "user_repost_id" (opt q "user_repost_id" "")))
+                "mine" (if (= (text (opt author "username" "")) (state-get "me.username")) "1" "")
+                ;; Delete: your own post, or anyone's for an administrator (who is asked
+                ;; first: confirm)
+                "can_delete" (if (or (= (text (opt author "username" "")) (state-get "me.username"))
+                                     (admin?))
+                               "1" "")
+                "confirm" ""
+                "author_handle" (handle (text (opt author "username" "?")))
+                "author_id" (text (opt author "id" ""))
+                "parent" (if (= (type-of parent) "nil") "" (text parent))
+                "parent_note" "a post"
+                "tags" tags
+                "tag_pick" ""
+                "link" (clip (str-concat "Link: " (web-of p)) (WIDE))
+                "web" (web-of p)
+                "note" (repost-note q)
+                "avatar" (str-concat "(" (initials (author-name (opt p "author" (dict)))) ")")
+                "avatar_url" (picture-only (picture-url (opt (opt p "author" (dict)) "avatar_url" nil)))
+                "head" (clip (str-concat (author-name (opt p "author" (dict))) "  "
+                                         (handle (text (opt (opt p "author" (dict)) "username" "?"))))
+                             (- (WIDE) 6))
+                "at" (posted-at (opt p "created_at" ""))
+                ;; its text: rich text where the host draws it, else its lines, plain
+                "v_runs" (if (rich?) "1" "")
+                "runs" (if (rich?)
+                         (let ((rs (post-runs q))) (if (= (length rs) 0) (list "(no text)") rs))
+                         (list))
+                "lines" (if (rich?) (list) (if (= (length lines) 0) (list "(no text)") lines))
+                "emoji" (collections.dict-merge (emoji-of (opt q "content_html" nil))
+                                                (emoji-of (opt p "content_html" nil)))
+                "media" (post-media media)
+                "counts" (str-concat (counts-of q) (yours p))
+                "reactions" (if (= (length reactions) 0) ""
+                              (clip (str-concat "Reactions: " (string.join reactions "  ")) (WIDE)))
+                ;; kept across a reload of the same post (after a reply, a like)
+                "focus_reply" (state-get "post.focus_reply")
+                "reply_text" (if (= (text (state-get "post.pid")) (text (opt p "id" (opt q "id" 0))))
+                               (state-get "post.reply_text") "")
+                "replies" (list)
+                "replies_head" ""
+                "replies_more" "")))
+        ;; who wrote the post it replies to
+        (if (!= (type-of parent) "nil")
+          (let ((pr (get-authed (str-concat "/social/posts/" (text parent)))))
+            (if (ok? pr)
+              (state-set "post.parent_note"
+                (clip (str-concat " " (author-name (opt (reply-json pr) "author" (dict))) ": "
+                                  (one-line (opt (reply-json pr) "content" "")))
+                      (- (WIDE) 15))))))
+        (load-replies true))))
+
+  ;; A post, whole, by id: GET /social/posts/{id}, then its replies.
+  (defun load-post (id)
+    (let ((f (fetch-post id)))
+      (if (opt f "ok" nil)
+        (begin (show-post (opt f "post" (dict))) true)
+        (let ((r (opt f "r" nil)))
+          (begin
+            (if (session-over? r) (session-over)
+              (if (= (status r) 0) (unreachable r)
+                (fail (if (= (status r) 404) "That post is gone."
+                        (str-concat "Couldn't open the post (HTTP " (str (status r)) ").")))))
+            nil)))))
+
+  ;; --- doing things -----------------------------------------------------------------
+  ;; A heart on post pid, or taken off (liked "1"); a repost of it, or yours taken back.
+  ;; What you did to post pid: its copy, and the feeds', are no longer what txwtf has.
+  (defun changed-post (pid) (begin (cache-forget pid) (feeds-forget)))
+  (defun toggle-like (pid liked)
+    (let ((r (if (= liked "1")
+               (send-authed "DELETE" (str-concat "/social/posts/" (text pid) "/reactions?emoji=heart") nil)
+               (send-authed "POST" (str-concat "/social/posts/" (text pid) "/reactions")
+                            (dict "emoji" "heart")))))
+      (if (ok? r)
+        (begin (changed-post pid) (say (if (= liked "1") "Like taken back." "Liked.")) true)
+        (begin (act-failed r (if (= liked "1") "take the like back" "like it")) nil))))
+  ;; A thumbs-down on post pid, or taken off (disliked "1"). txwtf keeps a like or a dislike,
+  ;; not both: either clears the other.
+  (defun toggle-dislike (pid disliked)
+    (let ((r (send-authed (if (= disliked "1") "DELETE" "POST")
+                          (str-concat "/social/posts/" (text pid) "/dislike")
+                          (if (= disliked "1") nil (dict)))))
+      (if (ok? r)
+        (begin (changed-post pid) (say (if (= disliked "1") "Dislike taken back." "Disliked.")) true)
+        (begin (act-failed r (if (= disliked "1") "take the dislike back" "dislike it")) nil))))
+  (defun toggle-repost (pid reposted mine)
+    (let ((r (if (and (= reposted "1") (!= mine ""))
+               (send-authed "DELETE" (str-concat "/social/posts/" mine) nil)
+               (send-authed "POST" "/social/posts" (dict "content" "" "repost_id" (int pid))))))
+      (if (ok? r)
+        (begin (changed-post pid) (say (if (= reposted "1") "Repost taken back." "Reposted.")) true)
+        (begin (act-failed r (if (= reposted "1") "take the repost back" "repost it")) nil))))
+  ;; After either, card i of LIST's counts and marks, from the post again.
+  (defun refresh-card (lst i)
+    (let ((key (str-concat lst "." (text i))))
+      (let ((r (get-authed (str-concat "/social/posts/" (text (state-get (str-concat key ".id")))))))
+        (if (ok? r)
+          (let ((c (feed-card (kept-reply r))))
+            (begin
+              ;; a repost card's marks are the reposted post's
+              (if (!= (text (get-attr c "pid")) (text (get-attr c "id")))
+                (let ((o (get-authed (str-concat "/social/posts/" (text (get-attr c "pid"))))))
+                  (if (ok? o)
+                    (let ((op (kept-reply o)))
+                      (begin
+                        (set-attr c "liked" (if (opt op "user_has_reacted" nil) "1" ""))
+                        (set-attr c "disliked" (if (opt op "user_has_disliked" nil) "1" ""))
+                        (set-attr c "reposted" (if (opt op "user_has_reposted" nil) "1" ""))
+                        (set-attr c "my_repost" (text (opt op "user_repost_id" ""))))))))
+              (for k (list "counts" "liked" "disliked" "reposted" "my_repost"
+                           "c_reply" "c_repost" "c_like" "c_dislike" "c_views")
+                (state-set (str-concat key "." k) (get-attr c k)))))))))
+  ;; Delete the post shown (DELETE /social/posts/{id}), then go back where you came from. A
+  ;; txwtf before atx-crypto-club/txwtf#324 refuses an administrator someone else's post
+  ;; (403, PostAccessDenied).
+  (defun delete-shown (done)
+    (let ((r (send-authed "DELETE" (str-concat "/social/posts/" (text (state-get "post.pid"))) nil)))
+      (if (ok? r)
+        (let ((entry (pop-back)))
+          (begin
+            (cache-forget (state-get "post.id"))
+            (changed-post (state-get "post.pid"))
+            (if (show-entry (if (= entry "") "feed" entry))
+              (begin (state-set "ui.here" (if (= entry "") "feed" entry)) (new-view)))
+            (say done)))
+        (if (and (= (status r) 403) (!= (state-get "post.mine") "1"))
+          (say "This server won't let administrators delete others' posts.")
+          (act-failed r "delete it")))))
+  ;; The list the card pressed is in (act.list): the feed's when a terminal's buttons, which
+  ;; don't name one, were pressed.
+  (defun card-list ()
+    (let ((l (text (state-get "act.list")))) (if (= l "") "feed.items" l)))

@@ -265,3 +265,327 @@ units:
         visible_when: (= (state-get "ui.screen") "agperm")
         children:
           - include: agperm_view
+
+# The window's functions: the Back and Forward stacks, going to a view, links, Home, after a
+# sign-in, and the bar's custom emoji.
+# nicotina.ari's on_tick calls them; they were defined inside it until 2026-11.
+functions: |
+  ;; --- going between views --------------------------------------------------------
+  ;; Where the window is: an entry, a view and what it shows (feed, tag|engines, post|312,
+  ;; profile|7, tags, alerts, search, compose, viewer|312|0). ui.back holds the entries
+  ;; before it, ";" between them, the newest last; it keeps thirty.
+  (defun back-list ()
+    (let ((s (state-get "ui.back"))) (if (= s "") (list) (string.split s ";"))))
+  (defun push-back (entry)
+    (let ((l (append (back-list) entry)))
+      (state-set "ui.back"
+        (string.join (if (> (length l) 30) (slice l (- (length l) 30) (length l)) l) ";"))))
+  (defun pop-back ()
+    (let ((l (back-list)))
+      (if (= (length l) 0) ""
+        (begin
+          (state-set "ui.back" (string.join (slice l 0 (- (length l) 1)) ";"))
+          (nth l (- (length l) 1))))))
+  (defun show-screen (s)
+    (begin
+      (state-set "ui.screen" s)
+      ;; the profile's page background, behind the window while a profile is shown
+      (state-set "prof.bg_pic_shown" (if (= s "profile") (state-get "prof.bg_pic") ""))))
+  ;; Load what an entry shows, and show it. True when it loaded.
+  (defun show-entry (entry)
+    (let ((parts (string.split entry "|")))
+      (let ((view (car parts))
+            (arg (nth-or parts 1)))
+        (begin
+          (set ok nil)
+          (if (= view "feed")
+            (begin
+              (state-set "feed.source" "home")
+              ;; the copy kept of this choice's posts, while it's kept; else txwtf's
+              (set ok (feed-from-cache))
+              (if (not ok)
+                (begin
+                  (say (str-concat "Loading " (if (= (state-get "feed.mode") "Everyone")
+                                                "everyone's posts..."
+                                                (if (= (state-get "feed.mode") "Friends")
+                                                  "your friends' posts..." "your feed..."))))
+                  (set ok (load-feed true))))))
+          (if (= view "tag")
+            (begin
+              (state-set "feed.source" "tag")
+              (state-set "feed.tag" arg)
+              (state-set "feed.title" (str-concat "#" arg))
+              (say (str-concat "Loading #" arg "..."))
+              (set ok (load-feed true))))
+          (if (= view "post")
+            (begin (say "Opening the post...") (set ok (load-post arg))))
+          (if (= view "profile")
+            (if (= arg (text (state-get "me.id")))
+              (begin
+                (say "Loading your profile...")
+                (set ok (if (load-me-into true) (load-profile) nil)))
+              (begin (say "Loading the profile...") (set ok (load-user arg)))))
+          (if (= view "tags")
+            (begin (say "Loading the hashtags...") (set ok (load-tags true))))
+          (if (= view "alerts")
+            (begin (say "Loading your notifications...") (set ok (load-alerts))))
+          (if (= view "search") (set ok true))
+          (if (= view "dms")
+            (begin (say "Loading your messages...") (set ok (load-dms))))
+          (if (= view "dm")
+            (begin (say "Opening the conversation...") (set ok (load-dm arg))))
+          (if (= view "compose") (set ok true))
+          (if (= view "viewer")
+            (set ok (load-viewer arg (int (if (= (nth-or parts 2) "") "0" (nth-or parts 2))))))
+          ;; the Admin view (admin|users ...), one account (auser|7), one group (agroup|2)
+          (if (= view "admin")
+            (set ok (if (admin?) (load-admin-part (if (= arg "") "users" arg)) (not-admin))))
+          (if (= view "auser")
+            (set ok (if (admin?) (begin (say "Loading the account...") (load-auser arg)) (not-admin))))
+          (if (= view "agroup")
+            (set ok (if (admin?) (begin (say "Loading the group...") (load-agroup arg)) (not-admin))))
+          (if (= view "agperm")
+            (set ok (if (admin?) (begin (say "Loading its permissions...") (load-agperm arg)) (not-admin))))
+          ;; Mail (ui/mail.ari): a folder at an offset (mail|31|INBOX|0; mail alone, the one
+          ;; shown last or the first mailbox's inbox), a message (mailmsg|31|INBOX|112), the
+          ;; viewer at one of its attachments (mailview|31|INBOX|112|0), the form (mailnew)
+          (if (= view "mail")
+            (begin
+              (say "Loading your mail...")
+              (set ok (load-mail arg (url-decode (nth-or parts 2))
+                                 (int (if (digits? (nth-or parts 3)) (nth-or parts 3) "0"))))))
+          (if (= view "mailmsg")
+            (begin
+              (say "Opening the message...")
+              (set ok (load-mail-msg arg (url-decode (nth-or parts 2)) (nth-or parts 3)))))
+          (if (= view "mailview")
+            (set ok (if (load-mail-msg arg (url-decode (nth-or parts 2)) (nth-or parts 3))
+                      (mail-viewer (int (if (digits? (nth-or parts 4)) (nth-or parts 4) "0")))
+                      nil)))
+          (if (= view "mailnew")
+            (set ok (if (mail-accounts)
+                      (if (= (sget "mail.new.from") "")
+                        (begin (fail "You have no mailbox here to send from.") nil)
+                        true)
+                      nil)))
+          (if ok
+            (begin
+              (show-screen (if (= view "tag") "feed" (if (= view "mailview") "viewer" view)))
+              (say "")))
+          ok))))
+  ;; A new view: the other copy of the bar, whose Back takes the focus (ui/app.ari).
+  (defun new-view () (state-set "ui.nav" (if (= (state-get "ui.nav") "a") "b" "a")))
+  ;; Go to an entry: load it, then remember where the window was, for Back.
+  (defun go (entry)
+    (let ((was (state-get "ui.here")))
+      (if (show-entry entry)
+        (begin
+          (if (and (!= was "") (!= was entry)) (push-back was))
+          (state-set "ui.fwd" "")
+          (state-set "ui.here" entry)
+          (new-view)
+          true)
+        nil)))
+  (defun go-home ()
+    (begin
+      (state-set "ui.back" "")
+      (state-set "ui.fwd" "")
+      (state-set "ui.here" "")
+      (go "feed")))
+  ;; A link in a post's text (text.runs), followed in the app where it leads somewhere the
+  ;; app shows: a hashtag's posts (/tag/NAME), a person's profile (/user/NAME, the account
+  ;; GET /user/by-username/{name} names), a post or a profile by id (/app/post/ID,
+  ;; /app/profile/ID), on this instance whether the href is a path or a whole URL. nicotina
+  ;; never opens a browser: any other link is copied (Copy link), or shown where the host
+  ;; has no clipboard.
+  (defun copy-link (url)
+    (if (= (state-get "app.clip") "1")
+      (begin (clipboard-set url) (say (str-concat "Link copied: " url)))
+      (say (str-concat "Link: " url))))
+  (defun open-link (href)
+    (let ((h (text href)))
+      (begin
+        (set path h)
+        (for pre (list (base) (state-get "app.origin"))
+          (if (and (!= pre "") (string.starts-with path (str-concat pre "/")))
+            (set path (string.substring path (string.length pre)
+                                        (- (string.length path) (string.length pre))))))
+        (if (string.starts-with path "/app/")
+          (set path (string.substring path 4 (- (string.length path) 4))))
+        (set seg (if (string.starts-with path "/")
+                   (string.split (car (string.split (car (string.split path "?")) "#")) "/")
+                   (list)))
+        (set kind (if (= (length seg) 3) (nth seg 1) ""))
+        (set arg (if (= (length seg) 3) (nth seg 2) ""))
+        (if (and (= kind "tag") (!= arg ""))
+          (go (str-concat "tag|" (string.lower arg)))
+          (if (and (= kind "user") (!= arg ""))
+            (let ((r (get-authed (str-concat "/user/by-username/" arg))))
+              (if (ok? r)
+                (go (str-concat "profile|" (text (opt (reply-json r) "id" ""))))
+                (if (session-over? r) (session-over)
+                  (if (= (status r) 0) (unreachable r)
+                    (fail (str-concat "Couldn't find @" arg " (HTTP " (str (status r)) ")."))))))
+            (if (and (or (= kind "post") (= kind "profile")) (!= arg ""))
+              (go (str-concat kind "|" arg))
+              (copy-link (if (string.starts-with h "/") (str-concat (state-get "app.origin") h)
+                           h))))))))
+
+  ;; After signing in: who it is, then the feed, the first view (as the web app's home), or
+  ;; the first time, the view --start names (profile, settings, tags, alerts, search, compose, post:ID,
+  ;; tag:NAME, user:ID, view:ID[:N], search:TEXT, mail, mail:FOLDER, mail:FOLDER:UID,
+  ;; mail:new; for an administrator admin[:PART], auser:ID, agroup:ID); a view that won't
+  ;; load leaves the feed.
+  (defun load-home ()
+    (if (load-me)
+      (let ((start (state-get "ui.start")))
+        (begin
+          (nav-icons)
+          (state-set "ui.back" "")
+          (state-set "ui.here" "")
+          (state-set "ui.start" "feed")
+          (set entry
+            (if (= start "profile") (str-concat "profile|" (text (state-get "me.id")))
+            (if (= start "settings")
+              (begin (state-set "ui.tab" "Settings") (str-concat "profile|" (text (state-get "me.id"))))
+              (if (string.starts-with start "user:") (str-concat "profile|" (string.substring start 5 (string.length start)))
+                (if (or (string.starts-with start "post:") (string.starts-with start "tag:")
+                        (= start "tags") (= start "alerts") (= start "search") (= start "compose")
+                        (= start "dms") (string.starts-with start "dm:")
+                        (= start "admin") (string.starts-with start "admin:")
+                        (string.starts-with start "auser:") (string.starts-with start "agroup:")
+                        (string.starts-with start "agperm:"))
+                  (string.replace start ":" "|")
+                  ;; view:ID or view:ID:N, the viewer at a post's Nth attachment; search:TEXT,
+                  ;; the search view, searching for TEXT
+                  (if (string.starts-with start "search:")
+                    (begin
+                      (state-set "search.q" (string.substring start 7 (string.length start)))
+                      "search")
+                  (if (string.starts-with start "view:")
+                    (let ((parts (string.split start ":")))
+                      (str-concat "viewer|" (nth-or parts 1) "|"
+                                  (if (= (nth-or parts 2) "") "0" (nth-or parts 2))))
+                  ;; mail, the first mailbox's inbox; mail:FOLDER (mail:sent, mail:drafts),
+                  ;; mail:FOLDER:UID one message there; mail:new, an email to write
+                  (if (= start "mail") "mail"
+                  (if (= start "mail:new")
+                    (if (mail-accounts) (begin (mail-new) "mailnew") "feed")
+                  (if (string.starts-with start "mail:")
+                    (let ((parts (string.split start ":")))
+                      (if (= (nth-or parts 2) "")
+                        (str-concat "mail||" (url-encode (nth-or parts 1)) "|0")
+                        (str-concat "mailmsg||" (url-encode (nth-or parts 1)) "|" (nth-or parts 2))))
+                    "feed"))))))))))
+          ;; what's new, from now on: where each conversation is now (news-dms' first look),
+          ;; the first poll at once, then one every 30 s
+          (state-set "news.on" "1")
+          (state-set "news.next" 0)
+          (news-dms)
+          (if (go entry)
+            (begin (if (!= (state-get "search.q") "") (run-search)) true)
+            (go "feed"))))
+      nil))
+
+  (defun signed-in-msg () (str-concat "Signed in to " (state-get "app.host") "."))
+
+  ;; A reply from /user/login or /user/login/2fa.
+  (defun after-login (r)
+    (let ((b (reply-json r)))
+      (if (ok? r)
+        (if (get-attr r "captured")
+          (if (opt b "force_password_change" nil)
+            (begin
+              (http-request "POST" (str-concat (base) "/user/logout") (dict "auth" (cred)))
+              (net-auth-forget (cred))
+              (to-signin (str-concat "Change your password at " (state-get "app.host")
+                                     ", then sign in.")
+                         true))
+            (begin
+              (state-set "login.challenge" "")
+              (state-set "login.code" "")
+              (if (load-home) (say (signed-in-msg)))))
+          (if (opt b "two_factor_required" nil)
+            (begin
+              (state-set "login.challenge" (opt b "challenge" ""))
+              (state-set "login.code" "")
+              (state-set "ui.screen" "2fa")
+              (say (str-concat "We emailed you a code. It expires in "
+                               (str (int (/ (opt b "expires_in" 300) 60))) " minutes.")))
+            (fail (str-concat "The server sent no session: " (get-attr r "error")))))
+        (if (= (status r) 0) (unreachable r)
+          (if (= (status r) 429) (fail "Too many attempts. Wait a minute, then try again.")
+            ;; an administrator turned the account off (txwtf's DisabledUser): after the
+            ;; password, or after the emailed code
+            (if (string.contains (text (opt b "detail" "")) "DisabledUser")
+              (begin
+                (if (= (state-get "ui.screen") "2fa") (to-signin "" nil))
+                (fail "This account is disabled. Ask the site's administrators."))
+              (if (= (state-get "ui.screen") "2fa")
+                (begin
+                  (state-set "login.code" "")
+                  (fail "That code didn't work. Try again, or go Back."))
+                (if (or (= (status r) 400) (= (status r) 401))
+                  (fail "Wrong username or password.")
+                  (fail (str-concat "Sign-in failed (HTTP " (str (status r)) ")."))))))))))
+  ;; The instance's custom emoji (GET /social/emojis), name to picture, asked once a sign-in
+  ;; and kept as JSON in app.site_emoji: an encrypted message has no content_html to read
+  ;; them from, so its :name:s are looked up here.
+  (defun site-emoji ()
+    (begin
+      (if (= (sget "app.site_emoji") "")
+        (begin
+          ;; pages of 100, at most five: plain sets, so the loop's own counters are what change
+          (set m (dict))
+          (set ids (dict))
+          (set off 0)
+          (set pages 0)
+          (set more true)
+          (while (and more (< pages 5))
+            (set pages (+ pages 1))
+            (set r (get-query "/social/emojis" (dict "limit" "100" "offset" (text off))))
+            (set b (if (ok? r) (reply-json r) (dict)))
+            (set es (opt b "emojis" (list)))
+            (if (!= (type-of es) "list") (set es (list)))
+            (for e es
+              (let ((name (string.lower (string.replace (text (opt e "shortcode" (opt e "name" ""))) ":" "")))
+                    (url (picture-url (text (opt e "url" ""))))
+                    (ch (text (opt e "unicode" ""))))
+                (if (!= name "")
+                  (if (!= url "")
+                    (begin
+                      (set-attr m name url)
+                      ;; its picture as TX.WTF serves it, for the bar (nav-icons)
+                      (set-attr ids name (text (opt e "id" ""))))
+                    (if (!= ch "") (set-attr m name ch))))))
+            (set off (+ off (length es)))
+            (set more (and (> (length es) 0) (< off (int (opt b "total" 0))))))
+          (state-set "app.site_emoji_id" (json-encode ids))
+          (state-set "app.site_emoji" (json-encode m))))
+      (try (json-parse (state-get "app.site_emoji")) (catch (e) (dict)))))
+  ;; The bar's pictures. main.ari's init names, for any of the bar's buttons and the feed's
+  ;; choices, the instance's custom emoji to show in place of its own (ui.nav_emoji.KEY: a name,
+  ;; or a few, comma separated, the first the instance has winning). Where the host draws a
+  ;; picture on a button (button.icon), nav.icon.KEY is the picture's URL at the instance
+  ;; (/social/emojis/ID/image), else "": the button shows its own emoji, as it does until the
+  ;; picture has loaded and if it can't be. Where main.ari names none (all ""), the site's emoji
+  ;; aren't asked for at all.
+  (defun nav-keys ()
+    (list "back" "forward" "home" "tags" "search" "alerts" "profile" "compose" "dms"
+          "mail" "admin" "following" "everyone" "friends"))
+  (defun nav-named? ()
+    (> (length (collections.filter (nav-keys)
+                 (lambda (k) (!= (string.trim (sget (str-concat "ui.nav_emoji." k))) ""))))
+       0))
+  (defun nav-icons ()
+    (if (and (has? "button.icon") (nav-named?))
+      (let ((ids (begin (site-emoji)
+                        (try (json-parse (state-get "app.site_emoji_id")) (catch (e) (dict))))))
+        (for k (nav-keys)
+          (begin
+            (state-set (str-concat "nav.icon." k) "")
+            (for n (string.split (text (state-get (str-concat "ui.nav_emoji." k))) ",")
+              (let ((id (text (opt ids (string.lower (string.trim n)) ""))))
+                (if (and (!= id "") (= (state-get (str-concat "nav.icon." k)) ""))
+                  (state-set (str-concat "nav.icon." k)
+                             (str-concat (state-get "app.origin") "/social/emojis/" id "/image"))))))))))

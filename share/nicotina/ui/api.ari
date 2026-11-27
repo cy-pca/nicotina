@@ -1,0 +1,250 @@
+# ui/api.ari — no widgets: the functions the controller (nicotina.ari's on_tick) calls to talk
+# to the instance, and the helpers every view's functions use. nicotina.ari imports it.
+
+meta:
+  name: nicotina api
+  min_libcvc: 3.7.5
+
+# The controller's request layer and its helpers: the site and its credential, the status line,
+# JSON replies, signed-in requests, the run's cache of posts, the window's widths and page sizes.
+# nicotina.ari's on_tick calls them; they were defined inside it until 2026-11.
+functions: |
+  (defun base () (state-get "app.base"))
+  ;; The credential the host keeps this site's session token under (site-cred: one per site).
+  (defun cred () (state-get "app.cred"))
+  ;; The other copies of the client main.ari runs (peers: its slots, linked read-only), each
+  ;; at peers.<j>.ui; this one is ui.slot. Without main.ari there are none.
+  (defun slot-count () (if (state-exists "peers.n") (int (state-get "peers.n")) 0))
+  (defun others-open ()
+    (if (state-exists "peers.open") (> (int (state-get "peers.open")) 1) nil))
+  ;; Whether another copy is signed in to url, or signing in there: one session a site.
+  (defun open-elsewhere (url)
+    (begin
+      (set found nil)
+      (set j 0)
+      (while (< j (slot-count))
+        (if (!= j (int (state-get "ui.slot")))
+          (if (= (state-get (str-concat "peers." (str j) ".ui.site")) url)
+            (if (!= (state-get (str-concat "peers." (str j) ".ui.screen")) "closed")
+              (set found #t))))
+        (set j (+ j 1)))
+      found))
+  ;; The profile window's widths, in columns: inside its frame, and the card's text beside
+  ;; the avatar. A tab's page is five rows.
+  (defun WIDE () 74)
+  (defun CARD () 65)
+  (defun PAGE () 5)
+  (defun clip (s n)
+    (if (> (string.length s) n) (str-concat (string.substring s 0 (- n 3)) "...") s))
+  ;; The status line: one row of at most 60 characters, the windows' width.
+  (defun say (msg) (state-set "ui.msg" (clip msg 60)) (state-set "ui.err" ""))
+  (defun fail (msg) (state-set "ui.msg" (clip msg 60)) (state-set "ui.err" "1"))
+  ;; d's value at k, or dflt when d is no dict, lacks k, or holds null there.
+  (defun opt (d k dflt)
+    (if (= (type-of d) "dict")
+      (try (let ((v (get-attr d k))) (if (= (type-of v) "nil") dflt v)) (catch (e) dflt))
+      dflt))
+  ;; Whether d has k and it is false. JSON's false reads as nil here, so (opt d k true) can't
+  ;; tell a false from a missing key: an account's "enabled" needs this.
+  (defun off? (d k)
+    (if (and (= (type-of d) "dict")
+             (> (length (collections.filter (collections.dict-keys d) (lambda (x) (= x k)))) 0))
+      (not (get-attr d k))
+      nil))
+  ;; str quotes a string, so only non-strings go through it.
+  (defun text (v) (if (is-string v) v (str v)))
+  (defun reply-json (r) (try (json-parse (get-attr r "body")) (catch (e) (dict))))
+  (defun status (r) (get-attr r "status"))
+  (defun ok? (r) (and (>= (status r) 200) (< (status r) 300)))
+  ;; Whether the host keeps a notification feed (app.notify), and a key's text, "" when absent.
+  (defun feed? () (= (state-get "app.notify") "1"))
+  (defun sget (k) (if (state-exists k) (text (state-get k)) ""))
+  ;; A list kept as "a;b;c" in one key (dm.unread, news.alert_ids), and one more on it.
+  (defun id-list (k) (if (= (sget k) "") (list) (string.split (sget k) ";")))
+  (defun id-add (k v)
+    (if (= (length (collections.filter (id-list k) (lambda (x) (= x (text v))))) 0)
+      (state-set k (string.join (append (id-list k) (text v)) ";"))))
+  ;; The main window open and in front (its X closes it; a menu item or a feed entry brings it).
+  (defun show-window () (begin (state-set "tree.app.open" 1) (state-set "tree.app.raise" "1")))
+  ;; An id or a word, as it goes into a feed entry's program: letters, digits, _ and - only.
+  (defun word (v)
+    (begin
+      (set s (text v))
+      (set out "")
+      (set i 0)
+      (while (< i (string.length s))
+        (set c (string.char-at s i))
+        (if (string.contains "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" c)
+          (set out (str-concat out c)))
+        (set i (+ i 1)))
+      out))
+
+  (defun post-json (path payload capture)
+    (let ((o (dict "headers" (dict "Content-Type" "application/json"
+                                   "Accept" "application/json")
+                   "body" (json-encode payload))))
+      (begin
+        (if capture (set-attr o "capture_auth" (dict "name" (cred) "field" "token")))
+        (http-request "POST" (str-concat (base) path) o))))
+  (defun get-authed (path)
+    (http-get (str-concat (base) path)
+              (dict "auth" (cred) "headers" (dict "Accept" "application/json"))))
+  ;; With a query: the host percent-encodes it.
+  (defun get-query (path q)
+    (http-get (str-concat (base) path)
+              (dict "auth" (cred) "headers" (dict "Accept" "application/json") "query" q)))
+  ;; POST (or another verb) with a JSON body, signed in; payload nil sends none.
+  (defun send-authed (method path payload)
+    (http-request method (str-concat (base) path)
+      (if (= (type-of payload) "nil")
+        (dict "auth" (cred) "headers" (dict "Accept" "application/json"))
+        (dict "auth" (cred)
+              "headers" (dict "Accept" "application/json" "Content-Type" "application/json")
+              "body" (json-encode payload)))))
+
+  ;; --- the client's cache: the state tree, for the run ------------------------------
+  ;; A whole post, as GET /social/posts/ID sent it, is kept POSTTTL seconds under
+  ;; cache.post.ID, as its JSON: the post's view, search's cards and a card's Open read it
+  ;; before asking txwtf again. A timeline's posts aren't whole (txwtf leaves their
+  ;; reactions_summary null), so they are kept only in their feed's entry. A
+  ;; feed's posts (cache.feed.MODE: every page loaded, with where the next one starts) are
+  ;; kept FEEDTTL seconds, so Home and the feed's choices show them again at once. What you
+  ;; do to a post (like, dislike, repost, reply, delete, a new post) drops its entry and the
+  ;; feeds'; Refresh asks again (cache.bypass), and signing out drops it all. Pictures and
+  ;; videos are the host's: its HTTP cache keeps them.
+  (defun POSTTTL () 300)
+  (defun FEEDTTL () 180)
+  (defun cache-live? (k) (and (state-exists k) (not (state-is-expired k))))
+  (defun cache-bypass? () (= (sget "cache.bypass") "1"))
+  (defun cache-post (q)
+    (if (and (= (type-of q) "dict") (!= (word (opt q "id" "")) "")
+             (!= (type-of (opt q "reactions_summary" nil)) "nil"))
+      (let ((k (str-concat "cache.post." (word (opt q "id" "")))))
+        (begin (state-set k (json-encode q)) (state-expire k (POSTTTL))))))
+  (defun cached-post (id)
+    (let ((k (str-concat "cache.post." (word id))))
+      (if (and (not (cache-bypass?)) (cache-live? k))
+        (try (json-parse (state-get k)) (catch (e) nil))
+        nil)))
+  (defun cache-forget (id)
+    (if (!= (word id) "") (state-delete (str-concat "cache.post." (word id)))))
+  (defun feeds-forget () (state-delete "cache.feed"))
+  ;; A post txwtf just sent (GET /social/posts/ID's reply), kept, as a dict.
+  (defun kept-reply (r) (let ((q (reply-json r))) (begin (cache-post q) q)))
+  ;; GET /social/posts/ID, or the copy kept: {ok, post}, or {ok nil, r} with the reply that
+  ;; failed.
+  (defun fetch-post (id)
+    (let ((c (cached-post id)))
+      (if (= (type-of c) "dict") (dict "ok" true "post" c)
+        (let ((r (get-authed (str-concat "/social/posts/" (text id)))))
+          (if (ok? r)
+            (let ((q (reply-json r))) (begin (cache-post q) (dict "ok" true "post" q)))
+            (dict "ok" nil "r" r))))))
+
+  ;; A decimal string as people write it: 1234.5678900000 -> 1234.56789. One in exponent
+  ;; form (0E-10) becomes a float, which state-set-tree writes in its shortest form (0).
+  (defun plain-number (s)
+    (begin
+      (set s (text s))
+      (if (or (string.contains s "E") (string.contains s "e"))
+        (float s)
+        (begin
+          (if (string.contains s ".")
+            (begin
+              (while (string.ends-with s "0")
+                (set s (string.substring s 0 (- (string.length s) 1))))
+              (if (string.ends-with s ".")
+                (set s (string.substring s 0 (- (string.length s) 1))))))
+          s))))
+  (defun dollars (cents)
+    (let ((c (int cents)) (sign ""))
+      (begin
+        (if (< c 0) (begin (set sign "-") (set c (- 0 c))))
+        (set r (% c 100))
+        (str-concat sign "$" (str (int (/ (- c r) 100))) "." (if (< r 10) "0" "") (str r)))))
+  ;; A request that did something (a like, a post) failed. Only a 401 ends the session here:
+  ;; a 403 is the instance refusing that one thing.
+  (defun act-failed (r what)
+    (if (or (= (status r) 401)
+            (and (= (status r) 0) (string.contains (get-attr r "error") "no credential")))
+      (session-over)
+      (if (= (status r) 0) (unreachable r)
+        (let ((d (opt (reply-json r) "detail" "")))
+          (fail (str-concat "Couldn't " what
+                            (if (is-string d) (str-concat ": " d) "")
+                            " (HTTP " (str (status r)) ")."))))))
+
+  ;; --- the feed: cards ---------------------------------------------------------------
+  ;; A card's text is CARDW columns wide: the window's inside, less its scroll bar and the
+  ;; card's frame.
+  (defun CARDW () 70)
+  (defun FEEDPAGE () 10)
+
+  ;; The post's replies (GET /social/posts/{id}/replies), oldest first: the first page, or the
+  ;; next one added below. Each is a card, as the feed's, a profile's, a hashtag's and
+  ;; search's posts are (feed-card; ui/card.ari's card_list over post.replies): a post looks
+  ;; the same wherever it is shown, and a reply's Like, Repost, View and Open work as a card's.
+  (defun REPLYPAGE () 10)
+
+  ;; --- the other views -------------------------------------------------------------
+  ;; Every hashtag (GET /social/tags), the most named first: a page of twenty rows, a row's
+  ;; name and count, then Open (8 columns).
+  (defun TAGPAGE () 20)
+
+  ;; --- the instance's administration (ui/admin.ari) ----------------------------------
+  ;; For an administrator (ui.admin): the accounts, the groups, invite codes, the site's
+  ;; settings and the system log. txwtf answers a missing permission with 401 and a detail
+  ;; ending in (AccessDenied), so those 401s are a refusal here, not a session that ended.
+  (defun USERPAGE () 6)
+  (defun LISTPAGE () 10)
+  ;; JSON's false for a request's body: the literal false reads as nil (json-encode: null,
+  ;; which txwtf takes for "leave it as it is"); (not true) is the bool.
+  (defun NO () (not true))
+
+  ;; Log: GET /logs/, newest first, a page of ten, one kind of event (admin.log_event) or all.
+  ;; A row is when, who, the event's name (as the web app names them) and what it says (cells
+  ;; 17, 13, 19 and 17 columns wide).
+  (defun EVENTS () (list "" "User Login" "User Create" "User Update" "User Logout" "Setting Change"
+                    "Deactivate Session" "Launch Session" "Group Create" "Group Delete"
+                    "Group Add User" "Group Remove User" "Group Add Permission"
+                    "Group Remove Permission" "Group Update Description" "Stats Job Started"
+                    "Stats Job Completed" "Stats Job Failed" "Retention Job Started"
+                    "Retention Job Completed" "Retention Job Failed" "Job Started"
+                    "Job Completed" "Job Failed" "Notification Email Job Started"
+                    "Notification Email Job Completed" "Notification Email Job Failed"
+                    "Email Verification Sent" "Email Verified"))
+
+  ;; --- mail (ui/mail.ari) -----------------------------------------------------------
+  ;; txwtf's /mail routes (txwtf/api/mailbox.py, the same in 0.4.0 and master), on the
+  ;; Mail-in-a-Box mailboxes the site gives its accounts:
+  ;;   GET  /mail/accounts                          your mailboxes (once a sign-in)
+  ;;   GET  /mail/{id}/folders                      a mailbox's folders (once a sign-in)
+  ;;   GET  /mail/{id}/folders/{f}/messages         a page of a folder, the newest first
+  ;;   GET  /mail/{id}/folders/{f}/messages/{uid}   one message (reading it marks it read),
+  ;;                                                kept POSTTTL s as a post is (cache.mail)
+  ;;   POST .../messages/{uid}/attachments/{i}/save-to-files   Save to files
+  ;;   POST /mail/{id}/send                         Send: to, cc, subject, body_text, the
+  ;;                                                files by id (existing_file_ids)
+  ;;   DELETE .../messages/{uid}                    the draft an email was, once sent
+  ;; and two txwtf has none of yet, used where the site has them (the nicotina PR proposes
+  ;; them): an attachment's own URL in a message (parts[i].url, fetched with no sign-in, so a
+  ;; picture shows and a video plays), and POST /mail/{id}/drafts (Save draft). Without
+  ;; them, Save to files shows one, and Save draft says the site can't.
+  ;; A mailbox's id, a folder and a UID name a message. A view's entry names them, the
+  ;; folder url-encoded: mail|31|INBOX|0 (a folder at an offset), mailmsg|31|Sent|21,
+  ;; mailview|31|INBOX|112|0 (the viewer at a message's attachment), mailnew (the form).
+  (defun MAILPAGE () 10)
+  (defun MAILLINES () 400)
+  (defun MONTHS () (list "jan" "feb" "mar" "apr" "may" "jun" "jul" "aug" "sep" "oct" "nov" "dec"))
+
+  ;; --- direct messages (ui/dm.ari) ---------------------------------------------------
+  ;; The conversations: GET /social/dm/conversations, latest first. A conversation's other
+  ;; person comes from GET /user/profile/{id}, kept in dm.who for the run.
+  ;;
+  ;; An encrypted conversation (is_encrypted) goes through the host's e2ee-* verbs (libcvc
+  ;; 3.7.14, with --e2ee-store): the host keeps this account's keys and sessions, and this
+  ;; document names them by a handle, e2ee-handle, never holding a key. Its messages are
+  ;; GET /e2ee/dm/conversations/{id}/messages, opened in the order they were sent; a new one is
+  ;; sealed by the host and POSTed there. Where the host can't (no verbs, or its key store
+  ;; would not open), an encrypted conversation stays locked and says why.
+  (defun DMPAGE () 30)
