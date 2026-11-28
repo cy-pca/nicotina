@@ -504,9 +504,8 @@ functions: |
             (begin
               (state-set "login.challenge" "")
               (state-set "login.code" "")
-              ;; the session reads who it is (GET /user/); session-changed then loads the views
-              (state-set "ui.awaiting" "signin")
-              (state-set "session.cmd" "signin-done")))
+              ;; the session reads who it is (GET /user/), then the views load
+              (session-after (session-ask "signin-done") "signin")))
           (if (opt b "two_factor_required" nil)
             (begin
               (state-set "login.challenge" (opt b "challenge" ""))

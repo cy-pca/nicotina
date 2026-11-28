@@ -236,7 +236,7 @@ check "ari check with --net-allow: it loads" "$out/check-net.txt" "exit 0"
 # with --strict so a loader warning fails it too. An older ari has neither validate nor `ari
 # schema` (and refuses validate's flags before the command), and one built without
 # json-schema-validator says so (exit 4): both skip.
-docs=("$root"/share/nicotina/*.ari "$root"/share/nicotina/ui/*.ari)
+docs=("$root"/share/nicotina/*.ari "$root"/share/nicotina/ui/*.ari "$root"/share/nicotina/components/*.ari)
 if ! "$ARI" schema >/dev/null 2>&1; then
   skip "ari validate (this ari has none: libcvc 4.0.7, transfix/libcvc#1464)"
 else
@@ -265,6 +265,23 @@ if "$ARI" test --help >/dev/null 2>&1 || "$ARI" 2>&1 | grep -q "ari test"; then
     "ok   " "exit 0"
 else
   skip "ari test (this ari has none)"
+fi
+
+# ari test: components/session.ari mounted as a host mounts it (docs/COMPONENTS.md 3.2-3.8): out
+# with no session kept, a guest, a session the host makes and hands over (adopt), no token in the
+# state, a sign-out. Against a stub of its own, since its sign-out ends ada's session there.
+if "$ARI" test --help >/dev/null 2>&1 || "$ARI" 2>&1 | grep -q "ari test"; then
+  python3 -I -B "$here/stub_txwtf.py" --port 0 --port-file "$work/port3" --log "$out/stub3.log" \
+    2>"$out/stub3.stderr" &
+  stub3_pid=$!
+  for _ in $(seq 100); do [ -s "$work/port3" ] && break; sleep 0.05; done
+  base3="http://127.0.0.1:$(cat "$work/port3" 2>/dev/null)"
+  "$ARI" test --net-allow "$base3" --set "sites.stub.instance=$base3" \
+    "$root/tests/session_test.ari" >"$out/session-test.txt" 2>&1
+  echo "exit $?" >>"$out/session-test.txt"
+  kill "$stub3_pid" 2>/dev/null
+  check "ari test: the session component (resume, guest, adopt, no token in state, sign-out)" \
+    "$out/session-test.txt" "ok   " "exit 0"
 fi
 
 # --- 3. ari snapshot --------------------------------------------------------------------------

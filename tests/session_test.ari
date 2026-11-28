@@ -1,0 +1,69 @@
+# tests/session_test.ari — components/session.ari mounted as a host mounts it (docs/COMPONENTS.md
+# 3.2, 3.3, 3.7, 3.8), against tests/stub_txwtf.py. tests/run.sh runs it:
+#
+#   ari test --net-allow BASE --set sites.stub.instance=BASE tests/session_test.ari
+#
+# The tests run in order and share the state: a resume with no session kept, a guest, a session
+# the host makes itself and hands over (adopt), no token anywhere in the state, and a sign-out.
+
+meta:
+  name: nicotina session tests
+  min_libcvc: 4.0.9
+
+requires: [net, net.auth]
+
+import:
+  - ../share/nicotina/components/api.ari      # nic-cred, nic-site, nic-json ...
+
+functions: |
+  ;; session.cmd, then the session's next change of state (gen), 5 s at most.
+  (defun ask (cmd)
+    (begin
+      (set g (int (if (state-exists "sessions.stub.gen") (state-get "sessions.stub.gen") 0)))
+      (state-set "sessions.stub.cmd" cmd)
+      (set n 0)
+      (while (and (< n 100) (<= (int (if (state-exists "sessions.stub.gen") (state-get "sessions.stub.gen") 0)) g))
+        (begin (sleep 0.05) (set n (+ n 1))))
+      (nic-sget "sessions.stub.state")))
+
+# The hole's target is there before the session writes through it (3.1).
+init: (state-set "sessions.stub.slot" 0)
+
+windows:
+  - load: ../share/nicotina/components/session.ari
+    as: stub
+    link:
+      session: {to: sessions.stub, mode: rw}
+      args: {to: sites.stub, mode: ro}
+
+tests:
+  the_site_is_args_instance: |
+    (assert (= (nic-site "sessions.stub") (nic-sget "sites.stub.instance")) (nic-site "sessions.stub"))
+    (assert (string.starts-with (nic-cred "sessions.stub") "txwtf.") (nic-cred "sessions.stub"))
+  out_with_no_session_kept: |
+    (assert (= (ask "resume") "out") (nic-sget "sessions.stub.reason"))
+    (assert (= (nic-sget "sessions.stub.reason") "none"))
+    (assert (= (nic-sget "sessions.stub.site_info.version") "txwtf 0.6.0") "the site's page")
+  a_guest: |
+    (assert (= (ask "guest") "guest"))
+    (assert (= (nic-sget "sessions.stub.me.username") ""))
+  adopts_a_session_the_host_made: |
+    ;; the host signs in itself, the token captured under the session's credential
+    (set r (http-request "POST" (str-concat (nic-site "sessions.stub") "/user/login")
+             (dict "headers" (dict "Content-Type" "application/json" "Accept" "application/json")
+                   "body" (json-encode (dict "username" "ada" "password" "correct horse"))
+                   "capture_auth" (dict "name" (nic-cred "sessions.stub") "field" "token"))))
+    (assert (nic-ok? r) (str (nic-status r)))
+    (assert (= (ask "adopt") "in") (nic-sget "sessions.stub.reason"))
+    (assert (= (nic-sget "sessions.stub.me.username") "ada"))
+    (assert (= (nic-sget "sessions.stub.me.is_admin") "1") "the stub's administrator")
+    (assert (nic-signed-in? "sessions.stub"))
+  no_token_in_the_state: |
+    ;; the stub's tokens are JWT-shaped; the reply the host handed over has "[redacted]"
+    (assert (not (string.contains (state-json "sessions") "eyJ")) "a token in sessions.*")
+    (assert (not (string.contains (state-json "includes") "eyJ")) "a token in the mount")
+  signs_out: |
+    (assert (= (ask "signout") "out"))
+    (assert (= (nic-sget "sessions.stub.reason") "signed-out"))
+    (assert (not (net-auth-has? (nic-cred "sessions.stub") (nic-site "sessions.stub"))) "the credential is gone")
+    (assert (= (nic-sget "sessions.stub.me.username") "") "no account")

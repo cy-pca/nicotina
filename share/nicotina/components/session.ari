@@ -27,7 +27,7 @@
 # What it takes, as session.cmd (anyone may set it; it runs on the next frame it isn't busy):
 #
 #   site         session.want's URL becomes the site; its page asked for again; out
-#   site-info    the site's page asked for again
+#   site-info    the site's page asked for again (the state as it was, gen counted on)
 #   resume       the site's page, then the session the host keeps for it, if any: in, or out
 #   signin-done  a sign-in captured a token under session.cred: in, or out with why
 #   adopt        the same, for a token the host document captured itself (3.8)
@@ -123,7 +123,8 @@ functions: |
             (begin
               (if (= cmd "site")
                 (begin (site-use (state-get "session.want")) (ses-site-info) (ses-out "none")))
-              (if (= cmd "site-info") (ses-site-info))
+              (if (= cmd "site-info")
+                (begin (ses-site-info) (ses-state (nic-sget "session.state") (nic-sget "session.reason"))))
               (if (= cmd "resume") (ses-resume))
               (if (or (= cmd "signin-done") (= cmd "adopt")) (ses-account))
               (if (= cmd "guest") (begin (state-set-tree "session.me" (dict)) (ses-state "guest" "")))

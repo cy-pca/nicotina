@@ -342,7 +342,8 @@ on_tick: |
                   (begin
                     (use-site u)
                     (to-signin "" nil)
-                    (state-set "session.cmd" "site-info"))))))
+                    (session-ask "site-info")
+                    (site-titles))))))
           ;; The sign-in form's Close, while another copy is open: this one goes, and main.ari
           ;; reuses its place for the next site.
           (if (= cmd "close")
@@ -1039,7 +1040,7 @@ on_tick: |
               (if saving
                 (if (= (length saved) 0) (say "Nothing to save: nothing has changed.")
                   (begin
-                    (state-set "session.cmd" "site-info") ;; the window's title, if that was it
+                    (session-ask "site-info") (site-titles) ;; the window's title, if that was it
                     (if (load-admin-site)
                       (say (str-concat "Saved the " (string.join saved ", ") "."))))))))
           ;; Signed in still: the unread count again.
