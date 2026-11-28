@@ -177,7 +177,7 @@ units:
 
   # A new post (POST /social/posts): who may see it, then the text. Enter posts it; Shift+Enter
   # (Alt+Enter in a terminal) starts a new line; ImGui adds a Post button. Where the host can pick
-  # and upload a file (app.attach: libcvc 3.7.14), Attach adds files, each listed with a Remove,
+  # and upload a file (session.caps.attach: libcvc 3.7.14), Attach adds files, each listed with a Remove,
   # and posting uploads them first, the bar showing how far; the Post beside Attach posts what is
   # written with them, or the files alone. Elsewhere a post is text only. After Attach or Remove
   # the focus is back in the text, as the reply box takes it (feed.ari): the controller flips
@@ -208,7 +208,7 @@ units:
         visible_when: (= (state-get "compose.focus") "b")
       - type: group
         id: c_files
-        visible_when: (= (state-get "app.attach") "1")
+        visible_when: (= (state-get "session.caps.attach") "1")
         children:
           - type: group
             repeat: (state-get "compose.files")
@@ -234,7 +234,7 @@ units:
             bind: compose.progress
             visible_when: (= (state-get "compose.uploading") "1")
       - text: "Text only: this host can't attach files."
-        visible_when: (!= (state-get "app.attach") "1")
+        visible_when: (!= (state-get "session.caps.attach") "1")
         color: [0.6, 0.6, 0.6]
       - text: ""
         bind: compose.note
@@ -376,7 +376,7 @@ functions: |
   (defun news-alerts (n)
     (if (feed?)
       (if (> n 0)
-        (if (!= (text n) (sget "news.alert_n"))
+        (if (!= (text n) (sget "session.news.alert_n"))
           (let ((r (get-query "/notifications/" (dict "limit" "20" "offset" "0"))))
             (if (ok? r)
               (let ((rows (opt (reply-json r) "notifications" (list))))
@@ -384,16 +384,16 @@ functions: |
                   (if (!= (type-of rows) "list") (set rows (list)))
                   (for x (collections.reverse rows)
                     (let ((nid (int (opt x "id" 0))))
-                      (if (and (not (opt x "viewed" nil)) (> nid (int (state-get "news.alert_max"))))
+                      (if (and (not (opt x "viewed" nil)) (> nid (int (state-get "session.news.alert_max"))))
                         (begin
-                          (state-set "news.alert_max" nid)
-                          (id-add "news.alert_ids"
+                          (state-set "session.news.alert_max" nid)
+                          (id-add "session.news.alert_ids"
                             (notify (clip (one-line (opt x "message" "Something new.")) 80) "info"
                                     (alert-program x)))))))
-                  (state-set "news.alert_n" (text n)))))))
+                  (state-set "session.news.alert_n" (text n)))))))
         (begin
           (alerts-read)
-          (state-set "news.alert_n" "0")))))
+          (state-set "session.news.alert_n" "0")))))
   ;; A notification's click, as a program run in this document: its post or its profile, or
   ;; the Alerts view for one about anything else.
   (defun alert-program (x)
@@ -406,8 +406,8 @@ functions: |
   ;; The feed's entries for TX.WTF's notifications, read: they were seen in the Alerts view.
   (defun alerts-read ()
     (begin
-      (if (feed?) (for f (id-list "news.alert_ids") (notify-read (int f))))
-      (state-set "news.alert_ids" "")))
+      (if (feed?) (for f (id-list "session.news.alert_ids") (notify-read (int f))))
+      (state-set "session.news.alert_ids" "")))
   ;; Your notifications, newest first, then all of them marked read (POST
   ;; /notifications/viewed), as the web app marks them when its list opens.
   (defun load-alerts ()
@@ -444,7 +444,7 @@ functions: |
             (state-set "alerts.badge_n" "")
             ;; and their entries in the host's feed, read
             (alerts-read)
-            (state-set "news.alert_n" "0")
+            (state-set "session.news.alert_n" "0")
             true))
         (begin
           (if (session-over? r) (session-over)

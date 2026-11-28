@@ -32,10 +32,10 @@ units:
     visible_when: (= (state-get "ui.screen") "boot")
     children:
       - spinner: ""
-        bind: '(string.join (list "Connecting to" (state-get "app.host") "...") " ")'
+        bind: '(string.join (list "Connecting to" (state-get "session.host") "...") " ")'
         visible_when: (has? "spinner")
       - text: ""
-        bind: '(string.join (list "Connecting to" (state-get "app.host") "...") " ")'
+        bind: '(string.join (list "Connecting to" (state-get "session.host") "...") " ")'
         visible_when: (not (has? "spinner"))
 
   signin_window:
@@ -58,27 +58,27 @@ units:
       # version. Nothing while it is asked, or when the site doesn't say.
       - type: group
         layout: {kind: horizontal}
-        visible_when: (!= (state-get "site_info.name") "")
+        visible_when: (!= (state-get "session.site_info.name") "")
         children:
           - image: ""
-            bind: site_info.logo
+            bind: session.site_info.logo
             size: [48, 48]
             fit: contain
-            visible_when: (!= (state-get "site_info.logo") "")
+            visible_when: (!= (state-get "session.site_info.logo") "")
           - text: " "            # a terminal's gap; a window spaces its items itself
-            visible_when: (and (!= (state-get "site_info.logo") "") (= (state-get "app.term") "1"))
+            visible_when: (and (!= (state-get "session.site_info.logo") "") (= (state-get "session.caps.term") "1"))
           - type: group
             children:
               - text: ""
-                bind: site_info.name
+                bind: session.site_info.name
               - text: ""
-                bind: site_info.tagline
+                bind: session.site_info.tagline
                 color: [0.6, 0.6, 0.6]
-                visible_when: (!= (state-get "site_info.tagline") "")
+                visible_when: (!= (state-get "session.site_info.tagline") "")
               - text: ""
-                bind: site_info.version
+                bind: session.site_info.version
                 color: [0.6, 0.6, 0.6]
-                visible_when: (!= (state-get "site_info.version") "")
+                visible_when: (!= (state-get "session.site_info.version") "")
       - separator
       - input_text: Username
         bind: login.username
@@ -200,7 +200,7 @@ functions: |
       (state-set "login.password" "")
       (state-set "login.code" "")
       (state-set "login.challenge" "")
-      (state-set-tree "me" (dict))
+      (state-set-tree "session.me" (dict))
       (state-set-tree "scrip" (dict))
       (state-set "ui.tab" "Posts") ;; the next profile opens at Posts, as the web app's does
       (state-set "ui.here" "")
@@ -245,12 +245,12 @@ functions: |
                                                "draft_folder" "")))
       ;; what's new is the next account's: no polling until it signs in, and this one's
       ;; entries out of the host's notification feed
-      (state-set-tree "news" (dict "on" "" "next" 0 "alert_n" "" "alert_max" 0 "alert_ids" ""
+      (state-set-tree "session.news" (dict "on" "" "next" 0 "alert_n" "" "alert_max" 0 "alert_ids" ""
                                    "dm_primed" ""))
-      (state-set "dm.unread" "")
+      (state-set "session.dm.unread" "")
       (state-set-tree "dm.seen" (dict))
       (state-set-tree "dm.feed" (dict))
-      (state-set "ui.dm_unread" "")
+      (state-set "session.dm.count" "")
       (state-set "app.site_emoji" "")
       (state-set "app.site_emoji_id" "")
       (state-set-tree "nav.icon" (dict))
@@ -270,7 +270,7 @@ functions: |
       (net-auth-forget (cred))
       (to-signin "Your session has expired. Sign in again." true)))
   (defun unreachable (r)
-    (fail (str-concat "Can't reach " (state-get "app.host") ": " (get-attr r "error"))))
+    (fail (str-concat "Can't reach " (state-get "session.host") ": " (get-attr r "error"))))
   ;; The site as its own sign-in page shows it (GET /social/site-info, no sign-in needed): its
   ;; title, tagline (description), txwtf version and logo, for the sign-in form (site_info),
   ;; and the title for the windows' titles, as the web app's. An instance without site-info
@@ -280,7 +280,7 @@ functions: |
   ;; it: cvcpkg.com's is on cvcpkg.org, which the page may not.
   (defun load-site-info ()
     (begin
-      (state-set-tree "site_info" (dict "name" "" "tagline" "" "version" "" "logo" ""))
+      (state-set-tree "session.site_info" (dict "name" "" "tagline" "" "version" "" "logo" ""))
       (let ((r (http-get (str-concat (base) "/social/site-info")
                          (dict "headers" (dict "Accept" "application/json")))))
         (let ((d (if (ok? r) (reply-json r) (dict))))
@@ -294,15 +294,15 @@ functions: |
                   (set name (if (ok? rt) (string.trim (text (reply-json rt))) ""))))
               (if (= name "{}") (set name ""))
               ;; and/or evaluate every argument: net-allowed? only sees a URL.
-              (if (and (= (state-get "app.pics") "1") (!= logo ""))
+              (if (and (= (state-get "session.caps.pics") "1") (!= logo ""))
                 (if (not (net-allowed? logo)) (set logo ""))
                 (set logo ""))
-              (state-set-tree "site_info"
+              (state-set-tree "session.site_info"
                 (dict "name" (clip name 60)
                       "tagline" (clip (string.trim (text (opt d "description" ""))) 60)
                       "version" (if (= version "") "" (str-concat "txwtf " version))
                       "logo" logo))
-              (if (= name "") (set name (state-get "app.host")))
+              (if (= name "") (set name (state-get "session.host")))
               (state-set "app.title" name)
               (state-set "ui.title" name)
               (state-set "app.signin_title" (str-concat "Sign in to " name))))))))
@@ -314,7 +314,7 @@ functions: |
       ;; the new session is kept under this site's own name, never the name one site's
       ;; session had before nicotina knew more than one (site-cred)
       (if (= (cred) "txwtf") (net-auth-forget "txwtf"))
-      (state-set "app.cred" (site-cred-name (base)))
+      (state-set "session.cred" (site-cred-name (base)))
       ;; expire_delta: the session's length in seconds (Advanced options); it holds through
       ;; the emailed code too, which txwtf keeps with the challenge
       (after-login (post-json "/user/login"
@@ -335,10 +335,10 @@ functions: |
                                       "invite_note" (if only "This site is invite-only: an invite code is required."
                                                       "An invite code, if you have one (optional).")
                                       "site" (clip (str-concat "At " (state-get "app.title")
-                                                               (if (= (state-get "app.title") (state-get "app.host")) ""
-                                                                 (str-concat " (" (state-get "app.host") ")")))
+                                                               (if (= (state-get "app.title") (state-get "session.host")) ""
+                                                                 (str-concat " (" (state-get "session.host") ")")))
                                                    60)))
-          (state-set "app.register_title" (clip (str-concat "Create an account at " (state-get "app.host")) 60))
+          (state-set "app.register_title" (clip (str-concat "Create an account at " (state-get "session.host")) 60))
           (state-set "ui.screen" "register")
           (say "")))))
   ;; Why txwtf refused a new account: its detail is "message (Code)" (map_txwtf_errors); the

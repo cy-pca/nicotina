@@ -115,11 +115,52 @@ functions: |
   (defun slot-signed-in (i)
     (let ((s (state-get (slot-key i "screen"))))
       (and (slot-open i) (!= s "boot") (!= s "signin") (!= s "2fa") (!= s "register"))))
-  ;; How many of a slot's conversations have a message not read there (its ui.dm_unread: "" or
+  ;; How many of a slot's conversations have a message not read there (its session.dm.count: "" or
   ;; a count).
   (defun slot-dms (i)
-    (let ((v (text-of (state-get (slot-key i "dm_unread")))))
+    (let ((v (text-of (state-get (str-concat "slots." (str i) ".session.dm.count")))))
       (if (= v "") 0 (int v))))
+  ;; A slot's site's key (site.ari's site-key), kept beside the site it was worked out for
+  ;; (slots.<i>.key, slots.<i>.key_of), so it's worked out once a site, not every frame.
+  (defun slot-site-key (i)
+    (let ((site (state-get (slot-key i "site"))) (at (str-concat "slots." (str i) ".")))
+      (begin
+        (if (!= (state-get (str-concat at "key_of")) site)
+          (begin
+            (state-set (str-concat at "key") (site-key site))
+            (state-set (str-concat at "key_of") site)))
+        (state-get (str-concat at "key")))))
+  ;; A slot's name in slot_of: its site's key, and tx_wtf_2 for a second open site whose key comes
+  ;; out the same (a-b.com and a.b.com).
+  (defun slot-name (i)
+    (let ((k (slot-site-key i)))
+      (begin
+        (set n 1)
+        (set j 0)
+        (while (< j i)
+          (if (and (slot-open j) (= (slot-site-key j) k)
+                   (!= (state-get (slot-key j "site")) (state-get (slot-key i "site"))))
+            (set n (+ n 1)))
+          (set j (+ j 1)))
+        (if (> n 1) (str-concat k "_" (str n)) k))))
+  ;; slot_of.<key>: which slot holds each open site (of the first n), so the state tree says which
+  ;; is which; a key whose slot closed or moved goes. (sessions.<key> itself waits for a repeated
+  ;; load: named by key, libcvc L27.) state-children gives whole paths: a child's name is its last
+  ;; part.
+  (defun slot-of-update (n)
+    (begin
+      (set i 0)
+      (while (< i n)
+        (begin
+          (if (slot-open i)
+            (let ((k (str-concat "slot_of." (slot-name i))))
+              (if (or (not (state-exists k)) (!= (int (state-get k)) i)) (state-set k i))))
+          (set i (+ i 1))))
+      (for p (if (state-exists "slot_of") (state-children "slot_of") (list))
+        (let ((name (nth (string.split p ".") (- (length (string.split p ".")) 1))))
+          (let ((at (int (state-get (str-concat "slot_of." name)))))
+            (if (or (>= at n) (not (slot-open at)) (!= name (slot-name at)))
+              (state-delete (str-concat "slot_of." name))))))))
   (defun text-of (v) (if (= (type-of v) "nil") "" (if (is-string v) v (str v))))
   ;; The tray's mail icon: the direct messages of the site slots.dm_site names (the first signed
   ;; in with one unread, else the first signed in), in its window.
@@ -230,6 +271,15 @@ on_tick: |
   (if (!= total (state-get "slots.dm_total")) (state-set "slots.dm_total" total))
   (set at (if (>= first_dm 0) first_dm (if (>= first_in 0) first_in 0)))
   (if (!= at (int (state-get "slots.dm_site"))) (state-set "slots.dm_site" at))
+  ;; slot_of, again only when the open sites change
+  (set sig "")
+  (set i 0)
+  (while (< i n)
+    (begin
+      (if (slot-open i) (set sig (str-concat sig (str i) "=" (state-get (slot-key i "site")) " ")))
+      (set i (+ i 1))))
+  (if (!= sig (state-get "slots.sig"))
+    (begin (slot-of-update n) (state-set "slots.sig" sig)))
   (set free (- (length (string.split (state-get "fleet.labels") "\n")) open))
   (if (!= free (int (state-get "slots.free"))) (state-set "slots.free" free))
 
@@ -245,5 +295,6 @@ windows:
     link:
       args: {to: args, mode: ro}
       ui: {to: "slots.{i}.ui", mode: rw}
+      session: {to: "slots.{i}.session", mode: rw}   # its session.*: site, you, caps, news, DMs
       fleet: {to: fleet, mode: ro}
       peers: {to: slots, mode: ro}

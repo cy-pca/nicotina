@@ -1,0 +1,58 @@
+# tests/naming_test.ari — how nicotina names a site in the state tree, its credential and its
+# account's handle in the E2EE key store (share/nicotina/site.ari), and main.ari's slot_of. Run by
+# tests/run.sh with `ari test`. An import of main.ari brings its functions and none of its programs,
+# so the slot_of tests write the slots themselves.
+
+meta:
+  name: nicotina naming tests
+  min_libcvc: 4.0.9
+
+# site.ari's site-cred asks the host for kept sessions (net-auth-has?)
+requires: [net, net.auth]
+
+import:
+  - ../share/nicotina/site.ari
+  - ../share/nicotina/main.ari      # its functions: slot-name, slot-of-update
+
+tests:
+  short_names_are_unchanged: |
+    ;; a kept session (txwtf.<host>) and kept keys (txwtf.<host>.<id>) must still match
+    (assert (= (site-cred-name "https://tx.wtf") "txwtf.tx.wtf") "credential")
+    (assert (= (site-name "txwtf." "tx.wtf" ".42") "txwtf.tx.wtf.42") "handle")
+    (assert (= (site-name "txwtf." "127.0.0.1:8086" ".7") "txwtf.127.0.0.1-8086.7") "a port")
+  a_long_host_keeps_the_user_id: |
+    (set h "a-very-long-subdomain-name-for-testing.social.example-federation.org")
+    (set a (site-name "txwtf." h ".42"))
+    (state-set "long42" a)
+    (assert (<= (string.length a) 64) a)
+    (assert (string.ends-with a ".42") a)
+    (assert (= a (str-concat "txwtf." (string.substring (sha256-hex h) 0 16) ".42")) a)
+  two_accounts_there_get_two_handles: |
+    (set b (site-name "txwtf." "a-very-long-subdomain-name-for-testing.social.example-federation.org" ".43"))
+    (assert (!= (state-get "long42") b) "two accounts, two handles")
+  site_keys: |
+    (assert (= (site-key "https://tx.wtf") "tx_wtf"))
+    (assert (= (site-key "https://Social.Sublevels.NET/") "social_sublevels_net"))
+    (assert (= (site-key "http://127.0.0.1:8000") "127_0_0_1_8000"))
+    (assert (= (site-key "https://tx.wtf:443") "tx_wtf") "the default port is no part of it")
+  slot_of_names_each_open_site: |
+    (state-set "slots.0.ui.site" "https://tx.wtf")
+    (state-set "slots.0.ui.screen" "feed")
+    (state-set "slots.1.ui.site" "http://127.0.0.1:8000")
+    (state-set "slots.1.ui.screen" "signin")
+    (slot-of-update 2)
+    (assert (= (int (state-get "slot_of.tx_wtf")) 0) "tx.wtf")
+    (assert (= (int (state-get "slot_of.127_0_0_1_8000")) 1) "the stub")
+  a_closed_slot_leaves_slot_of: |
+    (state-set "slots.1.ui.screen" "closed")
+    (slot-of-update 2)
+    (assert (not (state-exists "slot_of.127_0_0_1_8000")) "closed")
+    (assert (= (int (state-get "slot_of.tx_wtf")) 0) "the other stays")
+  two_sites_with_one_key_are_told_apart: |
+    (state-set "slots.2.ui.site" "https://a-b.com")
+    (state-set "slots.2.ui.screen" "feed")
+    (state-set "slots.3.ui.site" "https://a.b.com")
+    (state-set "slots.3.ui.screen" "feed")
+    (slot-of-update 4)
+    (assert (= (int (state-get "slot_of.a_b_com")) 2) "the first")
+    (assert (= (int (state-get "slot_of.a_b_com_2")) 3) "the second")

@@ -255,6 +255,18 @@ else
   fi
 fi
 
+# ari test (libcvc 3.7.13): how a site is named, its key in the state tree (tx_wtf), its credential,
+# its account's handle in the E2EE key store (a long host's never loses the user id), and main.ari's
+# slot_of (docs/COMPONENTS.md 3.6, 4.1). An ari without `test` skips.
+if "$ARI" test --help >/dev/null 2>&1 || "$ARI" 2>&1 | grep -q "ari test"; then
+  "$ARI" test --net-allow "$base" "$root/tests/naming_test.ari" >"$out/naming-test.txt" 2>&1
+  echo "exit $?" >>"$out/naming-test.txt"
+  check "ari test: site keys, credentials, E2EE handles and slot_of" "$out/naming-test.txt" \
+    "ok   " "exit 0"
+else
+  skip "ari test (this ari has none)"
+fi
+
 # --- 3. ari snapshot --------------------------------------------------------------------------
 
 snap() { # snap NAME BACKEND STORE [doc args...]

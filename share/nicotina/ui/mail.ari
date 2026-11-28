@@ -29,7 +29,7 @@ units:
       # Outside a terminal, where a window may be a phone's: Write and Refresh, then the mailbox
       # and the folder, a combo each, so nothing runs past a narrow window's edge.
       - type: group
-        visible_when: (!= (state-get "app.term") "1")
+        visible_when: (!= (state-get "session.caps.term") "1")
         children:
           - type: group
             layout: {kind: horizontal}
@@ -55,7 +55,7 @@ units:
       # In a terminal: the mailbox, Write and Refresh on a line, and the folders as a radio row.
       - type: group
         layout: {kind: horizontal}
-        visible_when: (= (state-get "app.term") "1")
+        visible_when: (= (state-get "session.caps.term") "1")
         children:
           - combo: Mailbox
             bind: mail.acct_pick
@@ -76,7 +76,7 @@ units:
         bind: mail.folder_pick
         options: (string.split (state-get "mail.folder_opts") "|")
         on: (state-set "ui.cmd" "mail-folder")
-        visible_when: (and (!= (state-get "mail.folder_opts") "") (= (state-get "app.term") "1"))
+        visible_when: (and (!= (state-get "mail.folder_opts") "") (= (state-get "session.caps.term") "1"))
       - text: ""
         bind: mail.head
         color: [0.6, 0.6, 0.6]
@@ -284,7 +284,7 @@ units:
       # private), then attached by id.
       - type: group
         id: m_files
-        visible_when: (= (state-get "app.attach") "1")
+        visible_when: (= (state-get "session.caps.attach") "1")
         children:
           - type: group
             repeat: (state-get "mail.new.files")
@@ -301,7 +301,7 @@ units:
           - button: Attach
             on: (state-set "ui.cmd" "mail-attach")
             disabled_when: (= (state-get "mail.new.uploading") "1")
-            visible_when: (= (state-get "app.attach") "1")
+            visible_when: (= (state-get "session.caps.attach") "1")
             tooltip: Pick files to attach to the email
           - button: Send
             on: (state-set "ui.cmd" "mail-send")
@@ -313,7 +313,7 @@ units:
         bind: mail.new.progress
         visible_when: (= (state-get "mail.new.uploading") "1")
       - text: "Text only: this host can't attach files."
-        visible_when: (!= (state-get "app.attach") "1")
+        visible_when: (!= (state-get "session.caps.attach") "1")
         color: [0.6, 0.6, 0.6]
       - text: ""
         bind: mail.new.note
@@ -474,8 +474,8 @@ functions: |
       (state-set-tree "mail.rows" (list))
       (state-set "mail.page" "")
       (state-set "mail.head"
-        (if (= (sget "mail.none") "1") (str-concat (state-get "app.host") " has no mail.")
-          (clip (str-concat "You have no mailbox at " (state-get "app.host")
+        (if (= (sget "mail.none") "1") (str-concat (state-get "session.host") " has no mail.")
+          (clip (str-concat "You have no mailbox at " (state-get "session.host")
                             " yet: the web app's Mail makes one.")
                 (WIDE))))
       true))
