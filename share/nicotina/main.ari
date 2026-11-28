@@ -99,6 +99,9 @@ functions: |
             (if (not (slot-open i)) (set at i))
             (set i (- i 1)))
           (state-set (slot-key at "site") u)
+          ;; the copy's session hole needs its target there before the copy writes through it
+          (if (not (state-exists (str-concat "slots." (str at) ".session.slot")))
+            (state-set (str-concat "slots." (str at) ".session.slot") at))
           (if (= at n)
             (begin
               (state-set-tree (slot-key at "nav_emoji") (nav-emoji))
