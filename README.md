@@ -309,9 +309,9 @@ themselves run on cyberpcangel.com:
 | https://cyberpcangel.com/nicotina-term/ari_tvision.html | the terminal (tvision) |
 | https://cyberpcangel.com/nicotina-pixels/ | the terminal, its pictures in real pixels (xterm.js's image addon), once arigl-web has it |
 
-They are public, use https://tx.wtf, and come from the same documents. The
-`deploy-cyberpcangel` workflow publishes them after each tested push to `main` when something
-has moved, and on demand. The pages are the `arigl-web` package from cvcpkg.org (single-threaded,
+They are public, use https://tx.wtf, and come from the same documents. cy-pca/ops (the
+private repo that holds cy-pca's production deploys) publishes them after each push to `main`
+whose CI passed, when something has moved, and on demand. The pages are the `arigl-web` package from cvcpkg.org (single-threaded,
 so no COOP/COEP headers). [deploy/cyberpcangel/](deploy/cyberpcangel/README.md)
 describes the chain and how to run it by hand.
 
@@ -518,7 +518,7 @@ The client uses only an instance's public API:
 share/nicotina/        main.ari and ui/*.ari: the documents
 bin/                   nicotina (POSIX sh) and nicotina.cmd (Windows): the launchers
 web/                   ariadne.config.json for the browser pages
-deploy/cyberpcangel/   the cyberpcangel.com deployment (its workflow: deploy-cyberpcangel)
+deploy/cyberpcangel/   what the cyberpcangel.com payload is made of (cy-pca/ops deploys it)
 tests/                 run.sh and the stub TX.WTF instance
 recipe/                the cvcpkg recipe (M4)
 docs/ROADMAP.md        milestones and the libcvc features each one needs

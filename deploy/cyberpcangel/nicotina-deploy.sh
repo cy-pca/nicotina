@@ -13,11 +13,17 @@
 # doesn't need (no .php, no .htaccess). Each site is replaced whole (old files go), by a rename.
 # The files are owned by root, so the web server (WordPress runs as www-data) can't change them.
 #
-# Version of record: cy-pca/nicotina deploy/cyberpcangel/nicotina-deploy.sh. Install or update it:
+# Version of record: cy-pca/ops cyberpcangel/nicotina-deploy.sh, beside the workflow that deploys
+# the sites (cyberpcangel-deploy.yml). cy-pca/nicotina keeps a byte-identical copy in
+# deploy/cyberpcangel/, which its tests/run.sh exercises. Install or update it, from the directory
+# that holds it:
 #   ssh tfx@catx-00.tx.wtf 'lxc exec cyberpcangel --project catx -- bash -c "cat > /root/nicotina-deploy.sh.new && bash -n /root/nicotina-deploy.sh.new && chmod 700 /root/nicotina-deploy.sh.new && mv /root/nicotina-deploy.sh.new /root/nicotina-deploy.sh && echo OK"' \
-#     < deploy/cyberpcangel/nicotina-deploy.sh
+#     < nicotina-deploy.sh
 set -euo pipefail
 umask 022
+
+# cyberpcangel-deploy.yml looks for this line, to see that the installed script is the record.
+echo "nicotina-deploy.sh sha256: $(sha256sum "$0" | cut -d' ' -f1)"
 
 SITES=(nicotina nicotina-term)
 # Sites a payload may have: stage.sh makes nicotina-pixels only from an arigl-web whose terminal

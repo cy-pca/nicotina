@@ -15,8 +15,8 @@
 #                                                                     has xterm.js's image addon
 #
 # Each gets the documents and ariadne.config.json (beside this script). BUILT_FROM, if given, is
-# written to each site's .built-from: what the payload was built from, which the workflow reads back
-# to skip a nightly when nothing moved.
+# written to each site's .built-from: what the payload was built from, which cy-pca/ops' deploy
+# reads back to skip a run when nothing moved.
 set -euo pipefail
 
 [[ $# -ge 3 && $# -le 4 ]] || { echo "usage: $0 WEB_DIR DOCS_DIR OUT [BUILT_FROM]" >&2; exit 2; }
