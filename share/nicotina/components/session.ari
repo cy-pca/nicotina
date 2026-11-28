@@ -24,6 +24,9 @@
 #   caps.*    what the host can do, asked once (term, pics, media, rich, runs, notify, ...)
 #   busy      "1" while a command is out
 #
+# Its functions (ses-...) do the work; a document that imports this file (nicotina.ari does) may
+# call them inside its own programs instead of asking.
+#
 # What it takes, as session.cmd (anyone may set it; it runs on the next frame it isn't busy):
 #
 #   site         session.want's URL becomes the site; its page asked for again; out
@@ -99,10 +102,13 @@ functions: |
           (ses-state "in" ""))
         (if (or (= (nic-status r) 401) (= (nic-status r) 403)
                 (and (= (nic-status r) 0) (string.contains (get-attr r "error") "no credential")))
-          (begin (net-auth-forget (nic-cred "session")) (ses-out "expired"))
+          (ses-forget-out "expired")
           (if (= (nic-status r) 0)
             (ses-out (str-concat "unreachable: " (get-attr r "error")))
             (ses-out (str-concat "failed: HTTP " (str (nic-status r)))))))))
+  ;; The credential dropped (the site refused it), then out.
+  (defun ses-forget-out (reason)
+    (begin (net-auth-forget (nic-cred "session")) (ses-out reason)))
   (defun ses-resume ()
     (begin
       (ses-site-info)
@@ -129,7 +135,7 @@ functions: |
               (if (or (= cmd "signin-done") (= cmd "adopt")) (ses-account))
               (if (= cmd "guest") (begin (state-set-tree "session.me" (dict)) (ses-state "guest" "")))
               (if (= cmd "signed-out") (ses-out "signed-out"))
-              (if (= cmd "expired") (begin (net-auth-forget (nic-cred "session")) (ses-out "expired")))
+              (if (= cmd "expired") (ses-forget-out "expired"))
               (if (= cmd "signout") (ses-signout)))
             (catch (e) (ses-out (str-concat "failed: " (str e)))))
           (state-set "session.busy" "")))))

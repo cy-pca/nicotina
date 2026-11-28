@@ -267,8 +267,8 @@ functions: |
         (and (= (status r) 0) (string.contains (get-attr r "error") "no credential"))))
   (defun session-over ()
     (begin
-      (net-auth-forget (cred))
-      (state-set "session.cmd" "expired")
+      (ses-forget-out "expired")
+      (session-did)
       (to-signin "Your session has expired. Sign in again." true)))
   (defun unreachable (r)
     (fail (str-concat "Can't reach " (state-get "session.host") ": " (get-attr r "error"))))
@@ -332,22 +332,17 @@ functions: |
                                                       (if (= d "") (str-concat "HTTP " (str (status r))) msg)))))))))))
                         60)))))))
 
-  ;; Ask the session (components/session.ari) to do cmd, and wait for its answer, its next change
-  ;; of state (session.gen), 30 s at most, inside this command, so the buttons stay busy and the
-  ;; spinner turns meanwhile. Its state then; session-changed leaves this change alone.
-  (defun session-ask (cmd)
-    (let ((g (int (if (state-exists "session.gen") (state-get "session.gen") 0)))
-          (until (+ (time-now) 30)))
-      (begin
-        (state-set "session.cmd" cmd)
-        (while (and (<= (int (if (state-exists "session.gen") (state-get "session.gen") 0)) g)
-                    (< (time-now) until))
-          (sleep 0.025))
-        (state-set "ui.session_gen" (sget "session.gen"))
-        (sget "session.state"))))
+  ;; components/session.ari's functions (ses-...) do the session's work; nicotina imports them and
+  ;; calls them inside its own commands, so a command's requests are its own, its buttons busy
+  ;; and its spinner turning until they're done. Then the state they came to; session-changed
+  ;; leaves the change alone, as this command has seen to it.
+  (defun session-did ()
+    (begin
+      (state-set "ui.session_gen" (sget "session.gen"))
+      (sget "session.state")))
   ;; Start at the site: the session asks for its page, then for the session the host keeps for
   ;; it, if any.
-  (defun resume () (session-after (session-ask "resume") "resume"))
+  (defun resume () (begin (ses-resume) (session-after (session-did) "resume")))
   ;; No session to resume (or it didn't come back): the form, or for --start signup a new
   ;; account's form.
   (defun resume-form ()
