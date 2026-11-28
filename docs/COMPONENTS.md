@@ -183,17 +183,30 @@ The `session` hole is one subtree, which `session` writes and the others read:
 ```
 session.site         the site's base URL ("https://tx.wtf")
 session.host         its host, for titles and menus ("tx.wtf")
+session.origin       its origin, for the site's root-relative picture URLs
+session.key          its key in a host's state (tx_wtf, 3.6)
 session.cred         the credential the host keeps the token under ("txwtf.tx.wtf": site-cred)
-session.state        out | guest | signing-in | in | closed (3.7)
-session.me.*         id, username, name, avatar, is_admin: you, once signed in
+session.state        boot | out | guest | in (3.7)
+session.reason       why it's out: none, signed-out, expired, unreachable: ..., failed: HTTP n
+session.gen          counts the changes of state, so a view can tell one happened
+session.me.*         id, username, name, avatar_url, is_admin, email, email_verified: you, once in
 session.site_info.*  name, tagline, version, logo (public /social/site-info)
-session.caps.*       what the host can do, asked once (term, pics, media, rich, runs, notify, e2ee ...)
-session.cmd          signin-done | adopt | guest | signout | refresh-me: what the others, or the host, ask
-                     session to do (3.7, 3.8)
-session.alerts       the unread notification count
-session.dm.unread    the conversations with a message not read here, and their count
-session.dm.rows      the conversation list: id, peer, last message's time, encrypted, unread
+session.caps.*       what the host can do, asked once (term, pics, media, rich, runs, notify, save ...)
+session.cmd          site | site-info | resume | signin-done | adopt | guest | signed-out | expired |
+                     signout: what the others, or the host, ask session to do (3.7, 3.8)
+session.news.*       the poll for what's new: when next, the notifications seen
+session.dm.unread    the conversations with a message not read here ("12;30"), and
+session.dm.count     how many
+session.dm.rows      the conversation list: id, peer, last message's time, encrypted, unread (N4)
 ```
+
+As built (N3b, `share/nicotina/components/session.ari`): its functions (`ses-resume`,
+`ses-account`, `ses-site-info`, `ses-out`, ...) do the work. Its own `on_tick:` runs
+`session.cmd` for documents that only mount it. A document that also imports it, as `nicotina.ari`
+does, calls them inside its own commands, so a command's requests stay its own: its buttons stay
+busy and its spinner turns until they're done. The poll and the bell (`session.news`, the DM
+counts) are still nicotina's controller's. They move into `session` with the `dm` component (N4),
+because what they do on a click opens nicotina's views.
 
 - **The token is never in it.** The host keeps it, as today. `session.cred` is only its name.
 - **Signing in once.** `signin` signs in (`/user/login` with `capture_auth` under `session.cred`,
@@ -365,7 +378,7 @@ instances by number only (`{i}`):
 ### 3.7 Guests: browsing without signing in
 
 A guest reads a site's public posts and media and can't do anything that needs an account. It's a
-state of `session`: `session.state` is `guest` (alongside `out`, `signing-in`, `in` and `closed`),
+state of `session`: `session.state` is `guest` (alongside `boot`, `out` and `in`),
 with no credential and no `session.me`.
 
 - **What a guest sees:** the public feed, a post with its replies, hashtags and their feeds, search,
