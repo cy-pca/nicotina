@@ -167,6 +167,11 @@ Every component takes the same holes, so a host learns them once:
 | `ui` | rw | Optional. The component's view state, and `ui.cmd`, the command it takes next. That's how a host's menu or button drives it (`(state-set "ui.tx_wtf_dm.cmd" "dms")`), as `main.ari`'s per-site menus drive `nicotina.ari` today. Without the hole the view state stays in the mount. |
 | `nav` | rw | Optional. Open requests (3.4). |
 
+**The host makes each hole's target first.** A write through a `link:` hole whose target doesn't
+exist yet fails ("Cannot write through unresolvable transparent link", a `read_only_error`, on ari
+4.0.9). So the host writes something under `sessions.tx_wtf` (its `site`, say) before the
+component mounts. `main.ari` writes `slots.<i>.session.slot` as it opens a slot.
+
 The commands are today's (`home`, `back`, `refresh`, `dms`, `dm-open`, `compose`, ...), each taken
 by the component that owns it. Each component has its own `ui.busy`, so the feed can load while a
 DM is sent.
