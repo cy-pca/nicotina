@@ -33,7 +33,7 @@
 # drawn twice.
 
 units:
-  # The bar: words (nav_words), or where a window draws emoji (app.icons: libcvc 3.7.13) a colour
+  # The bar: words (nav_words), or where a window draws emoji (session.caps.icons: libcvc 3.7.13) a colour
   # emoji each (nav_icons), with its word as a tooltip, and Forward beside Back. Each is one the
   # emoji font has and the UI font doesn't, so none comes out as a plain glyph. Where the host draws
   # a picture on a button (button.icon) one of the instance's custom emoji may stand in for it
@@ -43,11 +43,11 @@ units:
     type: group
     children:
       - type: group
-        visible_when: (= (state-get "app.icons") "1")
+        visible_when: (= (state-get "session.caps.icons") "1")
         children:
           - include: nav_icons
       - type: group
-        visible_when: (!= (state-get "app.icons") "1")
+        visible_when: (!= (state-get "session.caps.icons") "1")
         children:
           - include: nav_words
 
@@ -119,7 +119,7 @@ units:
       - text: ""
         bind: alerts.badge
         color: [0.95, 0.75, 0.3]
-        visible_when: (!= (state-get "app.notify") "1")
+        visible_when: (!= (state-get "session.caps.notify") "1")
 
   # In words. A terminal draws a button as its label in brackets, so the bar is 70 columns; the
   # unread count follows it as a bare number (" 2"), so the row stays within the window's 74
@@ -320,7 +320,7 @@ functions: |
           (if (= view "post")
             (begin (say "Opening the post...") (set ok (load-post arg))))
           (if (= view "profile")
-            (if (= arg (text (state-get "me.id")))
+            (if (= arg (text (state-get "session.me.id")))
               (begin
                 (say "Loading your profile...")
                 (set ok (if (load-me-into true) (load-profile) nil)))
@@ -399,14 +399,14 @@ functions: |
   ;; never opens a browser: any other link is copied (Copy link), or shown where the host
   ;; has no clipboard.
   (defun copy-link (url)
-    (if (= (state-get "app.clip") "1")
+    (if (= (state-get "session.caps.clip") "1")
       (begin (clipboard-set url) (say (str-concat "Link copied: " url)))
       (say (str-concat "Link: " url))))
   (defun open-link (href)
     (let ((h (text href)))
       (begin
         (set path h)
-        (for pre (list (base) (state-get "app.origin"))
+        (for pre (list (base) (state-get "session.origin"))
           (if (and (!= pre "") (string.starts-with path (str-concat pre "/")))
             (set path (string.substring path (string.length pre)
                                         (- (string.length path) (string.length pre))))))
@@ -428,7 +428,7 @@ functions: |
                     (fail (str-concat "Couldn't find @" arg " (HTTP " (str (status r)) ")."))))))
             (if (and (or (= kind "post") (= kind "profile")) (!= arg ""))
               (go (str-concat kind "|" arg))
-              (copy-link (if (string.starts-with h "/") (str-concat (state-get "app.origin") h)
+              (copy-link (if (string.starts-with h "/") (str-concat (state-get "session.origin") h)
                            h))))))))
 
   ;; After signing in: who it is, then the feed, the first view (as the web app's home), or
@@ -445,9 +445,9 @@ functions: |
           (state-set "ui.here" "")
           (state-set "ui.start" "feed")
           (set entry
-            (if (= start "profile") (str-concat "profile|" (text (state-get "me.id")))
+            (if (= start "profile") (str-concat "profile|" (text (state-get "session.me.id")))
             (if (= start "settings")
-              (begin (state-set "ui.tab" "Settings") (str-concat "profile|" (text (state-get "me.id"))))
+              (begin (state-set "ui.tab" "Settings") (str-concat "profile|" (text (state-get "session.me.id"))))
               (if (string.starts-with start "user:") (str-concat "profile|" (string.substring start 5 (string.length start)))
                 (if (or (string.starts-with start "post:") (string.starts-with start "tag:")
                         (= start "tags") (= start "alerts") (= start "search") (= start "compose")
@@ -479,15 +479,15 @@ functions: |
                     "feed"))))))))))
           ;; what's new, from now on: where each conversation is now (news-dms' first look),
           ;; the first poll at once, then one every 30 s
-          (state-set "news.on" "1")
-          (state-set "news.next" 0)
+          (state-set "session.news.on" "1")
+          (state-set "session.news.next" 0)
           (news-dms)
           (if (go entry)
             (begin (if (!= (state-get "search.q") "") (run-search)) true)
             (go "feed"))))
       nil))
 
-  (defun signed-in-msg () (str-concat "Signed in to " (state-get "app.host") "."))
+  (defun signed-in-msg () (str-concat "Signed in to " (state-get "session.host") "."))
 
   ;; A reply from /user/login or /user/login/2fa.
   (defun after-login (r)
@@ -498,7 +498,7 @@ functions: |
             (begin
               (http-request "POST" (str-concat (base) "/user/logout") (dict "auth" (cred)))
               (net-auth-forget (cred))
-              (to-signin (str-concat "Change your password at " (state-get "app.host")
+              (to-signin (str-concat "Change your password at " (state-get "session.host")
                                      ", then sign in.")
                          true))
             (begin
@@ -588,4 +588,4 @@ functions: |
               (let ((id (text (opt ids (string.lower (string.trim n)) ""))))
                 (if (and (!= id "") (= (state-get (str-concat "nav.icon." k)) ""))
                   (state-set (str-concat "nav.icon." k)
-                             (str-concat (state-get "app.origin") "/social/emojis/" id "/image"))))))))))
+                             (str-concat (state-get "session.origin") "/social/emojis/" id "/image"))))))))))

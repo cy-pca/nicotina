@@ -670,7 +670,7 @@ functions: |
   ;; The full handle: @user@host. A brokered (federated) account's username already ends
   ;; in its home instance (txwtf names it <user>@<home domain>), so it keeps that one.
   (defun handle (u)
-    (str-concat "@" u (if (string.contains u "@") "" (str-concat "@" (state-get "app.host")))))
+    (str-concat "@" u (if (string.contains u "@") "" (str-concat "@" (state-get "session.host")))))
   ;; The card's first row: the handle, then as much of the display name as fits.
   (defun header (h name)
     (let ((room (- (CARD) (string.length h) 2)))
@@ -716,7 +716,7 @@ functions: |
     (begin
       (set u (text (if (= (type-of u) "nil") "" u)))
       (if (or (string.starts-with u "https://") (string.starts-with u "http://")) u
-        (if (string.starts-with u "/") (str-concat (state-get "app.origin") u) ""))))
+        (if (string.starts-with u "/") (str-concat (state-get "session.origin") u) ""))))
   ;; A post's emoji, from the content_html txwtf renders (render_emoji_html): a custom one is
   ;;   <img class="custom-emoji" src="/social/emojis/12/image" alt=":gear:" ...>
   ;; and a standard one <span class="emoji" title=":100:">💯</span>. A map of their names to
@@ -873,8 +873,8 @@ functions: |
               (set first-word nil)
               (for p (word-parts w) (set parts (append parts p)))))))
       (merge-runs parts)))
-  ;; Whether a post's text is drawn as rich text here (app.runs, asked once at start).
-  (defun rich? () (= (state-get "app.runs") "1"))
+  ;; Whether a post's text is drawn as rich text here (session.caps.runs, asked once at start).
+  (defun rich? () (= (state-get "session.caps.runs") "1"))
   (defun runs-of (html plain)
     (let ((h (text (if (= (type-of html) "nil") "" html))))
       (if (= (string.trim h) "") (plain-runs (text (if (= (type-of plain) "nil") "" plain)))
@@ -1010,7 +1010,7 @@ functions: |
   ;; The show/hide decisions, "1" or "" each, from the host's capabilities (app.*, set once
   ;; by init) and the post: the views' visible_when read them.
   (defun flag (b) (if b "1" ""))
-  (defun cap (k) (= (state-get (str-concat "app." k)) "1"))
+  (defun cap (k) (= (state-get (str-concat "session.caps." k)) "1"))
   (defun card-flags (avpic tags pic vid au tiles only m0 viewable)
     (let ((rich (cap "rich")) (term (cap "term")) (pics (cap "pics")) (media (cap "media")))
       (dict "v_avpic" (flag (and pics (!= avpic "")))
@@ -1101,7 +1101,7 @@ functions: |
       (if (= (type-of (opt q "reposted_post" nil)) "dict")
         (if (= own "") orig (str-concat own " | " orig))
         own)))
-  (defun web-of (q) (str-concat (state-get "app.origin") "/app/post/" (text (opt q "id" 0))))
+  (defun web-of (q) (str-concat (state-get "session.origin") "/app/post/" (text (opt q "id" 0))))
   ;; The hashtags in a post's text, each once, in order, as txwtf finds them (#word): the
   ;; options of a radio row, "|" between them, and a line of them.
   (defun hashtags (s)

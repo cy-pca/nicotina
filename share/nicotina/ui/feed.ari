@@ -58,18 +58,18 @@ units:
         bind: feed.mode
         options: [Following, Everyone, Friends]
         on: (state-set "ui.cmd" "feed")
-        visible_when: (and (!= (state-get "feed.source") "tag") (!= (state-get "app.icons") "1"))
+        visible_when: (and (!= (state-get "feed.source") "tag") (!= (state-get "session.caps.icons") "1"))
       - radio_row: Show
         bind: feed.mode_pick
         options: ["👥 Following", "🌐 Everyone", "🤝 Friends"]
         on: (begin (state-set "feed.mode" (if (string.ends-with (state-get "feed.mode_pick") "Following") "Following" (if (string.ends-with (state-get "feed.mode_pick") "Everyone") "Everyone" "Friends"))) (state-set "ui.cmd" "feed"))
-        visible_when: (and (!= (state-get "feed.source") "tag") (= (state-get "app.icons") "1")
-                           (!= (state-get "app.choices") "1"))
+        visible_when: (and (!= (state-get "feed.source") "tag") (= (state-get "session.caps.icons") "1")
+                           (!= (state-get "session.caps.choices") "1"))
       # Where the host draws the chosen button of a row pressed in (button.selected): a button each,
       # its emoji (or the instance's custom one, nav.icon.KEY), the one showing pressed in.
       - type: group
         layout: {kind: horizontal}
-        visible_when: (and (!= (state-get "feed.source") "tag") (= (state-get "app.choices") "1"))
+        visible_when: (and (!= (state-get "feed.source") "tag") (= (state-get "session.caps.choices") "1"))
         children:
           - button: "👥"
             icon: (state-get "nav.icon.following")
@@ -326,7 +326,7 @@ units:
         children:
           - button: Copy link
             on: (begin (clipboard-set (state-get "post.web")) (state-set "ui.cmd" "copied"))
-            visible_when: (= (state-get "app.clip") "1")
+            visible_when: (= (state-get "session.caps.clip") "1")
           - text: ""
             bind: post.link
             color: [0.6, 0.6, 0.6]
@@ -663,10 +663,10 @@ functions: |
                 "disliked" (if (opt p "user_has_disliked" (opt q "user_has_disliked" nil)) "1" "")
                 "reposted" (if (opt p "user_has_reposted" (opt q "user_has_reposted" nil)) "1" "")
                 "my_repost" (text (opt p "user_repost_id" (opt q "user_repost_id" "")))
-                "mine" (if (= (text (opt author "username" "")) (state-get "me.username")) "1" "")
+                "mine" (if (= (text (opt author "username" "")) (state-get "session.me.username")) "1" "")
                 ;; Delete: your own post, or anyone's for an administrator (who is asked
                 ;; first: confirm)
-                "can_delete" (if (or (= (text (opt author "username" "")) (state-get "me.username"))
+                "can_delete" (if (or (= (text (opt author "username" "")) (state-get "session.me.username"))
                                      (admin?))
                                "1" "")
                 "confirm" ""

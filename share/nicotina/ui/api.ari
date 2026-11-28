@@ -9,9 +9,9 @@ meta:
 # JSON replies, signed-in requests, the run's cache of posts, the window's widths and page sizes.
 # nicotina.ari's on_tick calls them; they were defined inside it until 2026-11.
 functions: |
-  (defun base () (state-get "app.base"))
+  (defun base () (state-get "session.site"))
   ;; The credential the host keeps this site's session token under (site-cred: one per site).
-  (defun cred () (state-get "app.cred"))
+  (defun cred () (state-get "session.cred"))
   ;; The other copies of the client main.ari runs (peers: its slots, linked read-only), each
   ;; at peers.<j>.ui; this one is ui.slot. Without main.ari there are none.
   (defun slot-count () (if (state-exists "peers.n") (int (state-get "peers.n")) 0))
@@ -56,10 +56,10 @@ functions: |
   (defun reply-json (r) (try (json-parse (get-attr r "body")) (catch (e) (dict))))
   (defun status (r) (get-attr r "status"))
   (defun ok? (r) (and (>= (status r) 200) (< (status r) 300)))
-  ;; Whether the host keeps a notification feed (app.notify), and a key's text, "" when absent.
-  (defun feed? () (= (state-get "app.notify") "1"))
+  ;; Whether the host keeps a notification feed (session.caps.notify), and a key's text, "" when absent.
+  (defun feed? () (= (state-get "session.caps.notify") "1"))
   (defun sget (k) (if (state-exists k) (text (state-get k)) ""))
-  ;; A list kept as "a;b;c" in one key (dm.unread, news.alert_ids), and one more on it.
+  ;; A list kept as "a;b;c" in one key (session.dm.unread, session.news.alert_ids), and one more on it.
   (defun id-list (k) (if (= (sget k) "") (list) (string.split (sget k) ";")))
   (defun id-add (k v)
     (if (= (length (collections.filter (id-list k) (lambda (x) (= x (text v))))) 0)

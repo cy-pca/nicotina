@@ -130,18 +130,10 @@ functions: |
       (let ((e (get-attr (e2ee-status) "error")))
         (if (= e "") "the host's key store did not open" e))
       "this host has no end-to-end encryption (libcvc 3.7.14 and --e2ee-store)"))
-  ;; The account's handle in the host's key store: txwtf.<host>.<user id>, in the characters
-  ;; a handle may have.
+  ;; The account's handle in the host's key store: txwtf.<host>.<user id>, in the characters a
+  ;; handle may have; past 64 of them the host is a hash, so the user id is never cut off (site-name).
   (defun e2ee-handle ()
-    (begin
-      (set s (str-concat "txwtf." (state-get "app.host") "." (text (state-get "me.id"))))
-      (set out "")
-      (set i 0)
-      (while (< i (string.length s))
-        (set c (string.char-at s i))
-        (set out (str-concat out (if (string.contains "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-" c) c "-")))
-        (set i (+ i 1)))
-      (if (> (string.length out) 64) (string.substring out 0 64) out)))
+    (site-name "txwtf." (state-get "session.host") (str-concat "." (text (state-get "session.me.id")))))
   ;; Someone in a conversation: {username handle name}, asked once a run.
   (defun dm-who (id)
     (let ((key (str-concat "dm.who." (text id))))
@@ -158,7 +150,7 @@ functions: |
                 (if (ok? r) (state-set-tree key w))
                 w)))))))
   (defun dm-peer (c) ;; the other person's id in conversation c
-    (if (= (text (opt c "participant_1_id" "")) (text (state-get "me.id")))
+    (if (= (text (opt c "participant_1_id" "")) (text (state-get "session.me.id")))
       (text (opt c "participant_2_id" "")) (text (opt c "participant_1_id" ""))))
   (defun load-dms ()
     (let ((r (get-query "/social/dm/conversations" (dict "limit" "50" "offset" "0"))))
@@ -284,7 +276,7 @@ functions: |
   (defun news-dms ()
     (let ((r (get-query "/social/dm/conversations" (dict "limit" "50" "offset" "0"))))
       (if (ok? r)
-        (let ((convs (reply-json r)) (primed (= (sget "news.dm_primed") "1")))
+        (let ((convs (reply-json r)) (primed (= (sget "session.news.dm_primed") "1")))
           (begin
             (if (!= (type-of convs) "list") (set convs (list)))
             (for c convs
@@ -296,7 +288,7 @@ functions: |
                       (if (and (= (state-get "ui.screen") "dm") (= (sget "dm.conv.id") id))
                         (if (load-dm id) (new-view))
                         (dm-news c id)))))))
-            (state-set "news.dm_primed" "1")
+            (state-set "session.news.dm_primed" "1")
             (dm-count)
             true))
         nil)))
@@ -311,9 +303,9 @@ functions: |
             (let ((msgs (if enc (opt b "messages" (list)) b)))
               (if (and (= (type-of msgs) "list") (> (length msgs) 0))
                 (let ((m (car msgs)))
-                  (if (!= (text (opt m "sender_id" "")) (text (state-get "me.id")))
+                  (if (!= (text (opt m "sender_id" "")) (text (state-get "session.me.id")))
                     (begin
-                      (id-add "dm.unread" id)
+                      (id-add "session.dm.unread" id)
                       (if (feed?)
                         (id-add (str-concat "dm.feed." id)
                           (notify (str-concat "Message from "
@@ -325,15 +317,15 @@ functions: |
                                               "\") (state-set \"ui.cmd\" \"dm-open\"))"))))))))))
           nil))))
   (defun dm-unread? (id)
-    (> (length (collections.filter (id-list "dm.unread") (lambda (x) (= x id)))) 0))
+    (> (length (collections.filter (id-list "session.dm.unread") (lambda (x) (= x id)))) 0))
   ;; The tray's mail icon: how many conversations are unread, "" for none.
   (defun dm-count ()
-    (let ((n (length (id-list "dm.unread"))))
-      (state-set "ui.dm_unread" (if (> n 0) (text n) ""))))
+    (let ((n (length (id-list "session.dm.unread"))))
+      (state-set "session.dm.count" (if (> n 0) (text n) ""))))
   ;; Conversation id, read here (it was opened): not unread, seen at lm, its feed entries read.
   (defun dm-read (id lm)
     (begin
-      (state-set "dm.unread" (string.join (collections.filter (id-list "dm.unread")
+      (state-set "session.dm.unread" (string.join (collections.filter (id-list "session.dm.unread")
                                                               (lambda (x) (!= x id))) ";"))
       (if (!= lm "") (state-set (str-concat "dm.seen." id) lm))
       (if (feed?) (for f (id-list (str-concat "dm.feed." id)) (notify-read (int f))))
@@ -343,7 +335,7 @@ functions: |
     (let ((r (get-query (str-concat "/social/dm/conversations/" (text id) "/messages")
                         (dict "limit" (text (DMPAGE))))))
       (if (ok? r)
-        (let ((msgs (reply-json r)) (me (text (state-get "me.id"))))
+        (let ((msgs (reply-json r)) (me (text (state-get "session.me.id"))))
           (begin
             (if (!= (type-of msgs) "list") (set msgs (list)))
             (set out (list))
@@ -371,7 +363,7 @@ functions: |
             (let ((r (get-query (str-concat "/e2ee/dm/conversations/" (text id) "/messages")
                                 (dict "limit" (text (DMPAGE))))))
               (if (ok? r)
-                (let ((msgs (opt (reply-json r) "messages" (list))) (h (e2ee-handle)) (me (text (state-get "me.id"))))
+                (let ((msgs (opt (reply-json r) "messages" (list))) (h (e2ee-handle)) (me (text (state-get "session.me.id"))))
                   (begin
                     (if (!= (type-of msgs) "list") (set msgs (list)))
                     (set out (list))

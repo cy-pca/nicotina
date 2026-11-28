@@ -152,14 +152,14 @@ units:
       - text: ""
         bind: tab.empty
         visible_when: (and (or (= (state-get "ui.tab") "Posts") (= (state-get "ui.tab") "Replies"))
-                           (!= (state-get "app.term") "1") (!= (state-get "tab.empty") ""))
+                           (!= (state-get "session.caps.term") "1") (!= (state-get "tab.empty") ""))
       - include: card_list
         args: {list: tab.items}
       # In a terminal, a row each with Open: a page of five fits 80x24.
       - type: group
         repeat: (state-get "tab.rows")
         visible_when: (and (or (= (state-get "ui.tab") "Posts") (= (state-get "ui.tab") "Replies"))
-                           (= (state-get "app.term") "1"))
+                           (= (state-get "session.caps.term") "1"))
         children:
           - type: group
             layout: {kind: horizontal}
@@ -263,41 +263,41 @@ units:
                        (not (has? "term")))
     children:
       - text: "Handle"
-        bind: me.handle
+        bind: session.me.handle
       - text: "Name"
-        bind: me.name
+        bind: session.me.name
       - text: "Email"
-        bind: me.email
+        bind: session.me.email
       - text: "Email verified"
-        bind: me.email_verified
+        bind: session.me.email_verified
       - text: "Two-step sign-in"
-        bind: me.two_factor
+        bind: session.me.two_factor
       - text: "Presence"
-        bind: me.presence
+        bind: session.me.presence
       - text: "Session"
         bind: '(if (has? "net.auth.persist") "kept on this device" "until you quit")'
       - separator
       - text: "About"
       - text: ""
-        bind: '(if (= (state-get "me.about") "") "-" (state-get "me.about"))'
+        bind: '(if (= (state-get "session.me.about") "") "-" (state-get "session.me.about"))'
       - separator
       - text: "Pictures (on this instance)"
       - text: "Avatar"
-        bind: '(if (= (state-get "me.avatar_url") "") "-" (string.replace (state-get "me.avatar_url") (state-get "app.origin") ""))'
+        bind: '(if (= (state-get "session.me.avatar_url") "") "-" (string.replace (state-get "session.me.avatar_url") (state-get "session.origin") ""))'
       - text: "Header"
-        bind: '(if (= (state-get "me.header_url") "") "-" (string.replace (state-get "me.header_url") (state-get "app.origin") ""))'
+        bind: '(if (= (state-get "session.me.header_url") "") "-" (string.replace (state-get "session.me.header_url") (state-get "session.origin") ""))'
       - text: "Card"
-        bind: '(if (= (state-get "me.card_url") "") "-" (string.replace (state-get "me.card_url") (state-get "app.origin") ""))'
+        bind: '(if (= (state-get "session.me.card_url") "") "-" (string.replace (state-get "session.me.card_url") (state-get "session.origin") ""))'
       - text: "Background"
-        bind: '(if (= (state-get "me.bg_url") "") "-" (string.replace (state-get "me.bg_url") (state-get "app.origin") ""))'
+        bind: '(if (= (state-get "session.me.bg_url") "") "-" (string.replace (state-get "session.me.bg_url") (state-get "session.origin") ""))'
       - separator
       - text: "Groups"
-        bind: me.groups
+        bind: session.me.groups
       - type: group
-        repeat: (state-get "me.groups")
+        repeat: (state-get "session.me.groups")
         children:
           - text: ""
-            bind: me.groups.{i}
+            bind: session.me.groups.{i}
 
 # The profile's functions: the card, the tabs, the balances, your settings, and loading an account.
 # nicotina.ari's on_tick calls them; they were defined inside it until 2026-11.
@@ -367,7 +367,7 @@ functions: |
         (begin
           (state-set "login.username" (text (opt p "username" "")))
           (state-set "ui.admin" (if admin "1" ""))
-          (state-set-tree "me" d)
+          (state-set-tree "session.me" d)
           d))))
   (defun show-balance (b)
     (state-set-tree "scrip"
@@ -431,11 +431,11 @@ functions: |
                   (fail (str-concat "Couldn't load your content filter (HTTP "
                                     (str (status r)) ")."))))
               nil))))))
-  ;; Your email address on the Settings tab (me.email, me.email_verified: GET /user/), and
+  ;; Your email address on the Settings tab (session.me.email, session.me.email_verified: GET /user/), and
   ;; whether Send code and Verify are offered: only until it is verified, and never for a
   ;; brokered account's placeholder address ("-").
   (defun email-settings ()
-    (let ((e (sget "me.email")) (ok (= (sget "me.email_verified") "yes")))
+    (let ((e (sget "session.me.email")) (ok (= (sget "session.me.email_verified") "yes")))
       (begin
         (state-set "set.v_email" (if (or (= e "") (= e "-") (!= (sget "prof.self") "1")) "" "1"))
         (state-set "set.v_verify" (if ok "" "1"))

@@ -1,7 +1,7 @@
 # site.ari — how nicotina names a TX.WTF site, shared by main.ari, which opens a copy of the client
 # for each site you sign in to, and nicotina.ari, the copy: a site's base URL, the label the
 # sign-in form's Site combo shows for it, its host, and the credential the host keeps its session
-# token under. Both import it, so the two can't disagree.
+# token under, and its key in the state tree. Both import it, so the two can't disagree.
 
 meta:
   name: nicotina sites
@@ -37,18 +37,34 @@ functions: |
     (if (string.starts-with base "https://") (site-host base) base))
   (defun site-url (label)
     (if (string.contains label "://") (site-base label) (site-base (str-concat "https://" label))))
-  ;; The credential a site's session token is kept under: txwtf.<host>, in the characters a
-  ;; credential name may have (1-64 of A-Z a-z 0-9 . _ -), so each site keeps its own.
-  (defun site-cred-name (base)
+  ;; raw in the characters a credential or key-store handle may have (A-Z a-z 0-9 . _ -): the
+  ;; others a host or an id can hold made -. One replace a character, not a loop over the string,
+  ;; so a long name stays well inside an action's 5000 steps. Names are at most 64 of them: past
+  ;; 64 the host is the first 16 hex digits of its SHA-256 instead, so the part after it (a user
+  ;; id) is never cut off and two long hosts never come to one name. A name of 64 or fewer is what
+  ;; it always was, so kept sessions and keys still match.
+  (defun site-clean (raw)
     (begin
-      (set s (str-concat "txwtf." (site-host base)))
-      (set out "")
-      (set i 0)
-      (while (< i (string.length s))
-        (set c (string.char-at s i))
-        (set out (str-concat out (if (string.contains "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-" c) c "-")))
-        (set i (+ i 1)))
-      (if (> (string.length out) 64) (string.substring out 0 64) out)))
+      (set out raw)
+      (for c (list ":" "[" "]" "@" "%" "+" "!" "~" "*" "'" "(" ")" "," ";" "=" "&" "$" "/" "?" "#" " ")
+        (set out (string.replace out c "-")))
+      out))
+  (defun site-name (prefix host suffix)
+    (let ((whole (site-clean (str-concat prefix host suffix))))
+      (if (> (string.length whole) 64)
+        (site-clean (str-concat prefix (string.substring (sha256-hex host) 0 16) suffix))
+        whole)))
+  ;; The credential a site's session token is kept under: txwtf.<host>, so each site keeps its own.
+  (defun site-cred-name (base) (site-name "txwtf." (site-host base) ""))
+  ;; A site's key, which names what a host keeps for it in its state (sessions.<key>, slot_of.<key>):
+  ;; its host in lower case, each character but a letter or a digit made _ (tx.wtf is tx_wtf,
+  ;; 127.0.0.1:8000 is 127_0_0_1_8000).
+  (defun site-key (base)
+    (begin
+      (set out (site-host base))
+      (for c (list "." "-" ":" "[" "]" "@" "%" "+" "!" "~" "*" "'" "(" ")" "," ";" "=" "&" "$" "/" "?" "#" " ")
+        (set out (string.replace out c "_")))
+      out))
   ;; The credential to resume a site's session from: a session kept before nicotina knew more
   ;; than one site is under "txwtf" (bound to that site's origin), and is used while it's there.
   (defun site-cred (base)

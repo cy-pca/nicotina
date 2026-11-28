@@ -97,10 +97,10 @@ functions: |
   (defun use-site (url)
     (let ((b (site-base url)))
       (begin
-        (state-set "app.base" b)
-        (state-set "app.host" (site-host b))
-        (state-set "app.origin" (site-origin b))
-        (state-set "app.cred" (site-cred b))
+        (state-set "session.site" b)
+        (state-set "session.host" (site-host b))
+        (state-set "session.origin" (site-origin b))
+        (state-set "session.cred" (site-cred b))
         (state-set "app.title" (site-host b))
         (state-set "app.signin_title" (str-concat "Sign in to " (site-host b)))
         (state-set "ui.site" b)
@@ -117,7 +117,7 @@ init: |
   ;; list of the fleet (linked as fleet), else this one site.
   (if (not (state-exists "fleet.labels")) (state-set "fleet.labels" (site-label base)))
   ;; What the sign-in form shows of the site (load-site-info), nothing until it answers.
-  (state-set-tree "site_info" (dict "name" "" "tagline" "" "version" "" "logo" ""))
+  (state-set-tree "session.site_info" (dict "name" "" "tagline" "" "version" "" "logo" ""))
   ;; The banner placeholder's row: the profile window's inner width (76 columns, less its frame).
   (set row "")
   (while (< (string.length row) 74) (set row (str-concat row "█")))
@@ -135,37 +135,37 @@ init: |
   ;; viewer item shows (card-flags, post-flags, item-flags), and a view reads that decision, one
   ;; key a widget, instead of asking (has? ...) on every frame. rich: pictures as wide as the
   ;; line (image.fill) outside a terminal, where the grid is drawn.
-  (state-set "app.term" (if (has? "term") "1" ""))
-  (state-set "app.pics" (if (has? "image.url") "1" ""))
-  (state-set "app.media" (if (has? "media.player") "1" ""))
-  (state-set "app.rich" (if (and (has? "image.url") (has? "image.fill") (not (has? "term"))) "1" ""))
-  (state-set "app.badge" (if (has? "image.badge") "1" ""))
+  (state-set "session.caps.term" (if (has? "term") "1" ""))
+  (state-set "session.caps.pics" (if (has? "image.url") "1" ""))
+  (state-set "session.caps.media" (if (has? "media.player") "1" ""))
+  (state-set "session.caps.rich" (if (and (has? "image.url") (has? "image.fill") (not (has? "term"))) "1" ""))
+  (state-set "session.caps.badge" (if (has? "image.badge") "1" ""))
   ;; clicks: a group's click is its own and its handlers see {i} (ui.group_click, libcvc 3.7.13)
-  (state-set "app.clicks" (if (has? "ui.group_click") "1" ""))
-  (state-set "app.clip" (if (has? "clipboard-set") "1" ""))
+  (state-set "session.caps.clicks" (if (has? "ui.group_click") "1" ""))
+  (state-set "session.caps.clip" (if (has? "clipboard-set") "1" ""))
   ;; runs: a post's text as rich text, its mentions, hashtags and URLs links (text.runs,
   ;; transfix/libcvc#1180); elsewhere its lines, plain
-  (state-set "app.runs" (if (has? "text.runs") "1" ""))
+  (state-set "session.caps.runs" (if (has? "text.runs") "1" ""))
   ;; attach: a new post's files, picked with the host's file picker and uploaded from the host
   ;; (file-pick and http-upload, libcvc 3.7.14); elsewhere a post is text only
-  (state-set "app.attach" (if (and (has? "file-pick") (has? "http-upload")) "1" ""))
+  (state-set "session.caps.attach" (if (and (has? "file-pick") (has? "http-upload")) "1" ""))
   ;; icons: the bar's buttons and the feed's choices as symbols (a back arrow, a house, ...),
   ;; where a window draws emoji (text.emoji: libcvc 3.7.13); elsewhere words
-  (state-set "app.icons" (if (and (has? "text.emoji") (not (has? "term"))) "1" ""))
+  (state-set "session.caps.icons" (if (and (has? "text.emoji") (not (has? "term"))) "1" ""))
   ;; choices: the feed's Following / Everyone / Friends as a button each, the one showing pressed
   ;; in, where the host draws a row's chosen button so (button.selected, libcvc 4.0.3) and emoji;
   ;; elsewhere a radio row
-  (state-set "app.choices" (if (and (has? "button.selected") (= (state-get "app.icons") "1")) "1" ""))
+  (state-set "session.caps.choices" (if (and (has? "button.selected") (= (state-get "session.caps.icons") "1")) "1" ""))
   ;; the bar's custom emoji (nav-icons): none until a sign-in looks them up
   (state-set-tree "nav.icon" (dict))
   ;; notify: the host's notification feed and the tray's bell (transfix/libcvc#1241). What's new
-  ;; is asked for every 30 s while signed in (news.next), and goes there: TX.WTF's notifications
+  ;; is asked for every 30 s while signed in (session.news.next), and goes there: TX.WTF's notifications
   ;; and the direct messages that came while their conversation wasn't shown.
-  (state-set "app.notify" (if (has? "notify") "1" ""))
-  (state-set-tree "news" (dict "on" "" "next" 0 "alert_n" "" "alert_max" 0 "alert_ids" ""
+  (state-set "session.caps.notify" (if (has? "notify") "1" ""))
+  (state-set-tree "session.news" (dict "on" "" "next" 0 "alert_n" "" "alert_max" 0 "alert_ids" ""
                                "dm_primed" ""))
   ;; the tray's mail icon (main.ari): how many conversations have a message not yet read here
-  (state-set "ui.dm_unread" "")
+  (state-set "session.dm.count" "")
   (state-set-tree "feed" (dict "items" (list) "mode" "Following" "mode_pick" "👥 Following"
                                "source" "home" "tag" "" "title" ""
                                "more" "" "before" "" "offset" 0 "empty" "" "tail" ""))
@@ -199,7 +199,7 @@ init: |
                              ;; feed.<id>, the notification feed's entries for it, read with it
                              "unread" "" "seen" (dict) "feed" (dict)))
   ;; save: a document's own Save button for a URL (save-url, libcvc 4.0.9): Mail's attachments
-  (state-set "app.save" (if (has? "save-url") "1" ""))
+  (state-set "session.caps.save" (if (has? "save-url") "1" ""))
   ;; Mail (ui/mail.ari): the mailboxes once asked for (loaded), the one and the folder shown,
   ;; a page of the folder's messages, the message open (msg) and the form (new).
   (state-set-tree "mail" (dict "loaded" "" "none" "" "acct_ids" "" "acct_opts" "" "v_accts" ""
@@ -308,7 +308,7 @@ init: |
 #   maximize the main window maximized, or back to its size (tree.app.maximized), as its title
 #            bar's button does: the nicotina menu's item
 #
-# And by itself, every 30 s while signed in (news.next):
+# And by itself, every 30 s while signed in (session.news.next):
 #   poll     what's new, quietly: the unread count beside Alerts, and TX.WTF's new notifications
 #            into the host's notification feed; the conversations whose last message changed
 #            (GET /social/dm/conversations: txwtf's list carries no unread count, so this client
@@ -327,8 +327,8 @@ init: |
 #
 # After each, the unread count beside Alerts is asked for again (GET /notifications/count).
 on_tick: |
-  (if (and (= (state-get "news.on") "1") (= (state-get "ui.cmd") "") (!= (state-get "ui.busy") "1")
-           (>= (time-now) (float (state-get "news.next"))))
+  (if (and (= (state-get "session.news.on") "1") (= (state-get "ui.cmd") "") (!= (state-get "ui.busy") "1")
+           (>= (time-now) (float (state-get "session.news.next"))))
     (state-set "ui.cmd" "poll"))
   (if (and (!= (state-get "ui.cmd") "") (!= (state-get "ui.busy") "1"))
     (begin
@@ -430,7 +430,7 @@ on_tick: |
               (if (ok? r)
                 (begin
                   (state-set "set.email_note"
-                    (clip (str-concat "A code went to " (sget "me.email") ": type it in, then Verify.") (WIDE)))
+                    (clip (str-concat "A code went to " (sget "session.me.email") ": type it in, then Verify.") (WIDE)))
                   (say "Code sent. It's in your email."))
                 (if (= (status r) 503) (fail "This site sends no email: ask its administrators.")
                   (if (= (status r) 502) (fail "The email couldn't be sent. Try again later.")
@@ -498,7 +498,7 @@ on_tick: |
             (begin
               (if (= (state-get "post.focus_reply") "1") (state-set "post.reply_text" ""))
               (go (str-concat "post|" (text (state-get "post.want"))))))
-          (if (= cmd "profile") (go (str-concat "profile|" (text (state-get "me.id")))))
+          (if (= cmd "profile") (go (str-concat "profile|" (text (state-get "session.me.id")))))
           (if (= cmd "user")
             (if (= (text (state-get "user.want")) "") (say "No one to show.")
               (go (str-concat "profile|" (text (state-get "user.want"))))))
@@ -689,11 +689,11 @@ on_tick: |
           (if (= cmd "dms") (begin (show-window) (go "dms")))
           (if (= cmd "dm-open")
             (begin (show-window) (go (str-concat "dm|" (text (state-get "dm.want"))))))
-          ;; by itself every 30 s (on_tick, news.next): what's new; the unread count beside Alerts,
+          ;; by itself every 30 s (on_tick, session.news.next): what's new; the unread count beside Alerts,
           ;; with TX.WTF's new notifications, follows below as after every command
           (if (= cmd "poll")
             (begin
-              (state-set "news.next" (+ (time-now) 30))
+              (state-set "session.news.next" (+ (time-now) 30))
               (if (news-dms) (if (= (state-get "ui.screen") "dms") (load-dms)))))
           ;; the nicotina menu's Maximize: the main window filling the screen, or back to its size
           (if (= cmd "maximize")
@@ -1149,7 +1149,7 @@ menubar:
   #                  host's notification feed, each named by its site). A click on one opens what
   #                  it is about, in this copy's window.
   - tray_icon: mail
-    badge: (state-get "ui.dm_unread")
+    badge: (state-get "session.dm.count")
     tooltip: Direct messages
     on: (state-set "ui.cmd" "dms")
     visible_when: (and (not (state-exists "peers.open"))

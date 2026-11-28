@@ -445,7 +445,7 @@ functions: |
     (let ((r (get-authed (str-concat "/user/profile/" (text id)))))
       (if (ok? r)
         (let ((p (reply-json r)))
-          (let ((mine (= (text (opt p "id" "")) (text (state-get "me.id"))))
+          (let ((mine (= (text (opt p "id" "")) (text (state-get "session.me.id"))))
                 (enabled (not (off? p "enabled")))
                 (admin (if (opt p "is_admin" nil) true nil))
                 (tfa (if (opt p "login_2fa_email_enabled" nil) true nil))
