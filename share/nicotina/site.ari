@@ -70,3 +70,15 @@ functions: |
   (defun site-cred (base)
     (let ((name (site-cred-name base)))
       (if (net-auth-has? name base) name (if (net-auth-has? "txwtf" base) "txwtf" name))))
+  ;; A session's site (docs/COMPONENTS.md 3.2): session.site its base URL, session.host,
+  ;; session.origin, session.key (site-key), and session.cred the credential its token is kept
+  ;; under. components/session.ari and nicotina.ari's use-site both set it this way.
+  (defun site-use (url)
+    (let ((b (site-base url)))
+      (begin
+        (state-set "session.site" b)
+        (state-set "session.host" (site-host b))
+        (state-set "session.origin" (site-origin b))
+        (state-set "session.key" (site-key b))
+        (state-set "session.cred" (site-cred b))
+        b)))

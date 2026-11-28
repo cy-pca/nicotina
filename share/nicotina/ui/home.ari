@@ -367,7 +367,7 @@ functions: |
         (begin
           (state-set "login.username" (text (opt p "username" "")))
           (state-set "ui.admin" (if admin "1" ""))
-          (state-set-tree "session.me" d)
+          (state-set-tree "session.me" (collections.dict-merge (nic-account-of "session" p) d))
           d))))
   (defun show-balance (b)
     (state-set-tree "scrip"
