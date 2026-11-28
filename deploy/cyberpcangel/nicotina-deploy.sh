@@ -3,8 +3,10 @@
 # /root/nicotina-deploy.sh. Only the catx-00 forced command runs it (txwtf-deploy-cyberpcangel,
 # action deploy-nicotina), with a payload tarball (tar czf) on stdin:
 #
-#   nicotina/        -> $DOCROOT/nicotina       https://cyberpcangel.com/nicotina/
-#   nicotina-term/   -> $DOCROOT/nicotina-term  https://cyberpcangel.com/nicotina-term/
+#   nicotina/          -> $DOCROOT/nicotina         https://cyberpcangel.com/nicotina/
+#   nicotina-term/     -> $DOCROOT/nicotina-term    https://cyberpcangel.com/nicotina-term/
+#   nicotina-pixels/   -> $DOCROOT/nicotina-pixels  https://cyberpcangel.com/nicotina-pixels/ (optional:
+#                                                   a payload without it leaves the live one as it is)
 #
 # The payload is static files only. Nothing in it runs: this script owns the Apache config, and it
 # refuses a payload that has anything but plain files and directories, or a file type a browser page
@@ -18,6 +20,11 @@ set -euo pipefail
 umask 022
 
 SITES=(nicotina nicotina-term)
+# Sites a payload may have: stage.sh makes nicotina-pixels only from an arigl-web whose terminal
+# page has xterm.js's image addon.
+OPTIONAL=(nicotina-pixels)
+# The terminal pages (ari.html); the rest are arigl-web's index.html.
+TERMINAL=(nicotina-term nicotina-pixels)
 # The instances a page may talk to (its CSP connect-src), and play video and audio from (media-src:
 # the players stream an attachment from the instance's /uploads): the TX.WTF fleet, as in
 # share/nicotina/fleet.policy. The page config's --net-allow names the same sites, and each one
@@ -53,9 +60,12 @@ tar xzf - -C "$WORK" --no-same-owner --no-same-permissions
 for s in "${SITES[@]}"; do
   [[ -d "$WORK/$s" ]] || { echo "FATAL: payload has no $s/"; exit 1; }
 done
-notsite=(); for s in "${SITES[@]}"; do notsite+=('!' -name "$s"); done
+notsite=(); for s in "${SITES[@]}" "${OPTIONAL[@]}"; do notsite+=('!' -name "$s"); done
 extra=$(find "$WORK" -mindepth 1 -maxdepth 1 "${notsite[@]}" -print)
-[[ -z "$extra" ]] || { echo "FATAL: payload has more than ${SITES[*]}: $extra"; exit 1; }
+[[ -z "$extra" ]] || { echo "FATAL: payload has more than ${SITES[*]} ${OPTIONAL[*]}: $extra"; exit 1; }
+# The sites this payload replaces: every required one, and the optional ones it has.
+PLACE=("${SITES[@]}")
+for s in "${OPTIONAL[@]}"; do [[ -d "$WORK/$s" ]] && PLACE+=("$s"); done
 odd=$(find "$WORK" -mindepth 1 ! -type f ! -type d -print)
 [[ -z "$odd" ]] || { echo "FATAL: payload has links or special files: $odd"; exit 1; }
 bad=$(find "$WORK" -type f ! \( -name '*.html' -o -name '*.js' -o -name '*.css' -o -name '*.wasm' \
@@ -86,13 +96,13 @@ CONF="$APACHE/conf-available/nicotina.conf"
 NEW=$(mktemp)
 {
   echo "# Written by /root/nicotina-deploy.sh (cy-pca/nicotina deploy/cyberpcangel). Edit that, not this."
-  for s in "${SITES[@]}"; do
+  for s in "${SITES[@]}" "${OPTIONAL[@]}"; do
     cat <<CONF
 <Directory "$DOCROOT/$s">
     Options -Indexes -ExecCGI +FollowSymLinks
     AllowOverride None
     Require all granted
-$( [[ $s == nicotina-term ]] && echo "    DirectoryIndex ari.html" || echo "    DirectoryIndex index.html" )
+$( [[ " ${TERMINAL[*]} " == *" $s "* ]] && echo "    DirectoryIndex ari.html" || echo "    DirectoryIndex index.html" )
     <IfModule mod_rewrite.c>
         RewriteEngine Off
     </IfModule>
@@ -127,7 +137,7 @@ else
 fi
 
 echo "### place the sites"
-for s in "${SITES[@]}"; do
+for s in "${PLACE[@]}"; do
   dst="$DOCROOT/$s"
   tmp="$DOCROOT/.$s.new.$$" old="$DOCROOT/.$s.old.$$"
   rm -rf "$tmp"
@@ -141,4 +151,4 @@ for s in "${SITES[@]}"; do
 done
 
 if (( CONF_CHANGED )); then systemctl reload apache2; echo "apache reloaded"; fi
-echo "REMOTE_DONE DOCROOT=$DOCROOT SITES=${SITES[*]}"
+echo "REMOTE_DONE DOCROOT=$DOCROOT SITES=${PLACE[*]}"

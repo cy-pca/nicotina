@@ -3,6 +3,8 @@ name: deploy-cyberpcangel
 # Publishes nicotina's browser pages, public and not login-gated:
 #   https://cyberpcangel.com/nicotina/       the ImGui client (libcvc arigl-web's index.html)
 #   https://cyberpcangel.com/nicotina-term/  the terminal client (arigl-web's ari.html)
+#   https://cyberpcangel.com/nicotina-pixels/  the terminal client, its pictures in real pixels
+#                                              (once arigl-web's ari.html has xterm.js's image addon)
 # deploy/cyberpcangel/README.md has the whole chain and the one-time setup.
 #
 # The pages are the single-threaded arigl-web package from cvcpkg.org, as a site installs it: the
@@ -129,7 +131,8 @@ jobs:
       - name: Publish to cyberpcangel.com
         if: steps.check.outputs.run == 'true'
         run: |
-          tar czf - -C payload nicotina nicotina-term \
+          # Every site stage.sh made (nicotina-pixels only from an arigl-web with the image addon).
+          tar czf - -C payload $(ls payload) \
             | ssh -i "$DEPLOY_KEY" -o BatchMode=yes -o ConnectTimeout=20 tfx@catx-00.tx.wtf deploy-nicotina
 
       - name: Verify live

@@ -307,6 +307,7 @@ themselves run on cyberpcangel.com:
 | https://cyberpcangel.com/nicotina/ | ImGui |
 | https://cyberpcangel.com/nicotina-term/ | the terminal (FTXUI in xterm.js) |
 | https://cyberpcangel.com/nicotina-term/ari_tvision.html | the terminal (tvision) |
+| https://cyberpcangel.com/nicotina-pixels/ | the terminal, its pictures in real pixels (xterm.js's image addon), once arigl-web has it |
 
 They are public, use https://tx.wtf, and come from the same documents. The
 `deploy-cyberpcangel` workflow publishes them after each tested push to `main` when something

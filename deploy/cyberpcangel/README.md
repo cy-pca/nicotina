@@ -7,6 +7,16 @@ The browser builds of nicotina, public and not login-gated:
 | https://cyberpcangel.com/nicotina/ | ImGui | libcvc arigl-web's `index.html` (arigl) |
 | https://cyberpcangel.com/nicotina-term/ | terminal (FTXUI in xterm.js) | arigl-web's `ari.html` |
 | https://cyberpcangel.com/nicotina-term/ari_tvision.html | terminal (tvision) | arigl-web's `ari_tvision.html`, when the build has it |
+| https://cyberpcangel.com/nicotina-pixels/ | terminal, its pictures in real pixels | arigl-web's `ari.html` with `--graphics iterm`, when its `xterm/` has the image addon |
+
+**nicotina-pixels** is the terminal page with one more flag in its config, `--graphics iterm`:
+`ari` sends the avatars, banners and attachments as iTerm2 inline images, which xterm.js's image
+addon draws in real pixels, scaled to the cells each picture takes. `stage.sh` derives its config
+from [ariadne.config.json](ariadne.config.json), and stages the site only when the arigl-web
+package's `xterm/` has `addon-image.js`: libcvc's terminal page loads it from transfix/libcvc#1610
+on, in the first release after 4.0.10. Before that the page would draw half-blocks, like
+nicotina-term. ari also speaks kitty's graphics protocol, but through Unicode placeholders,
+which no browser terminal draws yet.
 
 Both run `main.ari` against **https://tx.wtf**. The sign-in form's Site combo offers every site
 of the TX.WTF fleet, the 15 in [share/nicotina/fleet.policy](../../share/nicotina/fleet.policy).
@@ -73,11 +83,13 @@ cvcdbg, the imperial lexicon):
 catx-03 runner (label cvcpkg-prod: the cy-pca org runner catx-03-cy-pca, user github-runner)
   cvcpkg install   arigl-web (wasm, single-threaded) from cvcpkg.org -> share/arigl-web
   stage.sh         + share/nicotina + ariadne.config.json            -> payload/{nicotina,nicotina-term}
+                                                                        (+ nicotina-pixels)
   tar czf - | ssh -i ~/.ssh/id_ed25519_cyberpcangel_deploy tfx@catx-00.tx.wtf deploy-nicotina
 catx-00 forced command (~tfx/bin/txwtf-deploy-cyberpcangel)
   deploy-nicotina -> lxc exec cyberpcangel --project catx -- /root/nicotina-deploy.sh
 cyberpcangel instance
-  nicotina-deploy.sh  checks the payload, replaces $DOCROOT/nicotina and $DOCROOT/nicotina-term,
+  nicotina-deploy.sh  checks the payload, replaces $DOCROOT/nicotina, $DOCROOT/nicotina-term and,
+                      when the payload has it, $DOCROOT/nicotina-pixels,
                       owns /etc/apache2/conf-available/nicotina.conf
 verify.py          every staged file served byte for byte, the CSP, the redirects
 ```
@@ -105,8 +117,8 @@ verify.py          every staged file served byte for byte, the CSP, the redirect
   links, special files and any file a page doesn't serve (no `.php`, no `.htaccess`), writes the
   Apache config itself, and leaves the files owned by root, so WordPress (`www-data`) can't change
   them. Each site is replaced whole, by a rename.
-- **Apache** (`nicotina.conf`, scoped to the two directories): `application/wasm`, deflate, no
-  directory listings, no rewrites into WordPress, `DirectoryIndex ari.html` for the terminal site,
+- **Apache** (`nicotina.conf`, scoped to the sites' directories): `application/wasm`, deflate, no
+  directory listings, no rewrites into WordPress, `DirectoryIndex ari.html` for the terminal sites,
   `Cache-Control: no-cache` (a redeploy shows on the next load), and
   `Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://tx.wtf ... https://dev2.tx.wtf; img-src 'self' data: blob:; media-src 'self' blob: https://tx.wtf ... https://dev2.tx.wtf; ...; frame-ancestors 'self'`, where `...` is the fleet's other sites (`INSTANCES`).
   `'unsafe-inline'` styles are for xterm.js's DOM renderer, which it falls back to without WebGL2.
@@ -115,7 +127,10 @@ verify.py          every staged file served byte for byte, the CSP, the redirect
   attachment ("Media load rejected by URL safety check").
 - **A change to `nicotina-deploy.sh` needs installing on the box** (the command at the top of the
   script) before it takes effect; the next deploy then rewrites `nicotina.conf`. verify.py checks
-  the live CSP, so a deploy fails its check until the installed script matches.
+  the live CSP, so a deploy fails its check until the installed script matches. A script from
+  before nicotina-pixels refuses a payload that has it ("payload has more than nicotina
+  nicotina-term"), and the deploy fails with nothing replaced: install this one before an
+  arigl-web with the image addon is published. It takes a payload with or without the site.
 
 ## By hand
 
@@ -133,7 +148,7 @@ lists them as deps, about 680 MB), which the pages don't use.
 Publish with the house access instead of the deploy key (`tfx` on catx-00):
 
 ```bash
-tar czf - -C /tmp/payload nicotina nicotina-term \
+tar czf - -C /tmp/payload $(ls /tmp/payload) \
   | ssh tfx@catx-00.tx.wtf 'lxc exec cyberpcangel --project catx -- /root/nicotina-deploy.sh'
 python3 deploy/cyberpcangel/verify.py /tmp/payload
 ```

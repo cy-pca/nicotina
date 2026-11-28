@@ -4,11 +4,15 @@
 #   deploy/cyberpcangel/stage.sh WEB_DIR DOCS_DIR OUT [BUILT_FROM]
 #
 # WEB_DIR is an arigl-web package's share/arigl-web, single-threaded (it has ari.html); DOCS_DIR is
-# nicotina's share/nicotina. OUT is created (it must not exist) with the two sites:
+# nicotina's share/nicotina. OUT is created (it must not exist) with the sites:
 #
-#   OUT/nicotina/       https://cyberpcangel.com/nicotina/       the ImGui client (arigl-web's index.html)
-#   OUT/nicotina-term/  https://cyberpcangel.com/nicotina-term/  the terminal client (ari.html; also
-#                                                                 ari_tvision.html when the build has it)
+#   OUT/nicotina/         https://cyberpcangel.com/nicotina/         the ImGui client (arigl-web's index.html)
+#   OUT/nicotina-term/    https://cyberpcangel.com/nicotina-term/    the terminal client (ari.html; also
+#                                                                     ari_tvision.html when the build has it)
+#   OUT/nicotina-pixels/  https://cyberpcangel.com/nicotina-pixels/  the terminal client with its pictures
+#                                                                     in real pixels (ari.html with
+#                                                                     --graphics iterm), when the build
+#                                                                     has xterm.js's image addon
 #
 # Each gets the documents and ariadne.config.json (beside this script). BUILT_FROM, if given, is
 # written to each site's .built-from: what the payload was built from, which the workflow reads back
@@ -43,6 +47,15 @@ site "$out/nicotina" index.html arigl-web.js arigl-web.css arigl.js arigl.wasm
 term=(ari.html ari.js ari.wasm ari-web.js ari-web.css xterm)
 if [[ -f "$web/ari_tvision.html" ]]; then term+=(ari_tvision.html ari_tvision.js ari_tvision.wasm); fi
 site "$out/nicotina-term" "${term[@]}"
+# The same FTXUI page with --graphics iterm, which an arigl-web whose ari.html loads xterm.js's
+# image addon draws in pixels: pictures as iTerm2 inline images, which the terminal scales to their
+# cells. An arigl-web without the addon would draw half-blocks there, so no site then.
+if [[ -f "$web/xterm/addon-image.js" ]]; then
+  site "$out/nicotina-pixels" ari.html ari.js ari.wasm ari-web.js ari-web.css xterm
+  sed -i 's/"flags": \[/"flags": [\n    "--graphics", "iterm",/' "$out/nicotina-pixels/ariadne.config.json"
+  grep -q '"--graphics", "iterm",' "$out/nicotina-pixels/ariadne.config.json" ||
+    { echo "stage: could not add --graphics iterm to nicotina-pixels' config" >&2; exit 1; }
+fi
 
 chmod -R u=rwX,go=rX "$out"
 echo "staged $(find "$out" -type f | wc -l) files, $(du -sh "$out" | cut -f1), in $out"

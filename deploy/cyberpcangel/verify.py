@@ -3,8 +3,8 @@
 
     deploy/cyberpcangel/verify.py PAYLOAD [BASE_URL]
 
-PAYLOAD is stage.sh's OUT. For each site (nicotina, nicotina-term) every staged file must be
-served byte for byte, uncompressed, with the page's Content-Security-Policy; the site's directory
+PAYLOAD is stage.sh's OUT. For each site it has (nicotina, nicotina-term, and nicotina-pixels when
+stage.sh made it) every staged file must be served byte for byte, uncompressed, with the page's Content-Security-Policy; the site's directory
 URL must serve its page (index.html, or ari.html for the terminal), and the URL without the
 trailing slash must redirect to it. Python's urllib only (the CI runner's curl is broken).
 """
@@ -14,7 +14,7 @@ import sys
 import urllib.error
 import urllib.request
 
-PAGES = {"nicotina": "index.html", "nicotina-term": "ari.html"}
+PAGES = {"nicotina": "index.html", "nicotina-term": "ari.html", "nicotina-pixels": "ari.html"}
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -47,6 +47,8 @@ def main():
 
     for site, page in PAGES.items():
         root = payload / site
+        if site == "nicotina-pixels" and not root.is_dir():
+            continue  # stage.sh makes it only from an arigl-web with xterm.js's image addon
         print(f"{base}/{site}/")
         status, headers, body = get(f"{base}/{site}/")
         check(status == 200 and body == (root / page).read_bytes(), f"/{site}/ serves {page}")

@@ -150,15 +150,28 @@ fi
 # serve, like fleet.policy, would fail the deploy on the box.
 stage=$work/stage
 mkdir -p "$stage/web/xterm" "$stage/tmp" "$stage/apache/sites-enabled"
+# With xterm.js's image addon, stage.sh adds nicotina-pixels: the terminal page asking for its
+# pictures in pixels.
 for f in index.html arigl-web.js arigl-web.css arigl.js arigl.wasm ari.html ari.js ari.wasm \
-         ari-web.js ari-web.css LICENSE THIRD_PARTY_NOTICES.md xterm/xterm.js; do
+         ari-web.js ari-web.css LICENSE THIRD_PARTY_NOTICES.md xterm/xterm.js xterm/addon-image.js; do
   echo stand-in >"$stage/web/$f"
 done
 { bash "$root/deploy/cyberpcangel/stage.sh" "$stage/web" "$root/share/nicotina" "$stage/payload" &&
-  tar czf - -C "$stage/payload" nicotina nicotina-term |
+  tar czf - -C "$stage/payload" $(ls "$stage/payload") |
   NICOTINA_TMPDIR="$stage/tmp" NICOTINA_APACHE_ETC="$stage/apache" \
     bash "$root/deploy/cyberpcangel/nicotina-deploy.sh"; } >"$out/web-payload.txt" 2>&1 || true
 check "the web payload passes nicotina-deploy.sh's checks" "$out/web-payload.txt" "payload ok:"
+cat "$stage/payload/nicotina-pixels/ariadne.config.json" >"$out/web-pixels-config.txt" 2>&1 || true
+check "nicotina-pixels' page config asks for pictures in pixels, and reaches the fleet" \
+  "$out/web-pixels-config.txt" '"--graphics", "iterm",' '"--net-allow", "https://tx.wtf"'
+# Without the addon there is no nicotina-pixels, and nicotina-deploy.sh still takes the payload.
+rm "$stage/web/xterm/addon-image.js"
+{ bash "$root/deploy/cyberpcangel/stage.sh" "$stage/web" "$root/share/nicotina" "$stage/payload2" &&
+  ls "$stage/payload2" && tar czf - -C "$stage/payload2" $(ls "$stage/payload2") |
+  NICOTINA_TMPDIR="$stage/tmp" NICOTINA_APACHE_ETC="$stage/apache" \
+    bash "$root/deploy/cyberpcangel/nicotina-deploy.sh"; } >"$out/web-payload2.txt" 2>&1 || true
+check "an arigl-web without the image addon still deploys" "$out/web-payload2.txt" "payload ok:"
+check_not "... with no nicotina-pixels" "$out/web-payload2.txt" "nicotina-pixels"
 launch launcher-nodisplay -- --instance "$base"
 check "launcher: no display gets ari" "$out/launcher-nodisplay.txt" "$ARI 'run' '--net'"
 launch launcher-ssh DISPLAY= SSH_CONNECTION="10.0.0.2 5000 10.0.0.1 22" -- --instance "$base"
