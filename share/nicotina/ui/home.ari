@@ -298,3 +298,243 @@ units:
         children:
           - text: ""
             bind: me.groups.{i}
+
+# The profile's functions: the card, the tabs, the balances, your settings, and loading an account.
+# nicotina.ari's on_tick calls them; they were defined inside it until 2026-11.
+functions: |
+  ;; What a profile view shows of an account (GET /user/ for yours, /user/profile/{id} for
+  ;; anyone's). bar is how many columns its action bar's buttons take.
+  (defun profile-of (p bar)
+    (let ((user (text (opt p "username" "")))
+          (name (text (opt p "name" ""))))
+      (begin
+        ;; The badges, as the web app shows them beside the name: an administrator, the
+        ;; account's emblems, then its presence (txwtf's raw status) and a disabled account.
+        (set badges (list))
+        (if (opt p "is_admin" nil) (set badges (append badges "admin")))
+        (for e (opt p "emblems" (list))
+          (set badges (append badges (text (opt e "name" (opt e "emblem_type" "emblem"))))))
+        (if (!= (text (opt p "status" "")) "") (set badges (append badges (text (opt p "status" "")))))
+        (if (off? p "enabled") (set badges (append badges "disabled")))
+        ;; The counts row: where they last signed in from, joined, posts, views.
+        (set stats (list))
+        (if (!= (text (opt p "last_login_country" "")) "")
+          (set stats (append stats (text (opt p "last_login_country" "")))))
+        (if (!= (text (opt p "created_time" "")) "")
+          (set stats (append stats (str-concat "Joined "
+                                               (string.substring (text (opt p "created_time" "")) 0 10)))))
+        (set stats (append stats (str-concat (text (opt p "post_count" 0)) " posts")))
+        (set stats (append stats (str-concat (text (opt p "view_count" 0)) " views")))
+        (set groups (collections.map (opt p "groups" (list)) (lambda (g) (text (opt g "group_name" "")))))
+        (dict "id" (opt p "id" 0)
+                "username" user
+                "handle" (handle user)
+                "header" (header (handle user) name)
+                "name" name
+                "badges" (if (= (length badges) 0) " " (clip (string.join badges " · ") (CARD)))
+                "stats" (clip (string.join stats " · ") (CARD))
+                "about" (one-line (opt p "description" ""))
+                "about_short" (clip (one-line (opt p "description" "")) (CARD))
+                "presence" (text (opt p "status" "-"))
+                ;; A brokered account's local email is a placeholder in .invalid; its real
+                ;; address is its home instance's.
+                "email" (let ((e (text (opt p "email" ""))))
+                          (if (string.ends-with e ".invalid") "-" e))
+                "email_verified" (if (opt p "email_verified" nil) "yes" "no")
+                "two_factor" (if (opt p "login_2fa_email_enabled" nil) "on" "off")
+                "avatar_url" (picture-url (opt p "avatar_url" nil))
+                "header_url" (picture-url (opt p "header_image_url" nil))
+                "card_url" (picture-url (opt p "card_image_url" nil))
+                ;; what the image: slots show: the pictures, never a video
+                "avatar_pic" (picture-only (picture-url (opt p "avatar_url" nil)))
+                "header_pic" (picture-only (picture-url (opt p "header_image_url" nil)))
+                "card_pic" (picture-only (picture-url (opt p "card_image_url" nil)))
+                "bg_url" (picture-url (opt p "profile_bg_url" nil))
+                "bg_pic" (picture-only (picture-url (opt p "profile_bg_url" nil)))
+                "avatar_box" (avatar-box (initials (if (= name "") user name)))
+                ;; Beside the action bar's buttons (padded to their column in a terminal)
+                "groups_line" (col-pad (if (= (length groups) 0) " "
+                                         (str-concat "Groups: " (string.join groups ", ")))
+                                       (- (WIDE) bar))
+                "groups" groups))))
+  ;; Yours: kept in me.* (the Details window, the sign-in form after signing out), and shown
+  ;; in the profile view as prof.*. [ Refresh ][ Sign out ] take 23 columns, and an
+  ;; administrator's [ Admin ] 9 more. Whether you are one is ui.admin (the Admin view's way
+  ;; in, and main.ari's menu).
+  (defun show-profile (p)
+    (let ((admin (if (opt p "is_admin" nil) true nil)))
+      (let ((d (profile-of p (if admin 32 23))))
+        (begin
+          (state-set "login.username" (text (opt p "username" "")))
+          (state-set "ui.admin" (if admin "1" ""))
+          (state-set-tree "me" d)
+          d))))
+  (defun show-balance (b)
+    (state-set-tree "scrip"
+      (dict "symbol" (opt b "symbol" "SCRIP")
+            "balance" (plain-number (opt b "balance" "0"))
+            "value" (dollars (opt b "cents_equivalent" 0)))))
+
+  ;; A tab's page: five rows, always, so the window keeps its height. Each row is a post's
+  ;; date, its text on one line, and its counts, then Open ([ Open ] takes 8 columns).
+  (defun post-row (q)
+    (let ((counts (str-concat "  ↩" (text (opt q "reply_count" 0))
+                              " ♥" (text (opt q "reaction_count" 0))))
+          (body (one-line (opt q "content" ""))))
+      (begin
+        (if (= body "")
+          (set body (if (> (length (opt q "attachments" (list))) 0) "(attachment)" "(no text)")))
+        (dict "id" (text (opt q "id" ""))
+              "line" (str-concat (string.substring (text (opt q "created_at" "")) 0 10) "  "
+                                 (pad body (- (WIDE) 21 (string.length counts))) counts " ")))))
+  (defun show-rows (rows)
+    (begin
+      (while (< (length rows) (PAGE)) (set rows (append rows (dict "id" "" "line" " "))))
+      (state-set-tree "tab.rows" rows)))
+  ;; In a window the tab's posts are cards (ui/card.ari's card_list over tab.items); a
+  ;; terminal keeps the rows, a page of which fits 80x24.
+  ;; None in a terminal, and none on the Balances tab: the list is shown as it is.
+  (defun show-cards (posts)
+    (state-set-tree "tab.items" (if (cap "term") (list) (collections.map posts feed-card))))
+  (defun note-row (s) (dict "id" "" "line" s))
+  ;; Your content filter (the Settings tab): GET /social/settings/read-level. A post whose
+  ;; score, its likes less its dislikes, is below your level is left out of your feeds
+  ;; (txwtf keeps your own posts and promoted ones in). ui/home.ari offers ten levels, -10
+  ;; to 20 as the web app's slider goes; one set elsewhere is named in the note.
+  (defun level-name (v)
+    (if (<= v -10) "show everything"
+      (if (< v 0) "hide flagged"
+        (if (= v 0) "neutral and up"
+          (if (< v 20) "well received only" "only top-rated")))))
+  (defun read-level-note (v)
+    (str-concat "Hiding posts scored below " (text v) " (" (level-name v) ")"
+                (if (= v -3) ", the default." ".")))
+  (defun load-read-level ()
+    (let ((r (get-authed "/social/settings/read-level")))
+      (if (ok? r)
+        (let ((v (int (opt (reply-json r) "read_level" -3))))
+          (begin
+            (state-set "set.level" v)
+            (state-set "set.v_level" "1")
+            (state-set "set.head" "Your content filter: a post's score is its likes less its dislikes.")
+            (state-set "set.note" (read-level-note v))
+            true))
+        (begin
+          (state-set "set.v_level" "")
+          (state-set "set.head" "")
+          (if (or (= (status r) 404) (= (status r) 405))
+            (begin (state-set "set.note" "This server has no content filter.") true)
+            (begin
+              (state-set "set.note" "Couldn't load your content filter.")
+              (if (session-over? r) (session-over)
+                (if (= (status r) 0) (unreachable r)
+                  (fail (str-concat "Couldn't load your content filter (HTTP "
+                                    (str (status r)) ")."))))
+              nil))))))
+  ;; Your email address on the Settings tab (me.email, me.email_verified: GET /user/), and
+  ;; whether Send code and Verify are offered: only until it is verified, and never for a
+  ;; brokered account's placeholder address ("-").
+  (defun email-settings ()
+    (let ((e (sget "me.email")) (ok (= (sget "me.email_verified") "yes")))
+      (begin
+        (state-set "set.v_email" (if (or (= e "") (= e "-") (!= (sget "prof.self") "1")) "" "1"))
+        (state-set "set.v_verify" (if ok "" "1"))
+        (state-set "set.email_line"
+          (clip (str-concat "Email: " e (if ok "  · verified" "  · not verified yet")) (WIDE))))))
+  ;; The tab ui.tab names, from tab.offset: Posts asks for a page of five; Replies, as the
+  ;; web app does, asks for twenty posts and replies together and keeps the replies.
+  (defun load-tab ()
+    (let ((tab (state-get "ui.tab"))
+          (off (int (state-get "tab.offset"))))
+      (if (= tab "Balances")
+        (begin (show-cards (list)) (state-set "tab.empty" "") true)
+      (if (= tab "Settings")
+        (begin (show-cards (list)) (state-set "tab.empty" "") (email-settings) (load-read-level))
+        (let ((r (get-authed (str-concat "/social/timeline/user/" (text (state-get "prof.id"))
+                                         (if (= tab "Posts")
+                                           (str-concat "?include_replies=false&limit=" (text (PAGE)))
+                                           "?include_replies=true&limit=20")
+                                         "&offset=" (text off)))))
+          (if (ok? r)
+            (let ((posts (opt (reply-json r) "posts" (list))))
+              (begin
+                (if (= tab "Replies")
+                  (set posts (collections.filter posts
+                               (lambda (q) (!= (type-of (opt q "reply_to_id" nil)) "nil")))))
+                (if (> (length posts) (PAGE)) (set posts (slice posts 0 (PAGE))))
+                (show-rows (if (= (length posts) 0)
+                             (list (note-row (if (= tab "Posts") "No posts yet." "No replies yet.")))
+                             (collections.map posts post-row)))
+                (show-cards posts)
+                (state-set "tab.empty" (if (= (length posts) 0)
+                                         (if (= tab "Posts") "No posts yet." "No replies yet.")
+                                         ""))
+                (state-set "tab.more" (if (opt (reply-json r) "has_more" nil) "1" ""))
+                (state-set "tab.page"
+                  (if (and (= off 0) (= (state-get "tab.more") "")) ""
+                    (str-concat "  Page " (text (+ 1 (int (/ off (if (= tab "Posts") (PAGE) 20))))))))
+                true))
+            (begin
+              (show-rows (list (note-row (str-concat "Couldn't load the " (string.lower tab) "."))))
+              (show-cards (list))
+              (state-set "tab.empty" (str-concat "Couldn't load the " (string.lower tab) "."))
+              (state-set "tab.more" "")
+              (if (session-over? r) (session-over)
+                (if (= (status r) 0) (unreachable r)
+                  (fail (str-concat "Couldn't load the " (string.lower tab) " (HTTP "
+                                    (str (status r)) ")."))))
+              nil)))))))
+
+  ;; Who is signed in: GET /user/. True when it came back. With own, the profile view shows
+  ;; it too.
+  (defun load-me-into (own)
+    (let ((r (get-authed "/user/")))
+      (if (ok? r)
+        (let ((d (show-profile (reply-json r))))
+          (begin
+            (if own
+              (state-set-tree "prof"
+                (collections.dict-merge d (dict "self" "1" "following" "" "bg_pic_shown" ""))))
+            true))
+        (begin
+          (if (session-over? r) (session-over)
+            (if (= (status r) 0) (unreachable r)
+              (fail (str-concat "Couldn't load your profile (HTTP " (str (status r)) ")."))))
+          nil))))
+  (defun load-me () (load-me-into nil))
+  ;; Someone else's profile: GET /user/profile/{id}, and whether you follow them. Their tab
+  ;; can't be Balances. [ Unfollow ][ Message ] take 23 columns.
+  (defun load-user (id)
+    (let ((r (get-authed (str-concat "/user/profile/" (text id)))))
+      (if (ok? r)
+        (let ((d (profile-of (reply-json r) 23))
+              (f (get-authed (str-concat "/social/follow/check/" (text id)))))
+          (begin
+            (state-set-tree "prof"
+              (collections.dict-merge d (dict "self" ""
+                                              "following" (if (and (ok? f) (opt (reply-json f) "is_following" nil)) "1" "")
+                                              "bg_pic_shown" "")))
+            (if (or (= (state-get "ui.tab") "Balances") (= (state-get "ui.tab") "Settings"))
+              (state-set "ui.tab" "Posts"))
+            (state-set "tab.offset" 0)
+            (load-tab)))
+        (begin
+          (if (session-over? r) (session-over)
+            (if (= (status r) 0) (unreachable r)
+              (fail (str-concat "Couldn't load that profile (HTTP " (str (status r)) ")."))))
+          nil))))
+  ;; The rest of your profile: the balance, then the tab's first page.
+  (defun load-profile ()
+    (let ((b (get-authed "/billing/scrip/balance")))
+      (if (ok? b)
+        (begin
+          (show-balance (reply-json b))
+          (state-set "tab.offset" 0)
+          (load-tab))
+        (begin
+          (state-set-tree "scrip" (dict "symbol" "SCRIP" "balance" "unavailable" "value" "-"))
+          (if (session-over? b) (session-over)
+            (if (= (status b) 0) (unreachable b)
+              (fail (str-concat "The SCRIP balance isn't available (HTTP "
+                                (str (status b)) ")."))))
+          nil))))

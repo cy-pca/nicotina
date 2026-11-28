@@ -313,3 +313,378 @@ units:
       - text: ""
         bind: viewer.row
         color: [0.45, 0.75, 0.85]
+
+# Tags, alerts, search, the viewer, and a new post with its attachments.
+# nicotina.ari's on_tick calls them; they were defined inside it until 2026-11.
+functions: |
+  (defun load-tags (first)
+    (let ((off (if first 0 (int (state-get "tags.rows")))))
+      (let ((r (get-query "/social/tags" (dict "limit" (text (TAGPAGE)) "offset" (text off)
+                                               "order_by" "post_count" "order_desc" "true"))))
+        (if (ok? r)
+          (let ((b (reply-json r)))
+            (begin
+              (set rows (collections.map (opt b "tags" (list))
+                          (lambda (tg)
+                            (let ((n (text (opt tg "post_count" 0)))
+                                  (label (str-concat "#" (text (opt tg "name" "")) "  ·  "
+                                                     (text (opt tg "post_count" 0))
+                                                     (if (= (text (opt tg "post_count" 0)) "1")
+                                                       " post" " posts"))))
+                              ;; a row to click; in a terminal, the line then Open (8 columns)
+                              (collections.dict-merge
+                                (click-flags)
+                                (dict "name" (text (opt tg "name" ""))
+                                      "label" label
+                                      "line" (pad label (- (WIDE) 8))))))))
+              (if first
+                (state-set-tree "tags.rows" rows)
+                (begin
+                  (set n off)
+                  (for c rows
+                    (state-set-tree (str-concat "tags.rows." (text n)) c)
+                    (set n (+ n 1)))
+                  (state-set "tags.rows" n)))
+              (set total (int (state-get "tags.rows")))
+              (state-set "tags.more" (if (< total (int (opt b "total" 0))) "1" ""))
+              (state-set "tags.head"
+                (if (= total 0) "No hashtags yet."
+                  (str-concat (text (opt b "total" total)) " hashtags, the most named first")))
+              true))
+          (begin
+            (if (session-over? r) (session-over)
+              (if (= (status r) 0) (unreachable r)
+                (fail (str-concat "Couldn't load the hashtags (HTTP " (str (status r)) ")."))))
+            nil)))))
+
+  ;; The unread count beside Alerts (GET /notifications/count). Quiet: it never says a thing,
+  ;; and a failure leaves the count as it was.
+  (defun load-badge ()
+    (let ((r (get-authed "/notifications/count")))
+      (if (ok? r)
+        (let ((n (int (opt (reply-json r) "unviewed_count" 0))))
+          (begin
+            ;; " 2 new" beside the icons; " 2" beside the words, which fill a terminal's row
+            (state-set "alerts.badge" (if (> n 0) (str-concat " " (text n) " new") ""))
+            (state-set "alerts.badge_n" (if (> n 0) (str-concat " " (text n)) ""))
+            (news-alerts n))))))
+  ;; TX.WTF's notifications in the host's feed, which the tray's bell shows, as the web app's
+  ;; bar shows them: n, the unread count just read. When it changes, the newest 20 are asked
+  ;; for, and each unread one this run hasn't posted goes in, oldest first, so the newest is
+  ;; on top. Its click opens what it is about (alert-open) and marks it read at the instance.
+  ;; Read elsewhere (the web app, another device), their entries here are read too.
+  (defun news-alerts (n)
+    (if (feed?)
+      (if (> n 0)
+        (if (!= (text n) (sget "news.alert_n"))
+          (let ((r (get-query "/notifications/" (dict "limit" "20" "offset" "0"))))
+            (if (ok? r)
+              (let ((rows (opt (reply-json r) "notifications" (list))))
+                (begin
+                  (if (!= (type-of rows) "list") (set rows (list)))
+                  (for x (collections.reverse rows)
+                    (let ((nid (int (opt x "id" 0))))
+                      (if (and (not (opt x "viewed" nil)) (> nid (int (state-get "news.alert_max"))))
+                        (begin
+                          (state-set "news.alert_max" nid)
+                          (id-add "news.alert_ids"
+                            (notify (clip (one-line (opt x "message" "Something new.")) 80) "info"
+                                    (alert-program x)))))))
+                  (state-set "news.alert_n" (text n)))))))
+        (begin
+          (alerts-read)
+          (state-set "news.alert_n" "0")))))
+  ;; A notification's click, as a program run in this document: its post or its profile, or
+  ;; the Alerts view for one about anything else.
+  (defun alert-program (x)
+    (let ((kind (word (opt x "related_type" ""))) (target (word (opt x "related_id" "")))
+          (nid (word (opt x "id" ""))))
+      (if (and (!= target "") (or (= kind "post") (= kind "user")))
+        (str-concat "(begin (state-set \"alert.kind\" \"" kind "\") (state-set \"alert.target\" \""
+                    target "\") (state-set \"alert.nid\" \"" nid "\") (state-set \"ui.cmd\" \"alert-open\"))")
+        "(state-set \"ui.cmd\" \"alerts\")")))
+  ;; The feed's entries for TX.WTF's notifications, read: they were seen in the Alerts view.
+  (defun alerts-read ()
+    (begin
+      (if (feed?) (for f (id-list "news.alert_ids") (notify-read (int f))))
+      (state-set "news.alert_ids" "")))
+  ;; Your notifications, newest first, then all of them marked read (POST
+  ;; /notifications/viewed), as the web app marks them when its list opens.
+  (defun load-alerts ()
+    (let ((r (get-query "/notifications/" (dict "limit" "20" "offset" "0"))))
+      (if (ok? r)
+        (let ((b (reply-json r)))
+          (begin
+            (set rows (collections.map (opt b "notifications" (list))
+                        (lambda (n)
+                          (let ((kind (text (opt n "related_type" "")))
+                                (target (text (opt n "related_id" ""))))
+                            (begin
+                              (set openable (and (!= target "") (or (= kind "post") (= kind "user"))))
+                              (set label (str-concat (if (opt n "viewed" nil) "  " "● ")
+                                                     (one-line (opt n "message" ""))))
+                              ;; one to open is a row to click; in a terminal, the line then
+                              ;; Open (8 columns)
+                              (collections.dict-merge
+                                (click-flags)
+                                (dict "kind" kind
+                                      "target" (if openable target "")
+                                      "label" label
+                                      "line" (pad label (if openable (- (WIDE) 8) (WIDE)))
+                                      "at" (str-concat "  " (posted-at (opt n "created_at" ""))
+                                                       "  " (text (opt n "notification_type" ""))))))))))
+            (state-set-tree "alerts.rows" rows)
+            (set unread (int (opt b "unviewed_count" 0)))
+            (state-set "alerts.head"
+              (if (= (length rows) 0) "No notifications."
+                (str-concat (text (opt b "total_count" (length rows))) " notifications"
+                            (if (> unread 0) (str-concat ", " (text unread) " new") ""))))
+            (if (> unread 0) (send-authed "POST" "/notifications/viewed" (dict)))
+            (state-set "alerts.badge" "")
+            (state-set "alerts.badge_n" "")
+            ;; and their entries in the host's feed, read
+            (alerts-read)
+            (state-set "news.alert_n" "0")
+            true))
+        (begin
+          (if (session-over? r) (session-over)
+            (if (= (status r) 0) (unreachable r)
+              (fail (str-concat "Couldn't load your notifications (HTTP " (str (status r)) ")."))))
+          nil))))
+
+  ;; Search (GET /search/search?q=&categories=): what the view's checkboxes ask for (posts,
+  ;; people, hashtags), as txwtf groups it: results.posts, .users and .hashtags, each
+  ;; {items, total}. A post found is its card, as the feed shows it (the post from the cache,
+  ;; or asked for); a person is a card of their picture, handle and what they say about
+  ;; themselves; a hashtag a card of its own. A click on any opens what it is (ui/social.ari).
+  (defun bucket (results k)
+    (let ((items (opt (opt results k (dict)) "items" (list))))
+      (if (= (type-of items) "list") items (list))))
+  ;; A checkbox's key: on unless it was turned off (one not drawn yet is on).
+  (defun scope-on? (k)
+    (if (state-exists k)
+      (let ((v (state-get k)))
+        (and v (!= (text v) "0") (!= (text v) "") (!= (text v) "false")))
+      true))
+  (defun search-cats ()
+    (let ((cats (list)))
+      (begin
+        (if (scope-on? "search.in_posts") (set cats (append cats "posts")))
+        (if (scope-on? "search.in_people") (set cats (append cats "users")))
+        (if (scope-on? "search.in_tags") (set cats (append cats "hashtags")))
+        cats)))
+  ;; txwtf's snippet is its text HTML-escaped, the match marked: one plain line of it.
+  (defun snippet-of (h n) (clip (one-line (unescape (text (opt h "snippet" "")))) n))
+  (defun n-of (n one many) (str-concat (text n) " " (if (= n 1) one many)))
+  ;; Where a click on a group is its own (outside a terminal) the card is the click; else a
+  ;; button beside it.
+  ;; Text before a button on one line: padded to its column in a terminal, as it is
+  ;; elsewhere (a phone's narrow window would push the button out of reach).
+  (defun col-pad (s n) (if (and (cap "clicks") (not (cap "term"))) s (pad s n)))
+  (defun click-flags ()
+    (dict "v_click" (flag (and (cap "clicks") (not (cap "term"))))
+          "v_btns" (flag (not (and (cap "clicks") (not (cap "term")))))))
+  ;; GET /user/profile/ID, or the copy kept (cache.user.ID, POSTTTL seconds): the profile, or
+  ;; nil.
+  (defun fetch-user (id)
+    (let ((k (str-concat "cache.user." (word id)))
+          (u nil))
+      (begin
+        (if (and (not (cache-bypass?)) (cache-live? k))
+          (set u (try (json-parse (state-get k)) (catch (e) nil))))
+        (if (= (type-of u) "dict") u
+          (let ((r (get-authed (str-concat "/user/profile/" (text id)))))
+            (if (ok? r)
+              (let ((p (reply-json r)))
+                (begin (state-set k (json-encode p)) (state-expire k (POSTTTL)) p))
+              nil))))))
+  ;; A person found: their profile's card, as their page shows it (ui/home.ari's
+  ;; profile_card, from profile-of), or nil when the profile can't be read.
+  (defun person-card (h)
+    (let ((u (fetch-user (opt h "id" ""))))
+      (if (= (type-of u) "dict")
+        (collections.dict-merge (profile-of u 0) (click-flags))
+        nil)))
+  (defun tag-card (h)
+    (let ((tg (string.lower (string.replace (text (opt h "title" "")) "#" ""))))
+      (collections.dict-merge
+        (click-flags)
+        (dict "tag" tg "line" (str-concat "#" tg) "about" (snippet-of h (CARDW))))))
+  ;; The posts found, as cards: each post from the cache, or asked for. One that can't be
+  ;; read (deleted since, or no longer yours to see) is left out.
+  (defun post-cards (hits)
+    (let ((cards (list)) (f nil))
+      (begin
+        (for h hits
+          (begin
+            (set f (fetch-post (opt h "id" "")))
+            (if (opt f "ok" nil)
+              (set cards (append cards (feed-card (opt f "post" (dict))))))))
+        cards)))
+  (defun run-search ()
+    (let ((q (string.trim (state-get "search.q")))
+          (cats (search-cats))
+          (results (dict)) (people (list)) (tags (list)) (posts (list)))
+      (if (< (string.length q) 2)
+        (begin (state-set "search.note" "Type two letters or more.") true)
+        (if (= (length cats) 0)
+          (begin (state-set "search.note" "Tick Posts, People or Hashtags to search them.") true)
+          (let ((r (get-query "/search/search"
+                              (dict "q" q "limit" "10" "categories" (string.join cats ",")))))
+            (if (ok? r)
+              (begin
+                (set results (opt (reply-json r) "results" (dict)))
+                (if (!= (type-of results) "dict") (set results (dict)))
+                ;; the hashtags at once; then the people's cards, then the posts', as their
+                ;; profiles and posts come
+                (set tags (collections.map (bucket results "hashtags") tag-card))
+                (state-set-tree "search.tags" tags)
+                (state-set-tree "search.people" (list))
+                (state-set-tree "search.posts" (list))
+                (state-set "search.head_tags" (if (> (length tags) 0) (n-of (length tags) "hashtag" "hashtags") ""))
+                (state-set "search.head_people" "")
+                (state-set "search.head_posts" "")
+                (state-set "search.note" (str-concat "Searching for \"" q "\"..."))
+                (set people (collections.filter (collections.map (bucket results "users") person-card)
+                                                (lambda (c) (= (type-of c) "dict"))))
+                (state-set-tree "search.people" people)
+                (state-set "search.head_people" (if (> (length people) 0) (n-of (length people) "person" "people") ""))
+                (set posts (post-cards (bucket results "posts")))
+                (state-set-tree "search.posts" posts)
+                (state-set "search.head_posts" (if (> (length posts) 0) (n-of (length posts) "post" "posts") ""))
+                (state-set "search.note"
+                  (if (= (+ (length posts) (length people) (length tags)) 0)
+                    (str-concat "Nothing matches \"" q "\".")
+                    (str-concat "Found for \"" q "\":")))
+                true)
+              (begin
+                (if (session-over? r) (session-over)
+                  (if (= (status r) 0) (unreachable r)
+                    (fail (str-concat "Search failed (HTTP " (str (status r)) ")."))))
+                nil)))))))
+
+  ;; The viewer: the attachments of post view.post that it shows (pictures, video and audio),
+  ;; at viewer.i.
+  (defun viewer-at (i)
+    (let ((items (state-get "viewer.n")))
+      (if (> (int items) 0)
+        (let ((k (% (+ (% (int i) (int items)) (int items)) (int items))))
+          (begin
+            (state-set "viewer.i" k)
+            (state-set "viewer.url" (state-get (str-concat "viewer.items." (text k) ".url")))
+            (state-set "viewer.kind" (state-get (str-concat "viewer.items." (text k) ".kind")))
+            (state-set-tree "viewer.v"
+              (item-flags (state-get (str-concat "viewer.items." (text k) ".kind"))))
+            (state-set "viewer.row" (state-get (str-concat "viewer.items." (text k) ".row")))
+            (state-set "viewer.where"
+              (str-concat "  " (text (+ k 1)) " of " (text items))))))))
+  (defun load-viewer (pid i)
+    (let ((r (get-authed (str-concat "/social/posts/" (text pid)))))
+      (if (ok? r)
+        (let ((media (opt (shown (reply-json r)) "attachments" (list))))
+          (begin
+            (if (= (type-of media) "nil") (set media (list)))
+            (set shows (collections.filter media
+                         (lambda (m) (and (!= (kind (text (opt m "mime_type" ""))) "file")
+                                          (!= (opt m "url" "") "")))))
+            (state-set-tree "viewer.items"
+              (collections.map shows
+                (lambda (m) (dict "url" (picture-url (opt m "url" nil))
+                                  "kind" (kind (text (opt m "mime_type" "")))
+                                  "row" (clip (media-row m) (WIDE))))))
+            (state-set "viewer.n" (length shows))
+            (if (= (length shows) 0)
+              (begin (fail "That post has nothing to view.") nil)
+              (begin (viewer-at i) true))))
+        (begin
+          (if (session-over? r) (session-over)
+            (if (= (status r) 0) (unreachable r)
+              (fail (str-concat "Couldn't open the post (HTTP " (str (status r)) ")."))))
+          nil))))
+  ;; A new post, or a reply (reply_to set): POST /social/posts, with the ids of the files it
+  ;; attaches (attachment_ids), if any. Its id, or nil.
+  (defun publish (content reply-to visibility ids)
+    (let ((payload (if (= reply-to "")
+                     (dict "content" content "visibility" visibility)
+                     (dict "content" content "visibility" visibility
+                           "reply_to_id" (int reply-to)))))
+      (begin
+        (if (> (length ids) 0) (set-attr payload "attachment_ids" ids))
+        (let ((r (send-authed "POST" "/social/posts" payload)))
+          (if (ok? r)
+            (text (opt (reply-json r) "id" ""))
+            (begin (act-failed r (if (= reply-to "") "post it" "send the reply")) nil))))))
+  ;; The files a new post attaches (compose.files), as dicts: handle, name, size, type. (A set
+  ;; inside a let binds the let's own name, so the loop's variables are all this let's.)
+  (defun compose-files ()
+    (let ((out (list)) (n (int (state-get "compose.files"))) (at ""))
+      (begin
+        (for i (range n)
+          (begin
+            (set at (str-concat "compose.files." (text i) "."))
+            (set out (append out (dict "handle" (state-get (str-concat at "handle"))
+                                       "name" (state-get (str-concat at "name"))
+                                       "size" (int (state-get (str-concat at "size")))
+                                       "type" (state-get (str-concat at "type"))
+                                       "label" (state-get (str-concat at "label")))))))
+        out)))
+  ;; One file, uploaded as the web app uploads it: in one multipart POST /social/files, or,
+  ;; over 8 MiB, in the resumable upload's chunks (POST /social/files/resumable, then a PATCH
+  ;; per chunk at its Upload-Offset, which the host resumes after a dropped one, then POST
+  ;; .../complete). The host reads the file and sends it; compose.progress shows how far it
+  ;; is. Its id, or nil (the status line says why). upload-file-as names the progress key,
+  ;; and whether the file is private (is_private: the owner's alone, hidden from the site's
+  ;; media and taken in any type, as a mail attachment is).
+  (defun upload-file (f) (upload-file-as f "compose.progress" nil))
+  (defun upload-file-as (f prog private)
+    (let ((h (get-attr f "handle")) (size (int (get-attr f "size")))
+          (what (str-concat "upload " (get-attr f "name"))))
+      (if (<= size 8388608)
+        (let ((o (dict "auth" (cred) "headers" (dict "Accept" "application/json")
+                       "progress" prog)))
+          (begin
+            (if private (set-attr o "form" (dict "is_private" "true")))
+            (let ((r (http-upload (str-concat (base) "/social/files") h o)))
+              (if (get-attr r "done") (opt (reply-json r) "id" nil)
+                (begin (act-failed r what) nil)))))
+        (let ((s (send-authed "POST" "/social/files/resumable"
+                   (if private
+                     (dict "filename" (get-attr f "name") "total_size" size
+                           "mime_type" (get-attr f "type") "is_private" true)
+                     (dict "filename" (get-attr f "name") "total_size" size
+                           "mime_type" (get-attr f "type"))))))
+          (if (not (ok? s)) (begin (act-failed s what) nil)
+            (let ((url (str-concat (base) "/social/files/resumable/"
+                                   (text (opt (reply-json s) "upload_id" ""))))
+                  (chunk (int (opt (reply-json s) "chunk_size" 8388608))))
+              (let ((r (http-upload url h
+                         (dict "as" "chunks" "chunk_size" chunk "status_url" url
+                               "auth" (cred) "headers" (dict "Accept" "application/json")
+                               "progress" prog))))
+                (if (not (get-attr r "done")) (begin (act-failed r what) nil)
+                  (let ((c (send-authed "POST" (str-concat "/social/files/resumable/"
+                                                           (text (opt (reply-json s) "upload_id" ""))
+                                                           "/complete")
+                                        (dict))))
+                    (if (ok? c) (opt (reply-json c) "id" nil)
+                      (begin (act-failed c what) nil)))))))))))
+  ;; The focus back in a new post's text: the other copy of the field appears, with autofocus.
+  (defun compose-refocus ()
+    (state-set "compose.focus" (if (= (state-get "compose.focus") "b") "a" "b")))
+  ;; Every file of a new post, one after another: their ids, or nil when one failed.
+  (defun upload-all (files)
+    (let ((ids (list)) (i 0) (n (length files)) (f nil) (id nil))
+      (begin
+        (state-set "compose.uploading" "1")
+        (while (and (!= (type-of ids) "nil") (< i n))
+          (begin
+            (set f (nth files i))
+            (say (str-concat "Uploading " (get-attr f "name")
+                             (if (> n 1) (str-concat " (" (text (+ i 1)) " of " (text n) ")") "")
+                             "..."))
+            (state-set "compose.progress" 0)
+            (set id (upload-file f))
+            (if (= (type-of id) "nil") (set ids nil) (set ids (append ids id)))
+            (set i (+ i 1))))
+        (state-set "compose.uploading" "")
+        ids)))

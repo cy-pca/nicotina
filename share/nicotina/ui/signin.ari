@@ -190,3 +190,187 @@ units:
             on: (state-set "ui.cmd" "back")
             enabled_when: (!= (state-get "ui.busy") "1")
       - include: status_line
+
+# The sign-in forms' functions: signing in, the emailed code, a new account, the site's own page,
+# resuming a kept session, and a session that ended.
+# nicotina.ari's on_tick calls them; they were defined inside it until 2026-11.
+functions: |
+  (defun to-signin (msg is-error)
+    (begin
+      (state-set "login.password" "")
+      (state-set "login.code" "")
+      (state-set "login.challenge" "")
+      (state-set-tree "me" (dict))
+      (state-set-tree "scrip" (dict))
+      (state-set "ui.tab" "Posts") ;; the next profile opens at Posts, as the web app's does
+      (state-set "ui.here" "")
+      (state-set "ui.back" "")
+      (state-set-tree "feed" (dict "items" (list) "mode" "Following" "source" "home" "tag" ""
+                                   "title" "" "more" "" "before" "" "offset" 0 "empty" ""
+                                   "tail" ""))
+      (state-set-tree "post" (dict "lines" (list) "media" (list) "replies" (list) "tags" ""
+                                   "parent" "" "mine" "" "focus_reply" "" "reply_text" ""
+                                   "can_delete" "" "confirm" ""))
+      (state-set-tree "set" (dict "level" -3 "head" "" "note" "" "v_level" "" "v_email" ""
+                                  "v_verify" "" "email_line" "" "email_code" "" "email_note" ""))
+      (state-set "reg.password" "")
+      (state-set "reg.password2" "")
+      (state-set-tree "tab" (dict "rows" (list) "items" (list) "offset" 0 "more" "" "page" ""))
+      (state-set-tree "prof" (dict "self" "" "following" "" "bg_pic_shown" ""))
+      (state-set-tree "alerts" (dict "rows" (list) "head" "" "badge" "" "badge_n" ""))
+      (state-set-tree "search" (dict "q" "" "posts" (list) "people" (list) "tags" (list)
+                                     "head_people" "" "head_tags" "" "head_posts" ""
+                                     "note" "Find posts, people and hashtags."))
+      ;; another account's posts are not this one's to show
+      (state-delete "cache")
+      (state-set "compose.text" "")
+      (state-set-tree "compose.files" (list))
+      (state-set-tree "dm.rows" (list))
+      (state-set-tree "dm.lines" (list))
+      (state-set "dm.draft" "")
+      (state-set "dm.pass" "")
+      ;; another account's mailboxes, and what was being written, are not the next one's
+      (if (has? "file-forget")
+        (for f (if (state-exists "mail.new.files") (range (int (state-get "mail.new.files"))) (list))
+          (file-forget (state-get (str-concat "mail.new.files." (text f) ".handle")))))
+      (state-set-tree "mail" (dict "loaded" "" "none" "" "acct_ids" "" "acct_opts" "" "v_accts" ""
+                                   "acct" "" "acct_pick" "" "acct_line" "" "folder" "INBOX"
+                                   "folder_pick" "Inbox" "folder_opts" "" "head" "" "rows" (list)
+                                   "page" "" "offset" 0 "total" 0 "want" "" "att_i" ""
+                                   "save_error" ""
+                                   "msg" (dict "lines" (list) "atts" (list) "draft" "" "vpid" "mail")
+                                   "new" (dict "from" "" "to" "" "cc" "" "subject" "" "body" ""
+                                               "files" (list) "focus" "to" "note" ""
+                                               "uploading" "" "progress" 0 "draft" ""
+                                               "draft_folder" "")))
+      ;; what's new is the next account's: no polling until it signs in, and this one's
+      ;; entries out of the host's notification feed
+      (state-set-tree "news" (dict "on" "" "next" 0 "alert_n" "" "alert_max" 0 "alert_ids" ""
+                                   "dm_primed" ""))
+      (state-set "dm.unread" "")
+      (state-set-tree "dm.seen" (dict))
+      (state-set-tree "dm.feed" (dict))
+      (state-set "ui.dm_unread" "")
+      (state-set "app.site_emoji" "")
+      (state-set "app.site_emoji_id" "")
+      (state-set-tree "nav.icon" (dict))
+      (if (feed?) (notify-clear-all))
+      ;; the next account to sign in may not be an administrator
+      (state-set "ui.admin" "")
+      (state-set "admin.uq" "")
+      (state-set "admin.tab" "Users")
+      (state-set "ui.screen" "signin")
+      (if is-error (fail msg) (say msg))))
+  ;; The host refused the token (it expired, or was signed out elsewhere), or holds none.
+  (defun session-over? (r)
+    (or (= (status r) 401) (= (status r) 403)
+        (and (= (status r) 0) (string.contains (get-attr r "error") "no credential"))))
+  (defun session-over ()
+    (begin
+      (net-auth-forget (cred))
+      (to-signin "Your session has expired. Sign in again." true)))
+  (defun unreachable (r)
+    (fail (str-concat "Can't reach " (state-get "app.host") ": " (get-attr r "error"))))
+  ;; The site as its own sign-in page shows it (GET /social/site-info, no sign-in needed): its
+  ;; title, tagline (description), txwtf version and logo, for the sign-in form (site_info),
+  ;; and the title for the windows' titles, as the web app's. An instance without site-info
+  ;; answers GET /site/title (a JSON string) at least. The title is the host when the site has
+  ;; none or doesn't answer; the form then shows nothing of it. The logo (an uploaded one
+  ;; first, a path on the instance or a URL) only where the host draws pictures and may reach
+  ;; it: cvcpkg.com's is on cvcpkg.org, which the page may not.
+  (defun load-site-info ()
+    (begin
+      (state-set-tree "site_info" (dict "name" "" "tagline" "" "version" "" "logo" ""))
+      (let ((r (http-get (str-concat (base) "/social/site-info")
+                         (dict "headers" (dict "Accept" "application/json")))))
+        (let ((d (if (ok? r) (reply-json r) (dict))))
+          (let ((name (string.trim (text (opt d "title" ""))))
+                (logo (picture-url (opt d "logo_file_url" (opt d "logo" nil))))
+                (version (string.trim (text (opt d "version" "")))))
+            (begin
+              (if (= name "")
+                (let ((rt (http-get (str-concat (base) "/site/title")
+                                    (dict "headers" (dict "Accept" "application/json")))))
+                  (set name (if (ok? rt) (string.trim (text (reply-json rt))) ""))))
+              (if (= name "{}") (set name ""))
+              ;; and/or evaluate every argument: net-allowed? only sees a URL.
+              (if (and (= (state-get "app.pics") "1") (!= logo ""))
+                (if (not (net-allowed? logo)) (set logo ""))
+                (set logo ""))
+              (state-set-tree "site_info"
+                (dict "name" (clip name 60)
+                      "tagline" (clip (string.trim (text (opt d "description" ""))) 60)
+                      "version" (if (= version "") "" (str-concat "txwtf " version))
+                      "logo" logo))
+              (if (= name "") (set name (state-get "app.host")))
+              (state-set "app.title" name)
+              (state-set "ui.title" name)
+              (state-set "app.signin_title" (str-concat "Sign in to " name))))))))
+
+  ;; Sign in as u with p: POST /user/login, capturing the token under this site's own name.
+  (defun log-in (u p)
+    (begin
+      (say "Signing in...")
+      ;; the new session is kept under this site's own name, never the name one site's
+      ;; session had before nicotina knew more than one (site-cred)
+      (if (= (cred) "txwtf") (net-auth-forget "txwtf"))
+      (state-set "app.cred" (site-cred-name (base)))
+      ;; expire_delta: the session's length in seconds (Advanced options); it holds through
+      ;; the emailed code too, which txwtf keeps with the challenge
+      (after-login (post-json "/user/login"
+                              (dict "username" u "password" p
+                                    "expire_delta" (int (state-get "login.expire")))
+                              true))))
+
+  ;; --- a new account (ui/signin.ari's register_window) --------------------------------
+  ;; The form, at the site picked: whether the site is invite-only (GET /invite/mode, public;
+  ;; a site without it is taken as open), and the fields empty.
+  (defun signup-form ()
+    (let ((r (http-get (str-concat (base) "/invite/mode")
+                       (dict "headers" (dict "Accept" "application/json")))))
+      (let ((only (if (ok? r) (opt (reply-json r) "invite_only" nil) nil)))
+        (begin
+          (state-set-tree "reg" (dict "username" "" "name" "" "email" "" "password" ""
+                                      "password2" "" "invite" "" "invite_only" (if only "1" "")
+                                      "invite_note" (if only "This site is invite-only: an invite code is required."
+                                                      "An invite code, if you have one (optional).")
+                                      "site" (clip (str-concat "At " (state-get "app.title")
+                                                               (if (= (state-get "app.title") (state-get "app.host")) ""
+                                                                 (str-concat " (" (state-get "app.host") ")")))
+                                                   60)))
+          (state-set "app.register_title" (clip (str-concat "Create an account at " (state-get "app.host")) 60))
+          (state-set "ui.screen" "register")
+          (say "")))))
+  ;; Why txwtf refused a new account: its detail is "message (Code)" (map_txwtf_errors); the
+  ;; codes a person can act on in words of their own, the rest as txwtf says them.
+  (defun reg-refused (r)
+    (let ((d (detail-of r)))
+      (let ((code (if (string.ends-with d ")") (car (string.split (nth-or (string.split d "(") 1) ")")) ""))
+            (msg (string.trim (car (string.split d "(")))))
+        (if (= (status r) 0) (unreachable r)
+          (if (= (status r) 429) (fail "Too many attempts. Wait a minute, then try again.")
+            (fail (clip (if (= code "UsernameExists") "That username is taken: pick another."
+                          (if (= code "EmailExists") "That email address has an account here already."
+                            (if (= code "InviteRequired") "This site needs an invite code."
+                              (if (= code "InvalidInviteCode") (str-concat "That invite code won't do: " msg)
+                                (if (= code "PasswordMismatch") "The two passwords differ."
+                                  (if (= code "InvalidIdentifier")
+                                    "A username is letters, digits, _ and -, starting with a letter."
+                                    (if (or (= code "PasswordTooShort") (= code "PasswordTooLong")
+                                            (string.starts-with code "Password"))
+                                      (str-concat "The password: " msg)
+                                      (if (= code "InvalidEmail") (str-concat "That email address won't do: " msg)
+                                        (if (= (status r) 422) "Check the email address: it isn't one."
+                                          (str-concat "Couldn't create the account: "
+                                                      (if (= d "") (str-concat "HTTP " (str (status r))) msg)))))))))))
+                        60)))))))
+
+  ;; Start at the site: its title, then its session if the host keeps one, else the form (or,
+  ;; for --start signup, a new account's form).
+  (defun resume ()
+    ;; and/or are functions here, not special forms: they evaluate every argument.
+    (if (begin (load-site-info) (if (net-auth-has? (cred) (base)) (load-home) nil))
+      (say (signed-in-msg))
+      (if (and (= (state-get "ui.start") "signup") (!= (state-get "ui.screen") "signin"))
+        (begin (state-set "ui.start" "feed") (signup-form))
+        (state-set "ui.screen" (if (= (state-get "ui.screen") "boot") "signin" (state-get "ui.screen"))))))

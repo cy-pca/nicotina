@@ -118,3 +118,350 @@ units:
         on: (state-set "ui.cmd" "dm-encrypt")
         visible_when: (= (state-get "dm.conv.can_encrypt") "1")
         tooltip: From now on its messages are end-to-end encrypted; this can't be undone
+
+# Direct messages' functions: the conversations, one conversation, sealed and plain, the keys,
+# and the count of what's unread.
+# nicotina.ari's on_tick calls them; they were defined inside it until 2026-11.
+functions: |
+  (defun e2ee-here ()
+    (if (has? "e2ee-seal") (get-attr (e2ee-status) "ok") nil))
+  (defun e2ee-why ()
+    (if (has? "e2ee-status")
+      (let ((e (get-attr (e2ee-status) "error")))
+        (if (= e "") "the host's key store did not open" e))
+      "this host has no end-to-end encryption (libcvc 3.7.14 and --e2ee-store)"))
+  ;; The account's handle in the host's key store: txwtf.<host>.<user id>, in the characters
+  ;; a handle may have.
+  (defun e2ee-handle ()
+    (begin
+      (set s (str-concat "txwtf." (state-get "app.host") "." (text (state-get "me.id"))))
+      (set out "")
+      (set i 0)
+      (while (< i (string.length s))
+        (set c (string.char-at s i))
+        (set out (str-concat out (if (string.contains "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-" c) c "-")))
+        (set i (+ i 1)))
+      (if (> (string.length out) 64) (string.substring out 0 64) out)))
+  ;; Someone in a conversation: {username handle name}, asked once a run.
+  (defun dm-who (id)
+    (let ((key (str-concat "dm.who." (text id))))
+      (if (state-exists (str-concat key ".username"))
+        (dict "username" (state-get (str-concat key ".username"))
+              "handle" (state-get (str-concat key ".handle"))
+              "name" (state-get (str-concat key ".name")))
+        (let ((r (get-authed (str-concat "/user/profile/" (text id)))))
+          (let ((p (if (ok? r) (reply-json r) (dict))))
+            (let ((w (dict "username" (text (opt p "username" (str-concat "user " (text id))))
+                           "handle" (handle (text (opt p "username" (str-concat "user" (text id)))))
+                           "name" (one-line (opt p "name" "")))))
+              (begin
+                (if (ok? r) (state-set-tree key w))
+                w)))))))
+  (defun dm-peer (c) ;; the other person's id in conversation c
+    (if (= (text (opt c "participant_1_id" "")) (text (state-get "me.id")))
+      (text (opt c "participant_2_id" "")) (text (opt c "participant_1_id" ""))))
+  (defun load-dms ()
+    (let ((r (get-query "/social/dm/conversations" (dict "limit" "50" "offset" "0"))))
+      (if (ok? r)
+        (let ((convs (reply-json r)))
+          (begin
+            (if (!= (type-of convs) "list") (set convs (list)))
+            (set rows (collections.map convs
+                        (lambda (c)
+                          (let ((w (if (opt c "is_group" nil)
+                                     (dict "handle" (str-concat "Group: " (one-line (opt c "name" ""))) "name" "")
+                                     (dm-who (dm-peer c)))))
+                            (collections.dict-merge (click-flags) (dict "id" (text (opt c "id" ""))
+                                  ;; a conversation with a message not yet read here: ● first;
+                                  ;; a row to click, or in a terminal the line then Open
+                                  "label" (str-concat (if (dm-unread? (text (opt c "id" ""))) "● " "")
+                                                      (header (get-attr w "handle") (get-attr w "name")))
+                                  "line" (pad (str-concat (if (dm-unread? (text (opt c "id" ""))) "● " "")
+                                                          (header (get-attr w "handle") (get-attr w "name")))
+                                              (- (WIDE) 8))
+                                  "at" (str-concat "  " (posted-at (opt c "last_message_at" (opt c "created_at" "")))
+                                                   (if (opt c "is_encrypted" nil) "  · end-to-end encrypted" ""))))))))
+            (state-set-tree "dm.rows" rows)
+            (state-set "dm.head" (col-pad (if (= (length rows) 0)
+                                        "No conversations yet: Message on a profile starts one."
+                                        (str-concat (text (length rows))
+                                                    (if (= (length rows) 1) " conversation" " conversations")))
+                                      (- (WIDE) 13)))
+            (load-dm-keys-line)
+            true))
+        (begin
+          (if (session-over? r) (session-over)
+            (if (= (status r) 0) (unreachable r)
+              (fail (str-concat "Couldn't load your messages (HTTP " (str (status r)) ")."))))
+          nil))))
+  ;; Under the list: what the host does with encrypted conversations, and its key here.
+  (defun load-dm-keys-line ()
+    (if (e2ee-here)
+      (let ((mine (e2ee-identity (e2ee-handle))))
+        (begin
+          (state-set "dm.e2ee" "1")
+          (state-set "dm.keys_line"
+            (if (= (type-of mine) "nil")
+              "Keys: none on this device yet (made when you first need them)."
+              (str-concat "Your key: " (get-attr mine "fingerprint"))))
+          (state-set "dm.keys_note"
+            (if (get-attr (e2ee-status) "persistent")
+              "Kept by this host, on this device. Back them up to read them elsewhere."
+              "Kept by this host for this run only (no --e2ee-store file)."))))
+      (begin
+        (state-set "dm.e2ee" "")
+        (state-set "dm.keys_line" "Encrypted conversations stay locked here:")
+        (state-set "dm.keys_note" (clip (e2ee-why) (WIDE))))))
+
+  ;; The account's keys at the instance (GET /e2ee/keys/me) against this host's: "ok", made
+  ;; and published first if neither has any; "elsewhere" when the instance has another
+  ;; device's (Restore from a backup, or New keys); nil, with the status line saying why.
+  (defun e2ee-keys ()
+    (let ((h (e2ee-handle)))
+      (let ((mine (e2ee-identity h)) (r (get-authed "/e2ee/keys/me")))
+        (if (= (status r) 404)
+          (let ((id (if (= (type-of mine) "nil") (e2ee-create h 20) mine)))
+            (let ((p (send-authed "POST" "/e2ee/keys" (get-attr id "publish"))))
+              (if (ok? p) "ok" (begin (act-failed p "publish your encryption keys") nil))))
+          (if (ok? r)
+            (let ((pub (reply-json r)))
+              (if (= (type-of mine) "nil") "elsewhere"
+                (if (!= (text (opt pub "identity_key_ed25519" "")) (get-attr mine "identity_key_ed25519"))
+                  "elsewhere"
+                  (begin
+                    ;; fewer than five one-time prekeys left at the instance: twenty more
+                    (if (< (int (opt pub "available_one_time_prekeys" 0)) 5)
+                      (send-authed "POST" "/e2ee/keys/one-time" (e2ee-prekeys h 20)))
+                    "ok"))))
+            (begin (act-failed r "check your encryption keys") nil))))))
+
+  ;; One conversation: its person, its messages oldest first (the newest DMPAGE), and what
+  ;; can be done in it. dm.lines are lines of text, each message a header row and its words.
+  (defun dm-conversation (id)
+    (let ((r (get-query "/social/dm/conversations" (dict "limit" "100" "offset" "0"))))
+      (if (ok? r)
+        (let ((found (collections.filter (let ((l (reply-json r))) (if (= (type-of l) "list") l (list)))
+                       (lambda (c) (= (text (opt c "id" "")) (text id))))))
+          (if (= (length found) 0) (begin (fail "That conversation isn't yours.") nil) (car found)))
+        (begin
+          (if (session-over? r) (session-over)
+            (if (= (status r) 0) (unreachable r)
+              (fail (str-concat "Couldn't open the conversation (HTTP " (str (status r)) ")."))))
+          nil))))
+  ;; A message as rows: when and who (dim), then its words, wrapped, indented two columns.
+  ;; emo: its emoji, for the rows' emoji: (text.emoji), as a post's are: a standard one's
+  ;; character, a custom one's picture (its :name: in a terminal).
+  (defun dm-lines (who at txt dim emo)
+    (begin
+      (set rows (list (dict "text" (str-concat (posted-at at) "  " who) "dim" "1" "emoji" (dict))))
+      (for l (wrap (one-line txt) (- (WIDE) 4))
+        (set rows (append rows (dict "text" (str-concat "  " l) "dim" dim "emoji" emo))))
+      rows))
+  (defun dm-note (txt dim) (list (dict "text" txt "dim" dim "emoji" (dict))))
+  (defun load-dm (id)
+    (let ((c (dm-conversation id)))
+      (if (= (type-of c) "nil") nil
+        (let ((peer (dm-peer c)) (enc (opt c "is_encrypted" nil)))
+          (let ((w (dm-who peer)))
+            (begin
+              (state-set-tree "dm.conv"
+                (dict "id" (text id) "peer" peer "username" (get-attr w "username")
+                      "title" (header (get-attr w "handle") (get-attr w "name"))
+                      "sub" (if enc "End-to-end encrypted: the server sees ciphertext only."
+                              "Not encrypted: the server can read these messages.")
+                      "encrypted" (if enc "1" "") "can_send" "" "can_encrypt" "" "note" ""))
+              (set rows (if enc (load-dm-sealed id) (load-dm-plain id)))
+              (if (= (type-of rows) "nil") nil
+                (begin
+                  (state-set-tree "dm.lines" rows)
+                  (send-authed "POST" (str-concat "/social/dm/conversations/" (text id) "/read") (dict))
+                  (dm-read (text id) (text (opt c "last_message_at" "")))
+                  true))))))))
+  ;; What's new in the conversations (the poll): each one whose last_message_at moved past
+  ;; dm.seen.<id> has a new message. The first look after signing in only notes where each
+  ;; is; after that, the newest message of one that moved is asked for, and one from someone
+  ;; else is unread here (dm-news), unless its conversation is the one shown, which shows it.
+  (defun news-dms ()
+    (let ((r (get-query "/social/dm/conversations" (dict "limit" "50" "offset" "0"))))
+      (if (ok? r)
+        (let ((convs (reply-json r)) (primed (= (sget "news.dm_primed") "1")))
+          (begin
+            (if (!= (type-of convs) "list") (set convs (list)))
+            (for c convs
+              (let ((id (word (opt c "id" ""))) (lm (text (opt c "last_message_at" ""))))
+                (if (and (!= id "") (!= lm "") (!= lm (sget (str-concat "dm.seen." id))))
+                  (begin
+                    (state-set (str-concat "dm.seen." id) lm)
+                    (if primed
+                      (if (and (= (state-get "ui.screen") "dm") (= (sget "dm.conv.id") id))
+                        (if (load-dm id) (new-view))
+                        (dm-news c id)))))))
+            (state-set "news.dm_primed" "1")
+            (dm-count)
+            true))
+        nil)))
+  ;; Conversation c (id) moved: its newest message, and if it isn't this account's, the
+  ;; conversation is unread, and the host's feed has an entry whose click opens it.
+  (defun dm-news (c id)
+    (let ((enc (opt c "is_encrypted" nil)))
+      (let ((r (get-query (str-concat (if enc "/e2ee" "/social") "/dm/conversations/" id "/messages")
+                          (dict "limit" "1"))))
+        (if (ok? r)
+          (let ((b (reply-json r)))
+            (let ((msgs (if enc (opt b "messages" (list)) b)))
+              (if (and (= (type-of msgs) "list") (> (length msgs) 0))
+                (let ((m (car msgs)))
+                  (if (!= (text (opt m "sender_id" "")) (text (state-get "me.id")))
+                    (begin
+                      (id-add "dm.unread" id)
+                      (if (feed?)
+                        (id-add (str-concat "dm.feed." id)
+                          (notify (str-concat "Message from "
+                                              (get-attr (dm-who (opt m "sender_id" "")) "handle")
+                                              (if enc ", end-to-end encrypted"
+                                                (str-concat ": " (clip (one-line (opt m "content" "")) 60))))
+                                  "info"
+                                  (str-concat "(begin (state-set \"dm.want\" \"" id
+                                              "\") (state-set \"ui.cmd\" \"dm-open\"))"))))))))))
+          nil))))
+  (defun dm-unread? (id)
+    (> (length (collections.filter (id-list "dm.unread") (lambda (x) (= x id)))) 0))
+  ;; The tray's mail icon: how many conversations are unread, "" for none.
+  (defun dm-count ()
+    (let ((n (length (id-list "dm.unread"))))
+      (state-set "ui.dm_unread" (if (> n 0) (text n) ""))))
+  ;; Conversation id, read here (it was opened): not unread, seen at lm, its feed entries read.
+  (defun dm-read (id lm)
+    (begin
+      (state-set "dm.unread" (string.join (collections.filter (id-list "dm.unread")
+                                                              (lambda (x) (!= x id))) ";"))
+      (if (!= lm "") (state-set (str-concat "dm.seen." id) lm))
+      (if (feed?) (for f (id-list (str-concat "dm.feed." id)) (notify-read (int f))))
+      (state-set (str-concat "dm.feed." id) "")
+      (dm-count)))
+  (defun load-dm-plain (id)
+    (let ((r (get-query (str-concat "/social/dm/conversations/" (text id) "/messages")
+                        (dict "limit" (text (DMPAGE))))))
+      (if (ok? r)
+        (let ((msgs (reply-json r)) (me (text (state-get "me.id"))))
+          (begin
+            (if (!= (type-of msgs) "list") (set msgs (list)))
+            (set out (list))
+            (for m (collections.reverse msgs)
+              (for l (dm-lines (if (= (text (opt m "sender_id" "")) me) "you"
+                                 (get-attr (dm-who (opt m "sender_id" "")) "handle"))
+                               (opt m "created_at" "") (opt m "content" "") ""
+                               (emoji-of (opt m "content_html" nil)))
+                (set out (append out l))))
+            (state-set "dm.conv.can_send" "1")
+            (state-set "dm.conv.can_encrypt" (if (e2ee-here) "1" ""))
+            (if (= (length msgs) 0) (dm-note "No messages yet." "1") out)))
+        (begin (act-failed r "load the messages") nil))))
+  (defun load-dm-sealed (id)
+    (if (not (e2ee-here))
+      (list (dict "text" "These messages are end-to-end encrypted, and stay locked here:" "dim" "")
+            (dict "text" (str-concat "  " (clip (e2ee-why) (- (WIDE) 2))) "dim" "1"))
+      (let ((keys (e2ee-keys)))
+        (if (= (type-of keys) "nil") nil
+          (if (= keys "elsewhere")
+            (begin
+              (state-set "dm.conv.note" "Keys: on another device")
+              (list (dict "text" "This account's encryption keys are on another device." "dim" "")
+                    (dict "text" "  Restore them from your backup under DMs, or make new ones." "dim" "1")))
+            (let ((r (get-query (str-concat "/e2ee/dm/conversations/" (text id) "/messages")
+                                (dict "limit" (text (DMPAGE))))))
+              (if (ok? r)
+                (let ((msgs (opt (reply-json r) "messages" (list))) (h (e2ee-handle)) (me (text (state-get "me.id"))))
+                  (begin
+                    (if (!= (type-of msgs) "list") (set msgs (list)))
+                    (set out (list))
+                    (set emo (if (= (length msgs) 0) (dict) (site-emoji)))
+                    (for m (collections.reverse msgs)
+                      (let ((o (e2ee-open h (text id) m))
+                            (who (if (= (text (opt m "sender_id" "")) me) "you"
+                                   (get-attr (dm-who (opt m "sender_id" "")) "handle"))))
+                        (let ((st (get-attr o "status")))
+                          (for l (dm-lines who (opt m "created_at" "")
+                                           (if (get-attr o "ok") (get-attr o "text")
+                                             (if (= st "own") "(sent from another device: its text is there)"
+                                               (if (= st "no-session") "(encrypted on another device: read it there)"
+                                                 (if (= st "locked") "(locked: a paid message)"
+                                                   (str-concat "(could not be decrypted: " (get-attr o "error") ")")))))
+                                           (if (get-attr o "ok") "" "1")
+                                           (if (get-attr o "ok") emo (dict)))
+                            (set out (append out l))))))
+                    ;; Send only from a session this host holds, or into a conversation with no
+                    ;; encrypted messages yet: a new session where another device holds one
+                    ;; would break the other person's copy of it.
+                    (if (or (e2ee-session? h (text id)) (= (length msgs) 0))
+                      (state-set "dm.conv.can_send" "1")
+                      (state-set "dm.conv.note"
+                        "Its session is on another device: write from there."))
+                    (if (= (length msgs) 0) (dm-note "No messages yet." "1") out)))
+                (begin (act-failed r "load the encrypted messages") nil))))))))
+
+  ;; Send dm.send in the conversation shown: plaintext, or sealed by the host. True when sent.
+  (defun dm-send (txt)
+    (let ((id (state-get "dm.conv.id")) (peer (state-get "dm.conv.peer")))
+      (if (!= (state-get "dm.conv.encrypted") "1")
+        (let ((r (send-authed "POST" (str-concat "/social/dm/conversations/" id "/messages")
+                              (dict "content" txt))))
+          (if (ok? r) true (begin (act-failed r "send it") nil)))
+        (let ((h (e2ee-handle)))
+          (let ((s (e2ee-seal h id (int peer) txt)))
+            (begin
+              (if (get-attr s "need_bundle")
+                (let ((b (get-authed (str-concat "/e2ee/keys/" (state-get "dm.conv.username")))))
+                  (if (ok? b)
+                    (set s (e2ee-seal h id (int peer) txt (reply-json b)))
+                    (set s (dict "ok" nil "need_bundle" nil "body" nil
+                                 "error" (if (= (status b) 409)
+                                           (str-concat (state-get "dm.conv.username") " has no encryption keys yet")
+                                           (str-concat "no keys (HTTP " (str (status b)) ")")))))))
+              (if (get-attr s "ok")
+                (let ((r (send-authed "POST" (str-concat "/e2ee/dm/conversations/" id "/messages")
+                                      (get-attr s "body"))))
+                  (if (ok? r)
+                    (begin (e2ee-sent h (int (opt (reply-json r) "id" 0)) txt) true)
+                    (begin (act-failed r "send it") nil)))
+                (begin (fail (str-concat "Couldn't encrypt it: " (get-attr s "error"))) nil))))))))
+
+  ;; Keys: a passphrase backup of this host's (PUT /e2ee/backup), taking them from one (GET),
+  ;; or new keys in place of another device's.
+  (defun dm-pass ()
+    (let ((p (state-get "dm.pass"))) (begin (state-set "dm.pass" "") p)))
+  (defun dm-backup ()
+    (let ((p (dm-pass)) (h (e2ee-handle)))
+      (if (< (string.length p) 8) (fail "A backup passphrase is at least 8 characters.")
+        (if (= (type-of (e2ee-identity h)) "nil") (fail "There are no keys on this device to back up.")
+          (begin
+            (say "Backing up your keys (this takes a moment)...")
+            (let ((b (e2ee-backup h p)))
+              (if (get-attr b "ok")
+                (let ((r (send-authed "PUT" "/e2ee/backup" (get-attr b "body"))))
+                  (if (ok? r) (say "Your keys are backed up, under that passphrase.")
+                    (act-failed r "store the backup")))
+                (fail (str-concat "Couldn't back them up: " (get-attr b "error"))))))))))
+  (defun dm-restore ()
+    (let ((p (dm-pass)) (h (e2ee-handle)))
+      (let ((r (get-authed "/e2ee/backup")))
+        (if (= (status r) 404) (fail "There is no backup of your keys at this instance.")
+          (if (not (ok? r)) (act-failed r "fetch the backup")
+            (begin
+              (say "Restoring your keys (this takes a moment)...")
+              (e2ee-forget h)
+              (let ((k (e2ee-restore h (reply-json r) p)))
+                (if (get-attr k "ok")
+                  (begin
+                    (send-authed "POST" "/e2ee/keys/one-time" (e2ee-prekeys h 20))
+                    (load-dm-keys-line)
+                    (say "Your keys are restored on this device."))
+                  (fail (str-concat "Couldn't restore them: " (get-attr k "error")))))))))))
+  (defun dm-new-keys ()
+    (let ((h (e2ee-handle)))
+      (begin
+        (e2ee-forget h)
+        (let ((p (send-authed "POST" "/e2ee/keys" (get-attr (e2ee-create h 20) "publish"))))
+          (if (ok? p)
+            (begin (load-dm-keys-line) (say "New keys published. Older encrypted messages stay unreadable here."))
+            (act-failed p "publish your new keys"))))))
