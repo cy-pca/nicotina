@@ -357,18 +357,20 @@ for backend in ftxui tvision; do
   store=$work/snap-$backend/credentials
   seed_store "$store" ada
   snap "snap-$backend-feed" "$backend" "$store"
+  # A card's rows from its left edge, without the padding to its right edge: how wide a card is
+  # comes from ari (4.0.10's window gives its scroll bar a column of its own), not from nicotina.
   check "ari snapshot ($backend): a stored session opens the home feed, a card a post" \
     "$out/snap-$backend-feed.txt" " TX.WTF " "$bar 2" \
     "Show: (*) Following  ( ) Everyone  ( ) Friends" "Signed in to 127.0.0.1" \
     " Charles Babbage  @charles@$hostport" " 2026-10-30 22:40" \
-    "│The Difference Engine No. 2, working at last. #engines #brass            │" \
-    "│#engines  #brass                                                         │"
+    "│The Difference Engine No. 2, working at last. #engines #brass " \
+    "│#engines  #brass "
   check_not "ari snapshot ($backend): ... and no In browser button" "$out/snap-$backend-feed.txt" \
     "In browser"
   if [ -z "$pictures$media" ]; then
     check "ari snapshot ($backend): ... its attachments, a row each" "$out/snap-$backend-feed.txt" \
-      "│[image] engine-diagram.png · 47 KB · The engine, from the side           │" \
-      "│[video] engine.mp4 · 11 KB                                               │"
+      "│[image] engine-diagram.png · 47 KB · The engine, from the side " \
+      "│[video] engine.mp4 · 11 KB "
   fi
   if [ -z "$pictures" ]; then
     check "ari snapshot ($backend): ... the author's initials, and the next card" \
