@@ -342,7 +342,7 @@ functions: |
       (sget "session.state")))
   ;; Start at the site: the session asks for its page, then for the session the host keeps for
   ;; it, if any.
-  (defun resume () (begin (ses-resume) (session-after (session-did) "resume")))
+  (defun resume () (begin (ses-resume) (site-titles) (session-after (session-did) "resume")))
   ;; No session to resume (or it didn't come back): the form, or for --start signup a new
   ;; account's form.
   (defun resume-form ()
