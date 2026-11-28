@@ -1,0 +1,68 @@
+# components/api.ari — no widgets and no state of its own: TX.WTF requests made with a session
+# (docs/COMPONENTS.md 3.2). Every function takes S, the path of a session subtree that
+# components/session.ari keeps ("session" inside a component; "sessions.tx_wtf" in a host), and is
+# named nic-..., so a host may import this file to call TX.WTF itself with the session its views
+# share, and its own names never meet these.
+#
+#   import: cvc://components/nicotina/api.ari
+#   ...
+#   (let ((r (nic-get "sessions.tx_wtf" "/user/by-username/ada")))
+#     (if (nic-ok? r) (nic-json r) nil))
+
+meta:
+  name: TX.WTF requests
+  min_libcvc: 4.0.9
+
+functions: |
+  ;; A value as text ("" for nothing), and a key's ("" when it isn't there).
+  (defun nic-text (v) (if (= (type-of v) "nil") "" (if (is-string v) v (str v))))
+  (defun nic-sget (k) (if (state-exists k) (nic-text (state-get k)) ""))
+  ;; d's value at k, or dflt when d is no dict, lacks k, or holds null there.
+  (defun nic-opt (d k dflt)
+    (if (= (type-of d) "dict")
+      (try (let ((v (get-attr d k))) (if (= (type-of v) "nil") dflt v)) (catch (e) dflt))
+      dflt))
+  (defun nic-clip (s n)
+    (if (> (string.length s) n) (str-concat (string.substring s 0 (- n 3)) "...") s))
+  ;; A reply: its JSON (an empty dict when it isn't JSON), its status, whether it's a 2xx.
+  (defun nic-json (r) (try (json-parse (get-attr r "body")) (catch (e) (dict))))
+  (defun nic-status (r) (get-attr r "status"))
+  (defun nic-ok? (r) (and (>= (nic-status r) 200) (< (nic-status r) 300)))
+  ;; The session's site, its credential's name, whether it's signed in.
+  (defun nic-site (S) (nic-sget (str-concat S ".site")))
+  (defun nic-cred (S) (nic-sget (str-concat S ".cred")))
+  (defun nic-signed-in? (S) (= (nic-sget (str-concat S ".state")) "in"))
+  ;; GET a path at the site, signed in (the host adds the Authorization header to requests to the
+  ;; site's origin only), with a query the host percent-encodes, or as a guest (3.7).
+  (defun nic-get (S path)
+    (http-get (str-concat (nic-site S) path)
+              (dict "auth" (nic-cred S) "headers" (dict "Accept" "application/json"))))
+  (defun nic-get-query (S path q)
+    (http-get (str-concat (nic-site S) path)
+              (dict "auth" (nic-cred S) "headers" (dict "Accept" "application/json") "query" q)))
+  (defun nic-get-public (S path)
+    (http-get (str-concat (nic-site S) path) (dict "headers" (dict "Accept" "application/json"))))
+  ;; POST, PUT or DELETE with a JSON body (nil sends none), signed in.
+  (defun nic-send (S method path body)
+    (http-request method (str-concat (nic-site S) path)
+      (if (= (type-of body) "nil")
+        (dict "auth" (nic-cred S) "headers" (dict "Accept" "application/json"))
+        (dict "auth" (nic-cred S)
+              "headers" (dict "Accept" "application/json" "Content-Type" "application/json")
+              "body" (json-encode body)))))
+  ;; A picture's URL from the site: whole, on its origin, or "".
+  (defun nic-picture (S u)
+    (let ((v (nic-text u)))
+      (if (or (string.starts-with v "https://") (string.starts-with v "http://")) v
+        (if (string.starts-with v "/") (str-concat (nic-sget (str-concat S ".origin")) v) ""))))
+  ;; An account as GET /user/ gives it, in the fields every component may read from S.me: id,
+  ;; username, name, avatar_url (a whole URL, or ""), is_admin ("1" or ""), email, and
+  ;; email_verified ("yes" or "no"). nicotina's profile adds its own display fields beside them.
+  (defun nic-account-of (S p)
+    (dict "id" (nic-opt p "id" 0)
+          "username" (nic-text (nic-opt p "username" ""))
+          "name" (nic-text (nic-opt p "name" ""))
+          "avatar_url" (nic-picture S (nic-opt p "avatar_url" nil))
+          "is_admin" (if (nic-opt p "is_admin" nil) "1" "")
+          "email" (nic-text (nic-opt p "email" ""))
+          "email_verified" (if (nic-opt p "email_verified" nil) "yes" "no")))

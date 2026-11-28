@@ -267,45 +267,12 @@ functions: |
         (and (= (status r) 0) (string.contains (get-attr r "error") "no credential"))))
   (defun session-over ()
     (begin
-      (net-auth-forget (cred))
+      (ses-forget-out "expired")
+      (session-did)
       (to-signin "Your session has expired. Sign in again." true)))
   (defun unreachable (r)
     (fail (str-concat "Can't reach " (state-get "session.host") ": " (get-attr r "error"))))
-  ;; The site as its own sign-in page shows it (GET /social/site-info, no sign-in needed): its
-  ;; title, tagline (description), txwtf version and logo, for the sign-in form (site_info),
-  ;; and the title for the windows' titles, as the web app's. An instance without site-info
-  ;; answers GET /site/title (a JSON string) at least. The title is the host when the site has
-  ;; none or doesn't answer; the form then shows nothing of it. The logo (an uploaded one
-  ;; first, a path on the instance or a URL) only where the host draws pictures and may reach
-  ;; it: cvcpkg.com's is on cvcpkg.org, which the page may not.
-  (defun load-site-info ()
-    (begin
-      (state-set-tree "session.site_info" (dict "name" "" "tagline" "" "version" "" "logo" ""))
-      (let ((r (http-get (str-concat (base) "/social/site-info")
-                         (dict "headers" (dict "Accept" "application/json")))))
-        (let ((d (if (ok? r) (reply-json r) (dict))))
-          (let ((name (string.trim (text (opt d "title" ""))))
-                (logo (picture-url (opt d "logo_file_url" (opt d "logo" nil))))
-                (version (string.trim (text (opt d "version" "")))))
-            (begin
-              (if (= name "")
-                (let ((rt (http-get (str-concat (base) "/site/title")
-                                    (dict "headers" (dict "Accept" "application/json")))))
-                  (set name (if (ok? rt) (string.trim (text (reply-json rt))) ""))))
-              (if (= name "{}") (set name ""))
-              ;; and/or evaluate every argument: net-allowed? only sees a URL.
-              (if (and (= (state-get "session.caps.pics") "1") (!= logo ""))
-                (if (not (net-allowed? logo)) (set logo ""))
-                (set logo ""))
-              (state-set-tree "session.site_info"
-                (dict "name" (clip name 60)
-                      "tagline" (clip (string.trim (text (opt d "description" ""))) 60)
-                      "version" (if (= version "") "" (str-concat "txwtf " version))
-                      "logo" logo))
-              (if (= name "") (set name (state-get "session.host")))
-              (state-set "app.title" name)
-              (state-set "ui.title" name)
-              (state-set "app.signin_title" (str-concat "Sign in to " name))))))))
+  ;; The site as its own sign-in page shows it (session.site_info) is components/session.ari's.
 
   ;; Sign in as u with p: POST /user/login, capturing the token under this site's own name.
   (defun log-in (u p)
@@ -365,12 +332,54 @@ functions: |
                                                       (if (= d "") (str-concat "HTTP " (str (status r))) msg)))))))))))
                         60)))))))
 
-  ;; Start at the site: its title, then its session if the host keeps one, else the form (or,
-  ;; for --start signup, a new account's form).
-  (defun resume ()
-    ;; and/or are functions here, not special forms: they evaluate every argument.
-    (if (begin (load-site-info) (if (net-auth-has? (cred) (base)) (load-home) nil))
-      (say (signed-in-msg))
-      (if (and (= (state-get "ui.start") "signup") (!= (state-get "ui.screen") "signin"))
-        (begin (state-set "ui.start" "feed") (signup-form))
-        (state-set "ui.screen" (if (= (state-get "ui.screen") "boot") "signin" (state-get "ui.screen"))))))
+  ;; components/session.ari's functions (ses-...) do the session's work; nicotina imports them and
+  ;; calls them inside its own commands, so a command's requests are its own, its buttons busy
+  ;; and its spinner turning until they're done. Then the state they came to; session-changed
+  ;; leaves the change alone, as this command has seen to it.
+  (defun session-did ()
+    (begin
+      (state-set "ui.session_gen" (sget "session.gen"))
+      (sget "session.state")))
+  ;; Start at the site: the session asks for its page, then for the session the host keeps for
+  ;; it, if any.
+  (defun resume () (begin (ses-resume) (site-titles) (session-after (session-did) "resume")))
+  ;; No session to resume (or it didn't come back): the form, or for --start signup a new
+  ;; account's form.
+  (defun resume-form ()
+    (if (and (= (state-get "ui.start") "signup") (!= (state-get "ui.screen") "signin"))
+      (begin (state-set "ui.start" "feed") (signup-form))
+      (state-set "ui.screen" (if (= (state-get "ui.screen") "boot") "signin" (state-get "ui.screen")))))
+  (defun signin-screen? ()
+    (let ((s (state-get "ui.screen")))
+      (or (= s "boot") (= s "signin") (= s "2fa") (= s "register"))))
+  ;; What follows a resume or a sign-in (w), by the state the session came to: in, the views load;
+  ;; out, why, then the form.
+  (defun session-after (st w)
+    (let ((why (sget "session.reason")))
+      (if (= st "in")
+        (if (load-home) (say (signed-in-msg)))
+        (if (= why "expired")
+          (to-signin "Your session has expired. Sign in again." true)
+          (begin
+            (if (string.starts-with why "unreachable: ")
+              (fail (str-concat "Can't reach " (state-get "session.host") ": "
+                                (string.substring why 13 (string.length why)))))
+            (if (string.starts-with why "failed: HTTP ")
+              (fail (str-concat "Couldn't load your profile ("
+                                (string.substring why 8 (string.length why)) ").")))
+            (if (= w "resume") (resume-form)))))))
+  ;; A change of state no command here asked for: a host that made a session itself and handed
+  ;; it over (session.cmd adopt, docs/COMPONENTS.md 3.8). In, while the sign-in form shows: the
+  ;; views load.
+  (defun session-changed ()
+    (if (and (= (sget "session.state") "in") (signin-screen?))
+      (if (load-home) (say (signed-in-msg)))))
+  ;; The windows' titles: the site's name, or its host until the site answers.
+  (defun site-titles ()
+    (let ((name (sget "session.site_info.name")))
+      (let ((t2 (if (= name "") (state-get "session.host") name)))
+        (begin
+          (state-set "ui.titled" name)
+          (state-set "app.title" t2)
+          (state-set "ui.title" t2)
+          (state-set "app.signin_title" (str-concat "Sign in to " t2))))))

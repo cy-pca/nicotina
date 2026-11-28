@@ -1,0 +1,171 @@
+# components/session.ari — one TX.WTF site's session, with no widgets (docs/COMPONENTS.md 3.2, 3.3,
+# 3.7, 3.8). Every other TX.WTF view a document mounts reads what it keeps; only this one decides
+# whether the site is signed in. Mount it where the walk always reaches it, outside any tab (a
+# mount that isn't drawn doesn't run), once for each site, its session hole the site's subtree:
+#
+#   windows:
+#     - load: cvc://components/nicotina/session.ari      # or its path
+#       as: tx_wtf
+#       link:
+#         session: {to: sessions.tx_wtf, mode: rw}        # the host writes sessions.tx_wtf.* first
+#         args: {to: sites.tx_wtf, mode: ro}              # optional: args.instance, the site
+#
+# What it keeps, under session.*:
+#
+#   site host origin key cred   the site (site.ari's site-use); cred names the credential the
+#                               host keeps the token under. The token itself is never in state.
+#   state     boot | out | guest | in
+#   reason    why it is out: none (no session kept), signed-out, expired, unreachable: ...,
+#             failed: HTTP n
+#   gen       counts the changes of state, so a view can tell one happened
+#   me.*      the account, once in (ui/api.ari's account-of): id, username, name, avatar_url,
+#             is_admin, email, email_verified
+#   site_info.*  name, tagline, version, logo: the site as its own sign-in page shows it
+#   caps.*    what the host can do, asked once (term, pics, media, rich, runs, notify, ...)
+#   busy      "1" while a command is out
+#
+# Its functions (ses-...) do the work; a document that imports this file (nicotina.ari does) may
+# call them inside its own programs instead of asking.
+#
+# What it takes, as session.cmd (anyone may set it; it runs on the next frame it isn't busy):
+#
+#   site         session.want's URL becomes the site; its page asked for again; out
+#   site-info    the site's page asked for again (the state as it was, gen counted on)
+#   resume       the site's page, then the session the host keeps for it, if any: in, or out
+#   signin-done  a sign-in captured a token under session.cred: in, or out with why
+#   adopt        the same, for a token the host document captured itself (3.8)
+#   guest        no account: the public routes only (3.7)
+#   signed-out   someone posted /user/logout and dropped the credential: out
+#   expired      someone saw the site refuse the token: the credential dropped, out
+#   signout      this posts /user/logout and drops the credential itself: out
+
+meta:
+  name: TX.WTF session
+  description: One TX.WTF site's session, which nicotina's views share
+  min_libcvc: 4.0.9
+
+requires:
+  - net
+  - net.auth
+  - json-parse
+  - state-set-tree
+
+import:
+  - ../site.ari              # site-use, site-base, site-cred ...
+  - api.ari                  # nic-get, nic-ok?, nic-json, nic-account-of ...
+
+functions: |
+  ;; A change of state: its reason, and gen counted on, so the views see it.
+  (defun ses-state (st reason)
+    (begin
+      (state-set "session.state" st)
+      (state-set "session.reason" reason)
+      (state-set "session.gen" (+ (int (if (state-exists "session.gen") (state-get "session.gen") 0)) 1))))
+  (defun ses-out (reason)
+    (begin
+      (state-set-tree "session.me" (dict))
+      (ses-state "out" reason)))
+  ;; The site as its own sign-in page shows it (GET /social/site-info, no sign-in needed), or its
+  ;; title alone (GET /site/title) where it has no site-info. The logo only where the host draws
+  ;; pictures and may reach it.
+  (defun ses-site-info ()
+    (begin
+      (state-set-tree "session.site_info" (dict "name" "" "tagline" "" "version" "" "logo" ""))
+      (let ((r (http-get (str-concat (nic-site "session") "/social/site-info")
+                         (dict "headers" (dict "Accept" "application/json")))))
+        (let ((d (if (nic-ok? r) (nic-json r) (dict))))
+          (let ((name (string.trim (nic-text (nic-opt d "title" ""))))
+                (logo (nic-picture "session" (nic-opt d "logo_file_url" (nic-opt d "logo" nil))))
+                (version (string.trim (nic-text (nic-opt d "version" "")))))
+            (begin
+              (if (= name "")
+                (let ((rt (http-get (str-concat (nic-site "session") "/site/title")
+                                    (dict "headers" (dict "Accept" "application/json")))))
+                  (set name (if (nic-ok? rt) (string.trim (nic-text (nic-json rt))) ""))))
+              (if (= name "{}") (set name ""))
+              ;; and/or evaluate every argument: net-allowed? only sees a URL.
+              (if (and (= (state-get "session.caps.pics") "1") (!= logo ""))
+                (if (not (net-allowed? logo)) (set logo ""))
+                (set logo ""))
+              (state-set-tree "session.site_info"
+                (dict "name" (nic-clip name 60)
+                      "tagline" (nic-clip (string.trim (nic-text (nic-opt d "description" ""))) 60)
+                      "version" (if (= version "") "" (str-concat "txwtf " version))
+                      "logo" logo))))))))
+  ;; Who the credential is: GET /user/. In with the account; out, and why, without it. A refused
+  ;; token is dropped, as a session that ended.
+  (defun ses-account ()
+    (let ((r (nic-get "session" "/user/")))
+      (if (nic-ok? r)
+        (begin
+          (state-set-tree "session.me" (nic-account-of "session" (nic-json r)))
+          (ses-state "in" ""))
+        (if (or (= (nic-status r) 401) (= (nic-status r) 403)
+                (and (= (nic-status r) 0) (string.contains (get-attr r "error") "no credential")))
+          (ses-forget-out "expired")
+          (if (= (nic-status r) 0)
+            (ses-out (str-concat "unreachable: " (get-attr r "error")))
+            (ses-out (str-concat "failed: HTTP " (str (nic-status r)))))))))
+  ;; The credential dropped (the site refused it), then out.
+  (defun ses-forget-out (reason)
+    (begin (net-auth-forget (nic-cred "session")) (ses-out reason)))
+  (defun ses-resume ()
+    (begin
+      (ses-site-info)
+      (if (net-auth-has? (nic-cred "session") (nic-site "session")) (ses-account) (ses-out "none"))))
+  (defun ses-signout ()
+    (begin
+      (http-request "POST" (str-concat (nic-site "session") "/user/logout") (dict "auth" (nic-cred "session")))
+      (net-auth-forget (nic-cred "session"))
+      (ses-out "signed-out")))
+  ;; One command off session.cmd, while none is out.
+  (defun ses-step ()
+    (if (and (!= (nic-sget "session.cmd") "") (!= (nic-sget "session.busy") "1"))
+      (let ((cmd (nic-sget "session.cmd")))
+        (begin
+          (state-set "session.cmd" "")
+          (state-set "session.busy" "1")
+          (try
+            (begin
+              (if (= cmd "site")
+                (begin (site-use (state-get "session.want")) (ses-site-info) (ses-out "none")))
+              (if (= cmd "site-info")
+                (begin (ses-site-info) (ses-state (nic-sget "session.state") (nic-sget "session.reason"))))
+              (if (= cmd "resume") (ses-resume))
+              (if (or (= cmd "signin-done") (= cmd "adopt")) (ses-account))
+              (if (= cmd "guest") (begin (state-set-tree "session.me" (dict)) (ses-state "guest" "")))
+              (if (= cmd "signed-out") (ses-out "signed-out"))
+              (if (= cmd "expired") (ses-forget-out "expired"))
+              (if (= cmd "signout") (ses-signout)))
+            (catch (e) (ses-out (str-concat "failed: " (str e)))))
+          (state-set "session.busy" "")))))
+
+# What the host can do, asked once; the views decide from these what a card, a post and the bar
+# show, one key a widget, instead of asking (has? ...) on every frame. rich: pictures as wide as
+# the line (image.fill) outside a terminal. clicks: a group's click is its own, its handlers seeing
+# {i} (ui.group_click). runs: a post's text as rich text, its links followed (text.runs). attach: a
+# new post's files, picked and uploaded by the host (file-pick, http-upload). icons: the bar as
+# symbols where a window draws emoji (text.emoji). choices: a row's chosen button drawn pressed in
+# (button.selected), with icons. notify: the host's notification feed, the tray's bell. save: a
+# Save button for a URL (save-url).
+init: |
+  (state-set "session.caps.term" (if (has? "term") "1" ""))
+  (state-set "session.caps.pics" (if (has? "image.url") "1" ""))
+  (state-set "session.caps.media" (if (has? "media.player") "1" ""))
+  (state-set "session.caps.rich" (if (and (has? "image.url") (has? "image.fill") (not (has? "term"))) "1" ""))
+  (state-set "session.caps.badge" (if (has? "image.badge") "1" ""))
+  (state-set "session.caps.clicks" (if (has? "ui.group_click") "1" ""))
+  (state-set "session.caps.clip" (if (has? "clipboard-set") "1" ""))
+  (state-set "session.caps.runs" (if (has? "text.runs") "1" ""))
+  (state-set "session.caps.attach" (if (and (has? "file-pick") (has? "http-upload")) "1" ""))
+  (state-set "session.caps.icons" (if (and (has? "text.emoji") (not (has? "term"))) "1" ""))
+  (state-set "session.caps.choices" (if (and (has? "button.selected") (has? "text.emoji") (not (has? "term"))) "1" ""))
+  (state-set "session.caps.notify" (if (has? "notify") "1" ""))
+  (state-set "session.caps.save" (if (has? "save-url") "1" ""))
+  (state-set "session.busy" "")
+  (if (not (state-exists "session.state")) (ses-state "boot" ""))
+  ;; A host that names the site by args.instance and hasn't set it itself.
+  (if (and (= (nic-sget "session.site") "") (!= (nic-sget "args.instance") ""))
+    (site-use (state-get "args.instance")))
+
+on_tick: (ses-step)

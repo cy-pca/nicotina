@@ -504,7 +504,9 @@ functions: |
             (begin
               (state-set "login.challenge" "")
               (state-set "login.code" "")
-              (if (load-home) (say (signed-in-msg)))))
+              ;; the session reads who it is (GET /user/), then the views load
+              (ses-account)
+              (session-after (session-did) "signin")))
           (if (opt b "two_factor_required" nil)
             (begin
               (state-set "login.challenge" (opt b "challenge" ""))
